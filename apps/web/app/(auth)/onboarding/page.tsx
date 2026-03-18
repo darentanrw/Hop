@@ -33,7 +33,7 @@ export default function OnboardingPage() {
   const [confirmedTruthful, setConfirmedTruthful] = useState(false);
   const showSameGenderToggle = form.selfDeclaredGender !== "prefer_not_to_say";
   const displayName = user?.name?.trim() ?? "";
-  const showName = user !== undefined && displayName.length > 0;
+  const hasLockedName = user !== undefined && displayName.length > 0;
 
   useEffect(() => {
     const userName = user?.name?.trim();
@@ -71,12 +71,12 @@ export default function OnboardingPage() {
             style={{
               display: "inline-block",
               minHeight: "1.2em",
-              opacity: showName ? 1 : 0,
-              transform: showName ? "translateY(0)" : "translateY(4px)",
+              opacity: hasLockedName ? 1 : 0,
+              transform: hasLockedName ? "translateY(0)" : "translateY(4px)",
               transition: "opacity 220ms ease, transform 220ms var(--ease-out-expo)",
             }}
           >
-            {showName ? displayName : "\u00A0"}
+            {hasLockedName ? displayName : "\u00A0"}
           </span>
         </h1>
         <p style={{ marginTop: 8 }}>
@@ -100,14 +100,22 @@ export default function OnboardingPage() {
                 type="text"
                 placeholder="e.g. Tan Sheng Jun, Alex"
                 value={form.name}
-                onChange={(e) =>
+                onChange={(e) => {
+                  if (hasLockedName) return;
                   setForm((c) => ({
                     ...c,
                     name: e.target.value,
-                  }))
-                }
+                  }));
+                }}
                 autoComplete="name"
+                readOnly={hasLockedName}
+                disabled={hasLockedName}
               />
+              {hasLockedName && (
+                <small className="text-muted">
+                  Your full name was verified from your email and can&apos;t be edited here.
+                </small>
+              )}
             </div>
 
             <div

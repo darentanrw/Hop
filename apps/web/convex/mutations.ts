@@ -265,9 +265,11 @@ export const completeOnboarding = mutation({
         ...prefArgs,
       });
     }
+    const existingName = user.name?.trim();
+    const submittedName = userName?.trim();
     await ctx.db.patch(userId, {
       onboardingComplete: true,
-      ...(userName?.trim() && { name: userName.trim() }),
+      ...(!existingName && submittedName && { name: submittedName }),
     });
     return { userId };
   },
