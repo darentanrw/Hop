@@ -6,9 +6,14 @@ export const getPendingVerificationByPassphrase = internalQuery({
   handler: async (ctx, { passphrase }) => {
     const normalized = passphrase.trim().toLowerCase();
     const all = await ctx.db.query("emailVerifications").collect();
-    const match = all.find(
-      (r) => !r.verifiedAt && r.expiresAt > Date.now() && r.passphrase.toLowerCase() === normalized,
-    );
+    const match = all
+      .filter(
+        (record) =>
+          !record.verifiedAt &&
+          record.expiresAt > Date.now() &&
+          record.passphrase.toLowerCase() === normalized,
+      )
+      .sort((left, right) => right._creationTime - left._creationTime)[0];
     return match ? { id: match._id, email: match.email, userId: match.userId } : null;
   },
 });

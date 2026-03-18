@@ -44,9 +44,9 @@ export const getVerificationStatus = query({
       .query("emailVerifications")
       .withIndex("userId", (q) => q.eq("userId", userId))
       .collect();
-    const pendingVerification = pendingVerifications.find(
-      (r) => !r.verifiedAt && r.expiresAt > Date.now(),
-    );
+    const pendingVerification = pendingVerifications
+      .filter((record) => !record.verifiedAt && record.expiresAt > Date.now())
+      .sort((left, right) => right._creationTime - left._creationTime)[0];
     const pendingAlias =
       pendingVerification?.pendingAliasFrom && pendingVerification.expiresAt > Date.now()
         ? {
@@ -121,7 +121,9 @@ export const getPendingVerificationByEmail = query({
       .query("emailVerifications")
       .withIndex("email", (q) => q.eq("email", normalized))
       .collect();
-    const verification = verifications.find((rec) => !rec.verifiedAt && rec.expiresAt > Date.now());
+    const verification = verifications
+      .filter((record) => !record.verifiedAt && record.expiresAt > Date.now())
+      .sort((left, right) => right._creationTime - left._creationTime)[0];
     if (!verification) return null;
     return {
       id: verification._id,

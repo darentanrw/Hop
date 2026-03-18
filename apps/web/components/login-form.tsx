@@ -1,12 +1,14 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { OtpInput } from "./otp-input";
 
 type Step = "email" | "otp";
 
 export function LoginForm() {
+  const router = useRouter();
   const { signIn } = useAuthActions();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -38,7 +40,7 @@ export function LoginForm() {
 
     try {
       await signIn("resend-otp", { email, code });
-      window.location.href = "/dashboard";
+      router.replace("/auth-complete");
     } catch (err) {
       setStatus({
         type: "error",
