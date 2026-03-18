@@ -1,5 +1,5 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import { type NextRequest, NextResponse } from "next/server";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
@@ -25,6 +25,9 @@ export async function POST(
       },
       { token },
     );
+    if (!body.accepted) {
+      await fetchAction(api.mutations.runMatching, {}, { token });
+    }
     const updated = await fetchQuery(api.queries.getActiveGroup, {}, { token });
     return NextResponse.json(updated ?? { ok: true });
   } catch (err) {

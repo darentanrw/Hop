@@ -1,7 +1,8 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
+import { fetchAction } from "convex/nextjs";
 import { NextResponse } from "next/server";
 import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export async function GET(_request: Request, context: { params: Promise<{ groupId: string }> }) {
   const token = await convexAuthNextjsToken();
@@ -10,10 +11,20 @@ export async function GET(_request: Request, context: { params: Promise<{ groupI
   }
 
   const { groupId } = await context.params;
-  const group = await fetchQuery(api.queries.getActiveGroup, {}, { token });
-  if (!group || group.group.id !== groupId) {
-    return NextResponse.json({ envelopes: [] });
+
+  try {
+    const result = await fetchAction(
+      api.mutations.revealGroupAddresses,
+      {
+        groupId: groupId as Id<"groups">,
+      },
+      { token },
+    );
+    return NextResponse.json(result);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Could not reveal addresses." },
+      { status: 400 },
+    );
   }
-  // TODO: Implement address reveal via matcher - requires client keys and matcher integration
-  return NextResponse.json({ envelopes: [] });
 }

@@ -1,7 +1,8 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { query } from "./_generated/server";
+import { internalQuery, query } from "./_generated/server";
 
 async function getRiderProfileInternal(ctx: QueryCtx) {
   const userId = await getAuthUserId(ctx);
@@ -144,6 +145,94 @@ export const adminSnapshot = query({
       tentativeGroups: groups.filter((g) => g.status === "tentative").length,
       revealedGroups: groups.filter((g) => g.status === "revealed").length,
       auditEvents: auditEvents.reverse(),
+    };
+  },
+});
+
+export const getMatchingCandidates = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const availabilities = await ctx.db.query("availabilities").collect();
+    const openAvailabilities = availabilities.filter(
+      (availability) => availability.status === "open",
+    );
+    if (openAvailabilities.length < 2) {
+      return [];
+    }
+
+    const users = await ctx.db.query("users").collect();
+    const userById = new Map(users.map((user) => [user._id, user]));
+
+    return openAvailabilities.map((availability) => ({
+      availabilityId: availability._id,
+      userId: availability.userId,
+      windowStart: availability.windowStart,
+      windowEnd: availability.windowEnd,
+      selfDeclaredGender: availability.selfDeclaredGender,
+      sameGenderOnly: availability.sameGenderOnly,
+      minGroupSize: availability.minGroupSize,
+      maxGroupSize: availability.maxGroupSize,
+      routeDescriptorRef: availability.routeDescriptorRef,
+      sealedDestinationRef: availability.sealedDestinationRef,
+      estimatedFareBand: availability.estimatedFareBand,
+      displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
+    }));
+  },
+});
+
+export const getRevealContext = internalQuery({
+  args: {
+    groupId: v.id("groups"),
+    requesterId: v.id("users"),
+  },
+  handler: async (ctx, { groupId, requesterId }) => {
+    const group = await ctx.db.get(groupId);
+    if (!group) return null;
+
+    const requesterIdStr = requesterId as string;
+    const isMember = group.memberUserIds.includes(requesterIdStr);
+    const members = await ctx.db
+      .query("groupMembers")
+      .withIndex("groupId", (q) => q.eq("groupId", groupId))
+      .collect();
+    const requesterEnvelopes = await ctx.db
+      .query("envelopesByRecipient")
+      .withIndex("groupId_recipient", (q) =>
+        q.eq("groupId", groupId).eq("recipientUserId", requesterIdStr),
+      )
+      .collect();
+
+    const membersWithKeys = await Promise.all(
+      members.map(async (member) => {
+        const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+        const clientKey = await ctx.db
+          .query("clientKeys")
+          .withIndex("userId", (q) => q.eq("userId", member.userId as Id<"users">))
+          .filter((q) => q.eq(q.field("revokedAt"), undefined))
+          .first();
+
+        return {
+          userId: member.userId,
+          availabilityId: member.availabilityId,
+          displayName: member.displayName,
+          accepted: member.accepted,
+          publicKey: clientKey?.publicKey ?? null,
+          sealedDestinationRef: availability?.sealedDestinationRef ?? null,
+        };
+      }),
+    );
+
+    return {
+      groupStatus: group.status,
+      isMember,
+      allAccepted: members.length > 0 && members.every((member) => member.accepted === true),
+      members: membersWithKeys,
+      requesterEnvelopes: requesterEnvelopes.map((envelope) => ({
+        recipientUserId: envelope.recipientUserId,
+        senderUserId: envelope.senderUserId,
+        senderName: envelope.senderName,
+        ciphertext: envelope.ciphertext,
+      })),
     };
   },
 });
