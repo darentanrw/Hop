@@ -60,6 +60,18 @@ const schema = defineSchema({
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   }).index("userId", ["userId"]),
+  pushSubscriptions: defineTable({
+    userId: v.id("users"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    disabledAt: v.optional(v.number()),
+  })
+    .index("userId", ["userId"])
+    .index("endpoint", ["endpoint"]),
   availabilities: defineTable({
     userId: v.id("users"),
     windowStart: v.string(),
