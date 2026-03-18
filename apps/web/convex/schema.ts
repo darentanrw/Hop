@@ -17,8 +17,50 @@ const selfDeclaredGender = v.union(
 );
 
 const groupStatus = v.union(v.literal("tentative"), v.literal("revealed"), v.literal("dissolved"));
+const lifecycleGroupStatus = v.union(
+  v.literal("tentative"),
+  v.literal("revealed"),
+  v.literal("dissolved"),
+  v.literal("matched_pending_ack"),
+  v.literal("group_confirmed"),
+  v.literal("meetup_preparation"),
+  v.literal("meetup_checkin"),
+  v.literal("depart_ready"),
+  v.literal("in_trip"),
+  v.literal("receipt_pending"),
+  v.literal("payment_pending"),
+  v.literal("closed"),
+  v.literal("reported"),
+  v.literal("cancelled"),
+);
 
 const availabilityStatus = v.union(v.literal("open"), v.literal("matched"), v.literal("cancelled"));
+const memberParticipationStatus = v.union(
+  v.literal("active"),
+  v.literal("removed_no_ack"),
+  v.literal("removed_no_show"),
+);
+const memberAcknowledgementStatus = v.union(
+  v.literal("pending"),
+  v.literal("accepted"),
+  v.literal("declined"),
+  v.literal("timed_out"),
+);
+const memberPaymentStatus = v.union(
+  v.literal("none"),
+  v.literal("owed"),
+  v.literal("submitted"),
+  v.literal("verified"),
+  v.literal("not_required"),
+);
+const reportCategory = v.union(
+  v.literal("no_show"),
+  v.literal("non_payment"),
+  v.literal("unsafe_behavior"),
+  v.literal("harassment"),
+  v.literal("misconduct"),
+  v.literal("other"),
+);
 
 const schema = defineSchema({
   ...authTables,
@@ -87,7 +129,7 @@ const schema = defineSchema({
     status: availabilityStatus,
   }).index("userId", ["userId"]),
   groups: defineTable({
-    status: groupStatus,
+    status: lifecycleGroupStatus,
     pickupOriginId: v.string(),
     pickupLabel: v.string(),
     windowStart: v.string(),
@@ -102,15 +144,48 @@ const schema = defineSchema({
     revealedAt: v.optional(v.string()),
     availabilityIds: v.array(v.string()),
     memberUserIds: v.array(v.string()),
+    meetingTime: v.optional(v.string()),
+    meetingLocationLabel: v.optional(v.string()),
+    graceDeadline: v.optional(v.string()),
+    groupName: v.optional(v.string()),
+    groupColor: v.optional(v.string()),
+    bookerUserId: v.optional(v.string()),
+    suggestedDropoffOrder: v.optional(v.array(v.string())),
+    departedAt: v.optional(v.string()),
+    finalCostCents: v.optional(v.number()),
+    receiptStorageId: v.optional(v.id("_storage")),
+    receiptSubmittedAt: v.optional(v.string()),
+    paymentDueAt: v.optional(v.string()),
+    closedAt: v.optional(v.string()),
+    reportCount: v.optional(v.number()),
   }),
   groupMembers: defineTable({
     groupId: v.id("groups"),
     userId: v.string(),
     availabilityId: v.string(),
     displayName: v.string(),
+    emoji: v.optional(v.string()),
     accepted: v.union(v.boolean(), v.null()),
+    acknowledgementStatus: v.optional(memberAcknowledgementStatus),
     acknowledgedAt: v.union(v.string(), v.null()),
-  }).index("groupId", ["groupId"]),
+    participationStatus: v.optional(memberParticipationStatus),
+    checkedInAt: v.optional(v.string()),
+    checkedInByUserId: v.optional(v.string()),
+    destinationAddress: v.optional(v.string()),
+    destinationSubmittedAt: v.optional(v.string()),
+    destinationLockedAt: v.optional(v.string()),
+    qrToken: v.optional(v.string()),
+    dropoffOrder: v.optional(v.number()),
+    amountDueCents: v.optional(v.number()),
+    paymentStatus: v.optional(memberPaymentStatus),
+    paymentProofStorageId: v.optional(v.id("_storage")),
+    paymentSubmittedAt: v.optional(v.string()),
+    paymentVerifiedAt: v.optional(v.string()),
+    paymentVerifiedByUserId: v.optional(v.string()),
+  })
+    .index("groupId", ["groupId"])
+    .index("userId", ["userId"])
+    .index("groupId_userId", ["groupId", "userId"]),
   envelopesByRecipient: defineTable({
     groupId: v.id("groups"),
     recipientUserId: v.string(),
@@ -126,6 +201,14 @@ const schema = defineSchema({
     metadata: v.any(),
     createdAt: v.string(),
   }),
+  reports: defineTable({
+    groupId: v.id("groups"),
+    reporterUserId: v.string(),
+    reportedUserId: v.optional(v.string()),
+    category: reportCategory,
+    description: v.string(),
+    createdAt: v.string(),
+  }).index("groupId", ["groupId"]),
 });
 
 export default schema;
