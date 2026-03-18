@@ -1,0 +1,19 @@
+{
+  "name": "hop",
+  "private": true,
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "dev:web": "pnpm --filter @hop/web dev",
+    "dev:matcher": "pnpm --filter @hop/matcher dev",
+    "build": "pnpm --filter @hop/shared build && pnpm --filter @hop/web build && pnpm --filter @hop/matcher build",
+    "test": "vitest run",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}

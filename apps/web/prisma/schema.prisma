@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String      @id @default(cuid())
+  email       String      @unique
+  emailDomain String
+  status      String      @default("active")
+  verifiedAt  DateTime?
+  rider       Rider?
+  clientKeys  ClientKey[]
+  otpRequests OtpRequest[]
+}
+
+model OtpRequest {
+  id           String   @id @default(cuid())
+  userId       String?
+  email        String
+  emailDomain  String
+  codeHash     String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime @default(now())
+  user         User?    @relation(fields: [userId], references: [id])
+}
+
+model ClientKey {
+  id         String   @id @default(cuid())
+  userId     String
+  publicKey  String
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model Rider {
+  id             String              @id @default(cuid())
+  userId         String              @unique
+  pseudonymCode  String              @unique
+  createdAt      DateTime            @default(now())
+  user           User                @relation(fields: [userId], references: [id])
+  preferences    Preference?
+  availabilities AvailabilityEntry[]
+}
+
+model Preference {
+  id                 String   @id @default(cuid())
+  riderId            String   @unique
+  selfDeclaredGender String   @default("prefer_not_to_say")
+  sameGenderOnly     Boolean  @default(false)
+  minGroupSize       Int      @default(2)
+  maxGroupSize       Int      @default(4)
+  rider              Rider    @relation(fields: [riderId], references: [id])
+}
+
+model AvailabilityEntry {
+  id                   String   @id @default(cuid())
+  riderId              String
+  windowStart          DateTime
+  windowEnd            DateTime
+  sameGenderOnly       Boolean
+  selfDeclaredGender   String
+  minGroupSize         Int
+  maxGroupSize         Int
+  sealedDestinationRef String
+  routeDescriptorRef   String
+  estimatedFareBand    String
+  status               String   @default("open")
+  createdAt            DateTime @default(now())
+  rider                Rider    @relation(fields: [riderId], references: [id])
+}
+
+model TentativeGroup {
+  id                   String        @id @default(cuid())
+  status               String
+  pickupOriginId       String
+  pickupLabel          String
+  windowStart          DateTime
+  windowEnd            DateTime
+  groupSize            Int
+  estimatedFareBand    String
+  maxDetourMinutes     Int
+  averageScore         Float
+  minimumScore         Float
+  confirmationDeadline DateTime
+  createdAt            DateTime      @default(now())
+  revealedAt           DateTime?
+  members              GroupMember[]
+}
+
+model GroupMember {
+  id             String          @id @default(cuid())
+  groupId        String
+  riderId        String
+  availabilityId String
+  pseudonymLabel String
+  accepted       Boolean?
+  acknowledgedAt DateTime?
+  group          TentativeGroup  @relation(fields: [groupId], references: [id])
+}
+
