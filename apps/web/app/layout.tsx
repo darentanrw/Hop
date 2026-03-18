@@ -1,19 +1,21 @@
 import "./globals.css";
+import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Sora } from "next/font/google";
+import { ConvexClientProvider } from "../components/ConvexClientProvider";
 import { ThemeProvider } from "../components/theme-provider";
 
 const sora = Sora({
   subsets: ["latin"],
   variable: "--font-display",
-  display: "optional",
+  display: "block",
   weight: ["400", "500", "600", "700", "800"],
 });
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-body",
-  display: "optional",
+  display: "block",
   weight: ["400", "500", "600", "700"],
 });
 
@@ -43,7 +45,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: intentional anti-FOUC theme script */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <ThemeProvider>{children}</ThemeProvider>
+        <ConvexAuthNextjsServerProvider>
+          <ConvexClientProvider>
+            <ThemeProvider>{children}</ThemeProvider>
+          </ConvexClientProvider>
+        </ConvexAuthNextjsServerProvider>
       </body>
     </html>
   );

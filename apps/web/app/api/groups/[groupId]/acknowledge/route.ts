@@ -1,25 +1,39 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import { type NextRequest, NextResponse } from "next/server";
-import { acknowledgeGroup } from "../../../../../lib/matching";
-import { getCurrentSession } from "../../../../../lib/session";
-import { getRiderProfileByUserId } from "../../../../../lib/store";
+import { api } from "../../../../../convex/_generated/api";
+import type { Id } from "../../../../../convex/_generated/dataModel";
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ groupId: string }> },
 ) {
-  const session = await getCurrentSession();
-  if (!session) {
+  const token = await convexAuthNextjsToken();
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  const riderProfile = getRiderProfileByUserId(session.userId);
-  if (!riderProfile) {
-    return NextResponse.json({ error: "Profile not found." }, { status: 404 });
   }
 
   const { groupId } = await context.params;
   const body = await request.json();
-  const updated = await acknowledgeGroup(groupId, riderProfile.riderId, Boolean(body.accepted));
 
-  return NextResponse.json(updated ?? { ok: true });
+  try {
+    await fetchMutation(
+      api.mutations.updateAcknowledgement,
+      {
+        groupId: groupId as Id<"groups">,
+        accepted: Boolean(body.accepted),
+      },
+      { token },
+    );
+    if (!body.accepted) {
+      await fetchAction(api.mutations.runMatching, {}, { token });
+    }
+    const updated = await fetchQuery(api.queries.getActiveGroup, {}, { token });
+    return NextResponse.json(updated ?? { ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Could not update acknowledgement." },
+      { status: 400 },
+    );
+  }
 }

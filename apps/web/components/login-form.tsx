@@ -1,15 +1,15 @@
 "use client";
 
+import { useAuthActions } from "@convex-dev/auth/react";
 import { type FormEvent, useState } from "react";
-import { exportPublicKeyBase64 } from "../lib/crypto-browser";
 import { OtpInput } from "./otp-input";
 
 type Step = "email" | "otp";
 
 export function LoginForm() {
+  const { signIn } = useAuthActions();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
-  const [requestId, setRequestId] = useState("");
   const [status, setStatus] = useState<{ type: "info" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -18,48 +18,39 @@ export function LoginForm() {
     setBusy(true);
     setStatus(null);
 
-    const response = await fetch("/api/auth/request-otp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    });
-    const payload = await response.json();
-    setBusy(false);
-
-    if (!response.ok) {
-      setStatus({ type: "error", text: payload.error ?? "Could not request OTP." });
-      return;
+    try {
+      await signIn("resend-otp", { email });
+      setStep("otp");
+      setStatus({ type: "info", text: "Check your inbox for the 6-digit code." });
+    } catch (err) {
+      setStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Could not request OTP.",
+      });
+    } finally {
+      setBusy(false);
     }
-
-    setRequestId(payload.requestId);
-    setStep("otp");
-    setStatus({ type: "info", text: "Check your inbox for the 6-digit code." });
   }
 
   async function verifyOtp(code: string) {
     setBusy(true);
     setStatus(null);
 
-    const clientPublicKey = await exportPublicKeyBase64();
-    const response = await fetch("/api/auth/verify-otp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId, code, clientPublicKey }),
-    });
-    const payload = await response.json();
-    setBusy(false);
-
-    if (!response.ok) {
-      setStatus({ type: "error", text: payload.error ?? "Could not verify OTP." });
-      return;
+    try {
+      await signIn("resend-otp", { email, code });
+      window.location.href = "/dashboard";
+    } catch (err) {
+      setStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Could not verify OTP.",
+      });
+    } finally {
+      setBusy(false);
     }
-
-    window.location.href = "/dashboard";
   }
 
   return (
     <div className="stack stagger">
-      {/* Progress indicator */}
       <div className="progress-bar">
         <div className="progress-fill" style={{ width: step === "email" ? "50%" : "100%" }} />
       </div>
@@ -74,6 +65,7 @@ export function LoginForm() {
             <input
               id="email-input"
               type="email"
+              name="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="e1234567@u.nus.edu"

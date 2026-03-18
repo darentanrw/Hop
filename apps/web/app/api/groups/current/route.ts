@@ -1,21 +1,15 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchAction, fetchQuery } from "convex/nextjs";
 import { NextResponse } from "next/server";
-import { runMatching } from "../../../../lib/matching";
-import { getCurrentSession } from "../../../../lib/session";
-import { findActiveGroupForRider, getRiderProfileByUserId } from "../../../../lib/store";
+import { api } from "../../../../convex/_generated/api";
 
 export async function GET() {
-  const session = await getCurrentSession();
-  if (!session) {
+  const token = await convexAuthNextjsToken();
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const riderProfile = getRiderProfileByUserId(session.userId);
-  if (!riderProfile) {
-    return NextResponse.json({ error: "Profile not found." }, { status: 404 });
-  }
-
-  await runMatching();
-  const group = findActiveGroupForRider(riderProfile.riderId);
-
+  await fetchAction(api.mutations.runMatching, {}, { token });
+  const group = await fetchQuery(api.queries.getActiveGroup, {}, { token });
   return NextResponse.json(group ?? { group: null });
 }

@@ -197,8 +197,8 @@ function importRecipientKey(publicKey: string) {
 
 export function revealEnvelopes(
   members: Array<{
-    riderId: string;
-    pseudonym: string;
+    userId: string;
+    displayName: string;
     sealedDestinationRef: string;
     publicKey: string;
   }>,
@@ -218,8 +218,8 @@ export function revealEnvelopes(
       const plaintextAddress = unsealAddress(destinationRecord);
       const payload = Buffer.from(
         JSON.stringify({
-          riderId: sender.riderId,
-          pseudonym: sender.pseudonym,
+          userId: sender.userId,
+          displayName: sender.displayName,
           address: plaintextAddress,
         }),
         "utf8",
@@ -234,9 +234,9 @@ export function revealEnvelopes(
       );
 
       envelopes.push({
-        recipientRiderId: recipient.riderId,
-        senderRiderId: sender.riderId,
-        senderPseudonym: sender.pseudonym,
+        recipientUserId: recipient.userId,
+        senderUserId: sender.userId,
+        senderName: sender.displayName,
         ciphertext: base64(ciphertext),
       });
     }

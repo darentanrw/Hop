@@ -1,7 +1,9 @@
 "use client";
 
 import type { RiderProfile, SelfDeclaredGender } from "@hop/shared";
+import { useMutation } from "convex/react";
 import { type FormEvent, useState } from "react";
+import { api } from "../convex/_generated/api";
 
 const genderOptions: { value: SelfDeclaredGender; label: string }[] = [
   { value: "prefer_not_to_say", label: "Prefer not to say" },
@@ -11,31 +13,35 @@ const genderOptions: { value: SelfDeclaredGender; label: string }[] = [
 ];
 
 export function PreferencesForm({ profile }: { profile: RiderProfile }) {
+  const savePreferences = useMutation(api.mutations.savePreferences);
   const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(profile);
   const [expanded, setExpanded] = useState(false);
+  const showSameGenderToggle = form.selfDeclaredGender !== "prefer_not_to_say";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setStatus(null);
 
-    const response = await fetch("/api/me", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const payload = await response.json();
-    setBusy(false);
-
-    if (!response.ok) {
-      setStatus({ type: "error", text: payload.error ?? "Could not save preferences." });
-      return;
+    try {
+      await savePreferences({
+        selfDeclaredGender: form.selfDeclaredGender,
+        sameGenderOnly: form.sameGenderOnly,
+        minGroupSize: form.minGroupSize,
+        maxGroupSize: form.maxGroupSize,
+      });
+      setForm(form);
+      setStatus({ type: "success", text: "Preferences saved." });
+    } catch (err) {
+      setStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Could not save preferences.",
+      });
+    } finally {
+      setBusy(false);
     }
-
-    setForm(payload.riderProfile);
-    setStatus({ type: "success", text: "Preferences saved." });
   }
 
   return (
@@ -82,9 +88,14 @@ export function PreferencesForm({ profile }: { profile: RiderProfile }) {
             <select
               id="pref-gender"
               value={form.selfDeclaredGender}
-              onChange={(e) =>
-                setForm((c) => ({ ...c, selfDeclaredGender: e.target.value as SelfDeclaredGender }))
-              }
+              onChange={(e) => {
+                const val = e.target.value as SelfDeclaredGender;
+                setForm((c) => ({
+                  ...c,
+                  selfDeclaredGender: val,
+                  sameGenderOnly: val === "prefer_not_to_say" ? false : c.sameGenderOnly,
+                }));
+              }}
             >
               {genderOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -94,15 +105,28 @@ export function PreferencesForm({ profile }: { profile: RiderProfile }) {
             </select>
           </div>
 
-          <label className="toggle-row" htmlFor="pref-same-gender">
-            <input
-              type="checkbox"
-              id="pref-same-gender"
-              checked={form.sameGenderOnly}
-              onChange={(e) => setForm((c) => ({ ...c, sameGenderOnly: e.target.checked }))}
-            />
-            <span>Only match with same gender</span>
-          </label>
+          <div
+            aria-hidden={!showSameGenderToggle}
+            style={{
+              maxHeight: showSameGenderToggle ? 48 : 0,
+              opacity: showSameGenderToggle ? 1 : 0,
+              overflow: "hidden",
+              pointerEvents: showSameGenderToggle ? "auto" : "none",
+              transform: showSameGenderToggle ? "translateY(0)" : "translateY(-4px)",
+              transition:
+                "max-height 220ms var(--ease-out-expo), opacity 180ms ease, transform 220ms var(--ease-out-expo)",
+            }}
+          >
+            <label className="toggle-row" htmlFor="pref-same-gender">
+              <input
+                type="checkbox"
+                id="pref-same-gender"
+                checked={form.sameGenderOnly}
+                onChange={(e) => setForm((c) => ({ ...c, sameGenderOnly: e.target.checked }))}
+              />
+              <span>Only match with same gender</span>
+            </label>
+          </div>
 
           <div className="grid-2">
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
