@@ -10,7 +10,6 @@ export function LoginForm() {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [requestId, setRequestId] = useState("");
-  const [debugCode, setDebugCode] = useState<string | null>(null);
   const [status, setStatus] = useState<{ type: "info" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,7 +32,6 @@ export function LoginForm() {
     }
 
     setRequestId(payload.requestId);
-    setDebugCode(payload.debugCode ?? null);
     setStep("otp");
     setStatus({ type: "info", text: "Check your inbox for the 6-digit code." });
   }
@@ -105,8 +103,6 @@ export function LoginForm() {
             </div>
 
             <OtpInput onComplete={verifyOtp} disabled={busy} />
-
-            {debugCode && <div className="dev-code">{debugCode}</div>}
 
             <button
               className="btn btn-ghost btn-sm"
