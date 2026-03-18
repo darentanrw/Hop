@@ -36,14 +36,14 @@ describe("matcher core", () => {
 
     const envelopes = revealEnvelopes([
       {
-        riderId: "rider_a",
-        pseudonym: "Rider A",
+        userId: "user_a",
+        displayName: "Alice",
         sealedDestinationRef: left.sealedDestinationRef,
         publicKey: generatePublicKey(),
       },
       {
-        riderId: "rider_b",
-        pseudonym: "Rider B",
+        userId: "user_b",
+        displayName: "Bob",
         sealedDestinationRef: right.sealedDestinationRef,
         publicKey: generatePublicKey(),
       },

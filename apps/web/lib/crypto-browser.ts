@@ -84,8 +84,8 @@ export async function decryptEnvelope(ciphertext: string) {
   );
 
   return JSON.parse(new TextDecoder().decode(plaintext)) as {
-    riderId: string;
-    pseudonym: string;
+    userId: string;
+    displayName: string;
     address: string;
   };
 }

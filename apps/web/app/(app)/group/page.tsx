@@ -1,12 +1,14 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
+import { redirect } from "next/navigation";
 import { GroupClient } from "../../../components/group-client";
-import { runMatching } from "../../../lib/matching";
-import { requireUser } from "../../../lib/require-user";
-import { findActiveGroupForRider } from "../../../lib/store";
+import { api } from "../../../convex/_generated/api";
 
 export default async function GroupPage() {
-  const { riderProfile } = await requireUser();
-  await runMatching();
-  const current = findActiveGroupForRider(riderProfile.riderId);
+  const token = await convexAuthNextjsToken();
+  if (!token) redirect("/login");
+
+  const current = await fetchQuery(api.queries.getActiveGroup, {}, { token });
 
   return (
     <div className="stack-lg stagger">

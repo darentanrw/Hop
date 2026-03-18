@@ -1,3 +1,4 @@
+import "dotenv/config";
 import cors from "cors";
 import express from "express";
 import { revealEnvelopes, scoreRouteDescriptors, submitDestination } from "./core";
@@ -35,8 +36,8 @@ app.post("/matcher/compatibility", (request, response) => {
 
 app.post("/matcher/reveal-envelopes", (request, response) => {
   const members: Array<{
-    riderId?: unknown;
-    pseudonym?: unknown;
+    userId?: unknown;
+    displayName?: unknown;
     sealedDestinationRef?: unknown;
     publicKey?: unknown;
   }> = Array.isArray(request.body?.members) ? request.body.members : [];
@@ -44,8 +45,8 @@ app.post("/matcher/reveal-envelopes", (request, response) => {
   response.json({
     envelopes: revealEnvelopes(
       members.map((member) => ({
-        riderId: String(member.riderId),
-        pseudonym: String(member.pseudonym),
+        userId: String(member.userId),
+        displayName: String(member.displayName ?? ""),
         sealedDestinationRef: String(member.sealedDestinationRef),
         publicKey: String(member.publicKey),
       })),

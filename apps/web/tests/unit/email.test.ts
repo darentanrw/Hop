@@ -37,7 +37,7 @@ async function loadModule(envOverrides: Record<string, string | undefined> = {})
 
 describe("sendOtpEmail", () => {
   test("sends via Resend when API key is configured", async () => {
-    await loadModule({ RESEND_API_KEY: "re_test_123", RESEND_FROM_EMAIL: "Test <test@hop.sg>" });
+    await loadModule({ AUTH_RESEND_KEY: "re_test_123", RESEND_FROM_EMAIL: "Test <test@hop.sg>" });
 
     await sendOtpEmail("student@u.nus.edu", "123456");
 
@@ -50,16 +50,16 @@ describe("sendOtpEmail", () => {
   });
 
   test("uses default from address when RESEND_FROM_EMAIL is not set", async () => {
-    await loadModule({ RESEND_API_KEY: "re_test_123", RESEND_FROM_EMAIL: undefined });
+    await loadModule({ AUTH_RESEND_KEY: "re_test_123", RESEND_FROM_EMAIL: undefined });
 
     await sendOtpEmail("student@u.nus.edu", "654321");
 
     const call = sendMock.mock.calls[0][0];
-    expect(call.from).toBe("Hop <noreply@hop.sg>");
+    expect(call.from).toBe("Hop <login@hophome.app>");
   });
 
   test("logs to console in dev when no API key is set", async () => {
-    await loadModule({ RESEND_API_KEY: "", NODE_ENV: "development" });
+    await loadModule({ AUTH_RESEND_KEY: "", NODE_ENV: "development" });
 
     await sendOtpEmail("student@u.nus.edu", "999111");
 
@@ -68,7 +68,7 @@ describe("sendOtpEmail", () => {
   });
 
   test("throws in production when no API key is set", async () => {
-    await loadModule({ RESEND_API_KEY: "", NODE_ENV: "production" });
+    await loadModule({ AUTH_RESEND_KEY: "", NODE_ENV: "production" });
 
     await expect(sendOtpEmail("student@u.nus.edu", "123456")).rejects.toThrow(
       "Email service is not configured.",
@@ -76,7 +76,7 @@ describe("sendOtpEmail", () => {
   });
 
   test("throws when Resend returns an error", async () => {
-    await loadModule({ RESEND_API_KEY: "re_test_123" });
+    await loadModule({ AUTH_RESEND_KEY: "re_test_123" });
     sendMock.mockResolvedValueOnce({ data: null, error: { message: "Rate limit exceeded" } });
 
     await expect(sendOtpEmail("student@u.nus.edu", "123456")).rejects.toThrow(

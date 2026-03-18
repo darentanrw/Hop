@@ -20,8 +20,8 @@ export async function fetchCompatibility(routeDescriptorRefs: string[]) {
 
 export async function fetchRevealEnvelopes(
   members: Array<{
-    riderId: string;
-    pseudonym: string;
+    userId: string;
+    displayName: string;
     sealedDestinationRef: string;
     publicKey: string;
   }>,

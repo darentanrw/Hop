@@ -1,7 +1,8 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
 import Link from "next/link";
 import { PreferencesForm } from "../../../components/preferences-form";
-import { requireUser } from "../../../lib/require-user";
-import { findActiveGroupForRider, listAvailabilitiesForRider } from "../../../lib/store";
+import { api } from "../../../convex/_generated/api";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -26,18 +27,25 @@ const statusConfig: Record<string, { icon: string; class: string; label: string 
 };
 
 export default async function DashboardPage() {
-  const { riderProfile } = await requireUser();
-  const availabilities = listAvailabilitiesForRider(riderProfile.riderId);
-  const group = findActiveGroupForRider(riderProfile.riderId);
+  const token = await convexAuthNextjsToken();
+  if (!token) return null;
 
-  const activeAvailabilities = availabilities.filter((a) => a.status !== "cancelled");
+  const [riderProfile, availabilities, group] = await Promise.all([
+    fetchQuery(api.queries.getRiderProfile, {}, { token }),
+    fetchQuery(api.queries.listAvailabilities, {}, { token }),
+    fetchQuery(api.queries.getActiveGroup, {}, { token }),
+  ]);
+
+  if (!riderProfile) return null;
+
+  const activeAvailabilities = (availabilities ?? []).filter((a) => a.status !== "cancelled");
 
   return (
     <div className="stack-lg stagger">
       {/* Greeting */}
       <div style={{ paddingTop: 4 }}>
         <p className="text-muted text-sm">{getGreeting()}</p>
-        <h1 style={{ marginTop: 2 }}>{riderProfile.pseudonymCode}</h1>
+        <h1 style={{ marginTop: 2 }}>{riderProfile.name?.trim() ?? ""}</h1>
       </div>
 
       {/* Active group card */}
@@ -62,7 +70,7 @@ export default async function DashboardPage() {
             </div>
             <div className="row" style={{ gap: 16 }}>
               <div>
-                <p className="text-sm text-muted">Riders</p>
+                <p className="text-sm text-muted">Members</p>
                 <p className="font-display fw-700">{group.group.groupSize}</p>
               </div>
               <div>
@@ -121,7 +129,7 @@ export default async function DashboardPage() {
             {activeAvailabilities.map((a) => {
               const config = statusConfig[a.status] ?? statusConfig.open;
               return (
-                <div key={a.id} className="availability-item">
+                <div key={a._id} className="availability-item">
                   <div className={`avail-icon ${config.class}`}>{config.icon}</div>
                   <div className="avail-info">
                     <div className="avail-time">{formatWindow(a.windowStart, a.windowEnd)}</div>

@@ -839,6 +839,66 @@ label span {
   line-height: 1.4;
 }
 
+/* --- Consent Checkboxes --- */
+.consent-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-raised);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.consent-check:hover {
+  background: var(--surface);
+}
+
+.consent-check input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+  padding: 0;
+}
+
+.consent-check input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 6l3 3 5-5' stroke='%23f0a030' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.15s ease, transform 0.15s var(--ease-spring);
+}
+
+.consent-check input[type="checkbox"]:checked {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+}
+
+.consent-check input[type="checkbox"]:checked::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.consent-check span {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
 /* --- Rider Avatars --- */
 .rider-avatar {
   width: 40px;

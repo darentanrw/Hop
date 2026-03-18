@@ -15,8 +15,8 @@ export type FareBand = "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
 export type GroupStatus = "tentative" | "revealed" | "dissolved";
 
 export interface RiderProfile {
-  riderId: string;
-  pseudonymCode: string;
+  userId: string;
+  name?: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
   minGroupSize: number;
@@ -25,7 +25,7 @@ export interface RiderProfile {
 
 export interface AvailabilityEntry {
   id: string;
-  riderId: string;
+  userId: string;
   windowStart: string;
   windowEnd: string;
   selfDeclaredGender: SelfDeclaredGender;
@@ -40,9 +40,9 @@ export interface AvailabilityEntry {
 }
 
 export interface TentativeGroupMember {
-  riderId: string;
+  userId: string;
   availabilityId: string;
-  pseudonymLabel: string;
+  displayName: string;
   accepted: boolean | null;
   acknowledgedAt: string | null;
 }
@@ -71,9 +71,9 @@ export interface GroupSummaryResponse {
 }
 
 export interface AddressEnvelope {
-  recipientRiderId: string;
-  senderRiderId: string;
-  senderPseudonym: string;
+  recipientUserId: string;
+  senderUserId: string;
+  senderName: string;
   ciphertext: string;
 }
 
@@ -101,7 +101,35 @@ export function getEmailDomain(email: string) {
   return email.trim().toLowerCase().split("@")[1] ?? "";
 }
 
+/** NUS e-prefix format (e.g. e1234567@u.nus.edu) can have aliases. Name-based (e.g. darentan@) requires exact match. */
+export function isNusAliasFormat(email: string) {
+  const local = email.trim().toLowerCase().split("@")[0] ?? "";
+  return /^e[a-z0-9]+$/.test(local);
+}
+
 export function clampGroupSize(value: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_GROUP_SIZE, Math.max(MIN_GROUP_SIZE, Math.floor(value)));
+}
+
+export function overlapMinutes(
+  left: Pick<AvailabilityEntry, "windowStart" | "windowEnd">,
+  right: Pick<AvailabilityEntry, "windowStart" | "windowEnd">,
+) {
+  const start = Math.max(
+    new Date(left.windowStart).getTime(),
+    new Date(right.windowStart).getTime(),
+  );
+  const end = Math.min(new Date(left.windowEnd).getTime(), new Date(right.windowEnd).getTime());
+  return Math.max(0, Math.floor((end - start) / 60_000));
+}
+
+export function arePreferencesCompatible(
+  left: Pick<AvailabilityEntry, "sameGenderOnly" | "selfDeclaredGender">,
+  right: Pick<AvailabilityEntry, "sameGenderOnly" | "selfDeclaredGender">,
+) {
+  if (left.sameGenderOnly || right.sameGenderOnly) {
+    return left.selfDeclaredGender === right.selfDeclaredGender;
+  }
+  return true;
 }

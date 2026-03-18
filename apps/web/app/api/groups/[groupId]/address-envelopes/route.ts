@@ -1,30 +1,19 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
 import { NextResponse } from "next/server";
-import { envelopesForRider, revealAddresses } from "../../../../../lib/matching";
-import { getCurrentSession } from "../../../../../lib/session";
-import { getRiderProfileByUserId } from "../../../../../lib/store";
+import { api } from "../../../../../convex/_generated/api";
 
 export async function GET(_request: Request, context: { params: Promise<{ groupId: string }> }) {
-  const session = await getCurrentSession();
-  if (!session) {
+  const token = await convexAuthNextjsToken();
+  if (!token) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const riderProfile = getRiderProfileByUserId(session.userId);
-  if (!riderProfile) {
-    return NextResponse.json({ error: "Profile not found." }, { status: 404 });
-  }
-
   const { groupId } = await context.params;
-
-  try {
-    await revealAddresses(groupId);
-    return NextResponse.json({
-      envelopes: envelopesForRider(groupId, riderProfile.riderId),
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not reveal addresses." },
-      { status: 400 },
-    );
+  const group = await fetchQuery(api.queries.getActiveGroup, {}, { token });
+  if (!group || group.group.id !== groupId) {
+    return NextResponse.json({ envelopes: [] });
   }
+  // TODO: Implement address reveal via matcher - requires client keys and matcher integration
+  return NextResponse.json({ envelopes: [] });
 }

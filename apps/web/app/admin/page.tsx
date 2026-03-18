@@ -1,7 +1,14 @@
-import { adminSnapshot } from "../../lib/store";
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
+import { redirect } from "next/navigation";
+import { api } from "../../convex/_generated/api";
 
-export default function AdminPage() {
-  const snapshot = adminSnapshot();
+export default async function AdminPage() {
+  const token = await convexAuthNextjsToken();
+  if (!token) redirect("/login");
+
+  const snapshot = await fetchQuery(api.queries.adminSnapshot, {}, { token });
+  if (!snapshot) redirect("/login");
 
   return (
     <div className="page-container no-nav">
@@ -27,10 +34,6 @@ export default function AdminPage() {
             <span className="admin-stat-value">{snapshot.users}</span>
           </div>
           <div className="admin-stat-row">
-            <span className="admin-stat-label">Active riders</span>
-            <span className="admin-stat-value">{snapshot.riders}</span>
-          </div>
-          <div className="admin-stat-row">
             <span className="admin-stat-label">Open availability</span>
             <span className="admin-stat-value text-accent">{snapshot.openAvailabilities}</span>
           </div>
@@ -48,7 +51,7 @@ export default function AdminPage() {
           <h2 style={{ marginBottom: 16 }}>Recent audit events</h2>
           {snapshot.auditEvents.length ? (
             snapshot.auditEvents.map((event) => (
-              <div className="admin-stat-row" key={event.id}>
+              <div className="admin-stat-row" key={event._id}>
                 <div>
                   <span className="font-display fw-600" style={{ fontSize: 14, display: "block" }}>
                     {event.action}
