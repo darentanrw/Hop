@@ -1,4 +1,5 @@
 import { getEmailDomain, isAllowedUniversityEmail } from "@hop/shared";
+import { sendOtpEmail } from "./email";
 import {
   consumeOtpRequest,
   createOtpRequest,
@@ -10,7 +11,7 @@ import {
   upsertUser,
 } from "./store";
 
-export function requestOtp(email: string) {
+export async function requestOtp(email: string) {
   const normalizedEmail = email.trim().toLowerCase();
   if (!isAllowedUniversityEmail(normalizedEmail)) {
     throw new Error("Please use a valid NUS email address.");
@@ -19,10 +20,11 @@ export function requestOtp(email: string) {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const otpRequest = createOtpRequest(normalizedEmail, getEmailDomain(normalizedEmail), code);
 
+  await sendOtpEmail(normalizedEmail, code);
+
   return {
     requestId: otpRequest.id,
     expiresAt: otpRequest.expiresAt,
-    debugCode: process.env.NODE_ENV === "production" ? undefined : code,
   };
 }
 
