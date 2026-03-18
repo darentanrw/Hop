@@ -36,5 +36,6 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-comment: ${{ github.event_name == 'pull_request' }}
           vercel-args: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && '--prod' || '' }}
           working-directory: .
