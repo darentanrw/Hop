@@ -22,17 +22,39 @@ Privacy-first NUS campus rideshare, implemented as a web-first PWA plus a separa
 2. Set up environment variables:
    - **Next.js**: Copy `apps/web/.env.example` to `apps/web/.env.local`
    - **Matcher**: Copy `services/matcher/.env.example` to `services/matcher/.env`
-3. Run Convex dev (creates project, syncs schema, sets `NEXT_PUBLIC_CONVEX_URL` in `apps/web/.env.local`):
-   - `cd apps/web && npx convex dev`
-4. Configure Convex environment variables (see [Convex Auth setup](#convex-auth-setup) below).
-5. In separate terminals:
-   - `pnpm dev:web` — Next.js app (port 3000)
-   - `pnpm dev:matcher` — matcher service (port 4001)
+3. Set up Convex backend env:
+   - Copy `apps/web/.env.convex.example` to `apps/web/.env.convex`
+   - Fill it in with your local dev values
+   - Run `cd apps/web && npx convex env set --from-file .env.convex`
+4. Start everything with one command:
+   - `pnpm dev`
+5. On first run, complete any Convex login prompt shown in the `convex` process.
 6. Open the web app at `http://localhost:3000`.
+
+### Local config rule of thumb
+
+- `apps/web/.env.local`: browser-visible values only
+- `apps/web/.env.convex`: Convex backend/auth env
+- `services/matcher/.env`: matcher-only env
+
+For local dev, that means:
+
+- `apps/web/.env.local`
+  ```bash
+  NEXT_PUBLIC_MATCHER_BASE_URL=http://localhost:4001
+  ```
+- `apps/web/.env.convex`
+  ```bash
+  SITE_URL=http://localhost:3000
+  MATCHER_BASE_URL=http://localhost:4001
+  # plus JWT_PRIVATE_KEY, JWKS, AUTH_RESEND_KEY, RESEND_FROM_EMAIL, RESEND_INBOUND_ADDRESS
+  ```
+
+`npx convex dev` will automatically write `NEXT_PUBLIC_CONVEX_URL` into `apps/web/.env.local`, so you should not manage that value by hand.
 
 ## Convex Auth setup
 
-Convex Auth requires several environment variables in your Convex deployment (not in `.env`). Set them via the [Convex dashboard](https://dashboard.convex.dev) or `npx convex env set`:
+Convex Auth requires several environment variables in your Convex deployment, not in Next.js `.env.local`. Set them via the [Convex dashboard](https://dashboard.convex.dev) or `npx convex env set`:
 
 | Variable | Purpose | Required |
 |----------|---------|----------|
@@ -87,6 +109,21 @@ The production site should use a **deployed Convex production deployment**, not 
 3. In Vercel, set these project environment variables:
    - `CONVEX_DEPLOY_KEY` — lets the production Vercel build run `convex deploy`
    - `NEXT_PUBLIC_MATCHER_BASE_URL` — public matcher base URL for the web app
+
+### Production config rule of thumb
+
+- Vercel env:
+  - `CONVEX_DEPLOY_KEY`
+  - `NEXT_PUBLIC_MATCHER_BASE_URL`
+  - optionally `NEXT_PUBLIC_CONVEX_URL` for preview deployments
+- Convex production env:
+  - `SITE_URL`
+  - `JWT_PRIVATE_KEY`
+  - `JWKS`
+  - `AUTH_RESEND_KEY`
+  - `RESEND_FROM_EMAIL`
+  - `RESEND_INBOUND_ADDRESS`
+  - `MATCHER_BASE_URL`
 
 ### How production deploys work
 
