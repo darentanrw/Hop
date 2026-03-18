@@ -68,6 +68,42 @@ Or copy `apps/web/.env.convex.example` to `apps/web/.env.convex`, fill in values
 cd apps/web && npx convex env set --from-file .env.convex
 ```
 
+## Production deployment
+
+The production site should use a **deployed Convex production deployment**, not `npx convex dev`.
+
+### One-time setup
+
+1. Create a Convex production deployment for this project:
+   ```bash
+   cd apps/web
+   pnpm convex:deploy
+   ```
+2. Set the production Convex env vars:
+   ```bash
+   cd apps/web
+   npx convex env set --prod --from-file .env.convex
+   ```
+3. In Vercel, set these project environment variables:
+   - `CONVEX_DEPLOY_KEY` — lets the production Vercel build run `convex deploy`
+   - `NEXT_PUBLIC_MATCHER_BASE_URL` — public matcher base URL for the web app
+
+### How production deploys work
+
+- Preview deployments: Vercel runs a normal `next build`. Set `NEXT_PUBLIC_CONVEX_URL` in Vercel preview env if you want previews to connect to Convex.
+- Production deployments: Vercel runs:
+  ```bash
+  pnpm exec convex deploy --cmd 'next build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL
+  ```
+  This deploys Convex first, then injects the **production** Convex URL into the Next.js build automatically.
+
+### GitHub Actions
+
+The deploy workflow now:
+- runs `lint`, `test`, and non-web package builds in CI
+- deploys the web app from `apps/web`
+- relies on Vercel's production build command to deploy Convex and build the site with the correct `NEXT_PUBLIC_CONVEX_URL`
+
 ## Resend Inbound (email reply verification)
 
 For first-time users to verify by replying with the passphrase:
@@ -89,4 +125,3 @@ For first-time users to verify by replying with the passphrase:
 
 - Without `AUTH_RESEND_KEY`, OTP and verification emails will fail.
 - The matcher service intentionally uses coarse route heuristics for the prototype instead of true road-network routing.
-
