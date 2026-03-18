@@ -1456,6 +1456,94 @@ label span {
   color: var(--text);
 }
 
+.time-range-picker {
+  gap: 16px;
+}
+
+.time-range-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.time-range-summary strong {
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--text);
+}
+
+.time-range-track-shell {
+  padding: 0 18px;
+  overflow: hidden;
+}
+
+.time-range-track {
+  position: relative;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px) 0 0 /
+    calc(100% / 12) 100%, var(--bg-raised);
+  border: 1px solid var(--border);
+  touch-action: none;
+}
+
+.time-range-fill {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, rgba(240, 160, 48, 0.92), rgba(232, 115, 58, 0.92));
+  box-shadow: var(--shadow-glow-accent);
+}
+
+.time-range-tick {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateX(-50%);
+}
+
+.time-range-handle {
+  position: absolute;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 6px rgba(240, 160, 48, 0.08);
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.time-range-handle.active,
+.time-range-handle:focus-visible {
+  box-shadow: 0 0 0 10px rgba(240, 160, 48, 0.12);
+}
+
+.time-range-ticks {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.time-range-ticks span:nth-child(1) {
+  text-align: left;
+}
+
+.time-range-ticks span {
+  text-align: center;
+}
+
+.time-range-ticks span:last-child {
+  text-align: right;
+}
+
 /* --- Reveal Animation --- */
 .reveal-container {
   animation: scaleIn 0.5s var(--ease-spring) both;
