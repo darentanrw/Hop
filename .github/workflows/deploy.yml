@@ -1,3 +1,4 @@
+# Deploy to Vercel on push to main or PR
 name: Deploy to Vercel
 
 on:
