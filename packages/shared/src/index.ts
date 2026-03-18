@@ -90,7 +90,6 @@ export interface CompatibilityEdge {
 export interface OtpRequestResponse {
   requestId: string;
   expiresAt: string;
-  debugCode?: string;
 }
 
 export function isAllowedUniversityEmail(email: string) {
