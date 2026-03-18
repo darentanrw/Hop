@@ -4,7 +4,7 @@ import { requestOtp } from "../../../../lib/auth";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const otpRequest = requestOtp(String(body.email ?? ""));
+    const otpRequest = await requestOtp(String(body.email ?? ""));
     return NextResponse.json(otpRequest);
   } catch (error) {
     return NextResponse.json(
