@@ -46,4 +46,4 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           github-comment: ${{ github.event_name == 'pull_request' }}
           vercel-args: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && '--prod' || '' }}
-          working-directory: ./apps/web
+          working-directory: .
