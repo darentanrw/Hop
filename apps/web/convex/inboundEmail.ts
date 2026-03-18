@@ -1,38 +1,13 @@
 import { isNusAliasFormat } from "@hop/shared";
 import { Resend } from "resend";
+import {
+  buildInboundBodyText,
+  extractEmailFromFromField,
+  extractNameFromFromField,
+  extractPassphraseFromBody,
+} from "../lib/inbound-email";
 import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
-
-function extractEmailFromFromField(from: string): string | null {
-  const match = from.match(/<([^>]+)>/);
-  if (match) return match[1].trim().toLowerCase();
-  return from.trim().toLowerCase() || null;
-}
-
-/** Extract display name from From header*/
-function extractNameFromFromField(from: string): string {
-  const trimmed = from.trim();
-  const quotedMatch = trimmed.match(/^["']([^"']*)["']\s*</);
-  if (quotedMatch) return quotedMatch[1].trim();
-  const unquotedMatch = trimmed.match(/^([^<]+)</);
-  if (unquotedMatch) return unquotedMatch[1].trim();
-  return "";
-}
-
-function extractPassphraseFromBody(text: string): string | null {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  const patterns = [
-    /\b([a-z]{4,}-[a-z]{4,}-[a-z]{4,})\b/i,
-    /\*\*([^*]+)\*\*/,
-    /passphrase[:\s]+([^\s\n]+)/i,
-    /verification[:\s]+([^\s\n]+)/i,
-  ];
-  for (const pattern of patterns) {
-    const m = normalized.match(pattern);
-    if (m) return m[1].trim();
-  }
-  return null;
-}
 
 export const handleInboundEmail = httpAction(async (ctx, request) => {
   const body = (await request.json()) as {
@@ -44,11 +19,6 @@ export const handleInboundEmail = httpAction(async (ctx, request) => {
   }
   const { email_id: emailId, from: fromField } = body.data;
   console.log(`[inbound] Received email.received webhook, from: ${fromField}`);
-  const senderEmail = extractEmailFromFromField(fromField ?? "");
-  if (!senderEmail) {
-    console.error("[inbound] Missing or invalid from field:", fromField);
-    return new Response("Missing sender", { status: 400 });
-  }
 
   const apiKey = process.env.AUTH_RESEND_KEY;
   if (!apiKey) {
@@ -63,14 +33,18 @@ export const handleInboundEmail = httpAction(async (ctx, request) => {
     return new Response("Failed to process email", { status: 500 });
   }
 
-  const bodyText = email.text ?? email.html ?? "";
+  const bodyText = buildInboundBodyText(email);
   const passphrase = extractPassphraseFromBody(bodyText);
-  // Prefer headers.from because it commonly contains the quoted display name.
   const fromForName =
     (email as { headers?: { from?: string } }).headers?.from ??
     (email as { from?: string }).from ??
     fromField ??
     "";
+  const senderEmail = extractEmailFromFromField(fromForName);
+  if (!senderEmail) {
+    console.error("[inbound] Missing or invalid sender email:", fromForName);
+    return new Response("Missing sender", { status: 400 });
+  }
   const name = extractNameFromFromField(fromForName);
 
   const verification = await ctx.runQuery(api.queries.getPendingVerificationByEmail, {

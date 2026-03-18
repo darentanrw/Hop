@@ -208,10 +208,26 @@ export const createVerificationRecord = internalMutation({
     email: v.string(),
   },
   handler: async (ctx, { userId, passphrase, email }) => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await ctx.db
+      .query("emailVerifications")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    for (const record of existing) {
+      if (!record.verifiedAt && record.expiresAt > Date.now()) {
+        await ctx.db.patch(record._id, {
+          expiresAt: Date.now() - 1,
+          pendingAliasFrom: undefined,
+          pendingAliasName: undefined,
+        });
+      }
+    }
+
     await ctx.db.insert("emailVerifications", {
       userId,
       passphrase,
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       expiresAt: Date.now() + 60 * 60 * 24 * 1000,
     });
   },
