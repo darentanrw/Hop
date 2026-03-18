@@ -1,5 +1,5 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchQuery } from "convex/nextjs";
 import Link from "next/link";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { api } from "../../../convex/_generated/api";
@@ -29,6 +29,8 @@ const statusConfig: Record<string, { icon: string; class: string; label: string 
 export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
   if (!token) return null;
+
+  await fetchAction(api.mutations.runMatching, {}, { token });
 
   const [riderProfile, availabilities, group] = await Promise.all([
     fetchQuery(api.queries.getRiderProfile, {}, { token }),

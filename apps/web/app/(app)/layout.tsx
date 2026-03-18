@@ -2,6 +2,8 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
 import { BottomNav } from "../../components/bottom-nav";
+import { ClientKeyRegistrar } from "../../components/client-key-registrar";
+import { LogoutButton } from "../../components/logout-button";
 import { api } from "../../convex/_generated/api";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +20,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <>
-      <div className="page-container">{children}</div>
+      <div className="page-container">
+        <div className="top-bar">
+          <div className="top-bar-brand">
+            <div className="hop-logo">H</div>
+            <div className="top-bar-info">
+              <span className="pseudonym">{riderProfile.name?.trim() || "Hop member"}</span>
+              <span className="campus">NUS</span>
+            </div>
+          </div>
+          <LogoutButton />
+        </div>
+        <ClientKeyRegistrar />
+        {children}
+      </div>
       <BottomNav />
     </>
   );

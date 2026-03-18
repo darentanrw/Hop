@@ -212,7 +212,7 @@ export const createVerificationRecord = internalMutation({
       userId,
       passphrase,
       email: email.trim().toLowerCase(),
-      expiresAt: Date.now() + 60 * 60 * 24,
+      expiresAt: Date.now() + 60 * 60 * 24 * 1000,
     });
   },
 });
