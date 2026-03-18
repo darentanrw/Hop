@@ -6,14 +6,14 @@ import { ThemeProvider } from "../components/theme-provider";
 const sora = Sora({
   subsets: ["latin"],
   variable: "--font-display",
-  display: "swap",
+  display: "optional",
   weight: ["400", "500", "600", "700", "800"],
 });
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-body",
-  display: "swap",
+  display: "optional",
   weight: ["400", "500", "600", "700"],
 });
 
