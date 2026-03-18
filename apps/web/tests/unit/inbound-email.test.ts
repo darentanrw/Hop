@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { buildInboundBodyText, extractPassphraseFromBody } from "../../lib/inbound-email";
+import {
+  buildInboundBodyText,
+  extractEmailFromFromField,
+  extractPassphraseFromBody,
+} from "../../lib/inbound-email";
 
 describe("inbound email parsing", () => {
   test("extracts passphrases containing three-letter words", () => {
@@ -14,5 +18,9 @@ describe("inbound email parsing", () => {
     });
 
     expect(extractPassphraseFromBody(body)).toBe("ink-ivy-oak");
+  });
+
+  test("extracts sender email from a quoted from header", () => {
+    expect(extractEmailFromFromField('"Alex Tan" <alex@u.nus.edu>')).toBe("alex@u.nus.edu");
   });
 });
