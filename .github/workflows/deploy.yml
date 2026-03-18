@@ -29,8 +29,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Validate
+        run: |
+          pnpm lint
+          pnpm test
+          pnpm --filter @hop/shared build
+          pnpm --filter @hop/matcher build
 
       - name: Deploy to Vercel
         id: deploy

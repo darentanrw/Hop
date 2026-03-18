@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@hop/shared": "workspace:*",
+    "dotenv": "^16.4.5",
     "cors": "^2.8.5",
     "express": "^5.1.0"
   },

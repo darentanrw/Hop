@@ -1,10 +1,22 @@
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
+import { redirect } from "next/navigation";
 import { BottomNav } from "../../components/bottom-nav";
+import { ClientKeyRegistrar } from "../../components/client-key-registrar";
 import { LogoutButton } from "../../components/logout-button";
-import { ThemeToggle } from "../../components/theme-toggle";
-import { requireUser } from "../../lib/require-user";
+import { api } from "../../convex/_generated/api";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const { riderProfile } = await requireUser();
+  const token = await convexAuthNextjsToken();
+  if (!token) redirect("/login");
+
+  const status = await fetchQuery(api.queries.getVerificationStatus, {}, { token });
+  if (!status) redirect("/login");
+  if (!status.emailVerified) redirect("/verify-email");
+  if (!status.onboardingComplete) redirect("/onboarding");
+
+  const riderProfile = await fetchQuery(api.queries.getRiderProfile, {}, { token });
+  if (!riderProfile) redirect("/onboarding");
 
   return (
     <>
@@ -13,15 +25,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="top-bar-brand">
             <div className="hop-logo">H</div>
             <div className="top-bar-info">
-              <span className="pseudonym">{riderProfile.pseudonymCode}</span>
+              <span className="pseudonym">{riderProfile.name?.trim() || "Hop member"}</span>
               <span className="campus">NUS</span>
             </div>
           </div>
-          <div className="row" style={{ gap: 6 }}>
-            <ThemeToggle />
-            <LogoutButton />
-          </div>
+          <LogoutButton />
         </div>
+        <ClientKeyRegistrar />
         {children}
       </div>
       <BottomNav />

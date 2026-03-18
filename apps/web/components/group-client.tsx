@@ -17,14 +17,14 @@ type GroupPayload = {
     confirmationDeadline: string;
   };
   members: Array<{
-    riderId: string;
-    pseudonymLabel: string;
+    userId: string;
+    displayName: string;
     accepted: boolean | null;
   }>;
   revealReady: boolean;
 };
 
-type RevealedAddress = { pseudonym: string; address: string };
+type RevealedAddress = { displayName: string; address: string };
 
 const avatarClasses = ["rider-avatar-0", "rider-avatar-1", "rider-avatar-2", "rider-avatar-3"];
 
@@ -112,7 +112,7 @@ export function GroupClient({ initialGroup }: { initialGroup: GroupPayload | nul
     );
     setRevealed(
       decrypted.map((entry) => ({
-        pseudonym: entry.pseudonym,
+        displayName: entry.displayName,
         address: entry.address,
       })),
     );
@@ -153,7 +153,7 @@ export function GroupClient({ initialGroup }: { initialGroup: GroupPayload | nul
             </div>
           </div>
           <div className="group-info-cell">
-            <div className="cell-label">Riders</div>
+            <div className="cell-label">Members</div>
             <div className="cell-value">{group.group.groupSize}</div>
           </div>
           <div className="group-info-cell">
@@ -190,13 +190,17 @@ export function GroupClient({ initialGroup }: { initialGroup: GroupPayload | nul
 
         {group.members.map((member, index) => {
           const ms = memberStatus(member.accepted);
+          const initial =
+            member.displayName?.charAt(member.displayName.length - 1) ||
+            member.displayName?.charAt(0) ||
+            "?";
           return (
-            <div className="member-item" key={member.riderId}>
+            <div className="member-item" key={member.userId}>
               <div className={`rider-avatar ${avatarClasses[index % avatarClasses.length]}`}>
-                {member.pseudonymLabel.charAt(member.pseudonymLabel.length - 1)}
+                {initial}
               </div>
               <div className="member-info">
-                <div className="member-name">{member.pseudonymLabel}</div>
+                <div className="member-name">{member.displayName}</div>
               </div>
               <span className={`pill pill-sm ${ms.pillClass}`}>{ms.label}</span>
             </div>
@@ -264,9 +268,12 @@ export function GroupClient({ initialGroup }: { initialGroup: GroupPayload | nul
           </h3>
           <div className="stack-sm">
             {revealed.map((entry, index) => (
-              <div key={entry.pseudonym} style={{ animationDelay: `${index * 0.1}s` }}>
+              <div
+                key={`${entry.displayName}-${entry.address}`}
+                style={{ animationDelay: `${index * 0.1}s` }}
+              >
                 <div className="text-xs text-muted font-display fw-600" style={{ marginBottom: 4 }}>
-                  {entry.pseudonym}
+                  {entry.displayName}
                 </div>
                 <div className="reveal-address">{entry.address}</div>
               </div>

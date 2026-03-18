@@ -1,14 +1,17 @@
 .DS_Store
 node_modules
+.pnpm-store
 .next
 dist
 coverage
 .turbo
 .env
 .env.local
+.env.convex
 apps/web/.next
 apps/web/node_modules
 services/matcher/node_modules
 apps/web/dev.db
+.pnpm-store
 
 .vercel

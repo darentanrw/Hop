@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@10.15.1",
   "scripts": {
+    "dev": "concurrently -k -n convex,web,matcher -c blue,green,magenta \"pnpm dev:convex\" \"pnpm dev:web\" \"pnpm dev:matcher\"",
+    "dev:convex": "pnpm --filter @hop/web convex:dev",
     "dev:web": "pnpm --filter @hop/web dev",
     "dev:matcher": "pnpm --filter @hop/matcher dev",
     "build": "pnpm --filter @hop/shared build && pnpm --filter @hop/web build && pnpm --filter @hop/matcher build",
@@ -14,6 +16,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^24.0.0",
+    "concurrently": "^9.2.1",
     "husky": "^9.1.7",
     "typescript": "^5.8.3",
     "vitest": "^3.1.4"

@@ -1,5 +1,6 @@
 {
   "framework": "nextjs",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then pnpm exec convex deploy --cmd 'next build' --cmd-url-env-var-name NEXT_PUBLIC_CONVEX_URL; else next build; fi",
   "github": {
     "enabled": false
   }

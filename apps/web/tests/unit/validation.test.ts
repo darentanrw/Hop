@@ -1,12 +1,11 @@
-import { isAllowedUniversityEmail } from "@hop/shared";
+import { arePreferencesCompatible, isAllowedUniversityEmail, overlapMinutes } from "@hop/shared";
 import type { AvailabilityEntry } from "@hop/shared";
 import { describe, expect, test } from "vitest";
-import { arePreferencesCompatible, overlapMinutes } from "../../lib/matching";
 
 function availability(overrides: Partial<AvailabilityEntry> = {}): AvailabilityEntry {
   return {
     id: crypto.randomUUID(),
-    riderId: crypto.randomUUID(),
+    userId: crypto.randomUUID(),
     windowStart: new Date("2026-03-20T10:00:00.000Z").toISOString(),
     windowEnd: new Date("2026-03-20T14:00:00.000Z").toISOString(),
     selfDeclaredGender: "woman",

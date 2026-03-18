@@ -5,19 +5,26 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build"
+    "build": "next build",
+    "convex:dev": "convex dev",
+    "convex:deploy": "convex deploy",
+    "convex:generate-keys": "node scripts/generateKeys.mjs"
   },
   "dependencies": {
+    "@auth/core": "0.37.0",
+    "@convex-dev/auth": "^0.0.91",
     "@hop/shared": "workspace:*",
-    "@prisma/client": "^6.7.0",
+    "@oslojs/crypto": "^1.0.1",
+    "convex": "^1.33.1",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "resend": "^6.9.4"
   },
   "devDependencies": {
+    "jose": "^5.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "prisma": "^6.7.0"
+    "typescript": "^5.9.3"
   }
 }

@@ -7,7 +7,15 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "ignore": ["node_modules", ".next", "dist", "build", "*.min.js"]
+    "ignore": [
+      "node_modules",
+      ".pnpm-store",
+      ".next",
+      "dist",
+      "build",
+      "*.min.js",
+      "**/convex/_generated/**"
+    ]
   },
   "formatter": {
     "enabled": true,
