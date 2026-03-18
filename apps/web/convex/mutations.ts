@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   ACK_WINDOW_MINUTES,
   MAX_DETOUR_MINUTES,
+  MEETUP_GRACE_MINUTES,
   PICKUP_ORIGIN_ID,
   PICKUP_ORIGIN_LABEL,
   SMALL_GROUP_RELEASE_HOURS,
@@ -9,6 +10,13 @@ import {
   overlapMinutes,
 } from "@hop/shared";
 import { v } from "convex/values";
+import {
+  MEETING_LOCATION_LABEL,
+  deriveMeetingTime,
+  getEmojiForMember,
+  getGroupTheme,
+  selectBookerUserId,
+} from "../lib/group-lifecycle";
 import { createStubCompatibility, createStubRevealEnvelopes } from "../lib/matcher-stub";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -310,6 +318,26 @@ export const createAvailability = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
+    const existingMembers = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    for (const member of existingMembers) {
+      if ((member.amountDueCents ?? 0) <= 0 || member.paymentVerifiedAt) continue;
+      const group = await ctx.db.get(member.groupId);
+      if (
+        !group ||
+        group.status === "cancelled" ||
+        group.status === "closed" ||
+        group.status === "dissolved"
+      ) {
+        continue;
+      }
+
+      throw new Error("Clear your previous trip payment before scheduling another ride.");
+    }
+
     const existing = await ctx.db
       .query("availabilities")
       .withIndex("userId", (q) => q.eq("userId", userId))
@@ -363,7 +391,9 @@ export const updateAcknowledgement = mutation({
 
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
-    if (group.status !== "tentative") throw new Error("Group is not in tentative state");
+    if (group.status !== "matched_pending_ack" && group.status !== "tentative") {
+      throw new Error("Group is not waiting for acknowledgement");
+    }
 
     const userIdStr = userId;
     const members = await ctx.db
@@ -375,18 +405,9 @@ export const updateAcknowledgement = mutation({
 
     await ctx.db.patch(member._id, {
       accepted,
+      acknowledgementStatus: accepted ? "accepted" : "declined",
       acknowledgedAt: new Date().toISOString(),
     });
-
-    if (!accepted) {
-      await ctx.db.patch(groupId, { status: "dissolved" });
-      for (const aid of group.availabilityIds) {
-        const av = await ctx.db.get(aid as Id<"availabilities">);
-        if (av && "status" in av && av.status === "matched") {
-          await ctx.db.patch(av._id, { status: "open" });
-        }
-      }
-    }
 
     return { ok: true };
   },
@@ -518,8 +539,12 @@ export const createTentativeGroup = internalMutation({
       }
     }
 
+    const theme = getGroupTheme(args.memberUserIds.join(":"));
+    const bookerUserId = selectBookerUserId(args.memberUserIds);
+    const meetingTime = deriveMeetingTime(args.windowStart);
+
     const groupId = await ctx.db.insert("groups", {
-      status: "tentative",
+      status: "matched_pending_ack",
       pickupOriginId: PICKUP_ORIGIN_ID,
       pickupLabel: PICKUP_ORIGIN_LABEL,
       windowStart: args.windowStart,
@@ -533,20 +558,35 @@ export const createTentativeGroup = internalMutation({
       createdAt: new Date().toISOString(),
       availabilityIds: args.availabilityIds,
       memberUserIds: args.memberUserIds,
+      meetingTime,
+      meetingLocationLabel: MEETING_LOCATION_LABEL,
+      graceDeadline: new Date(
+        new Date(meetingTime).getTime() + MEETUP_GRACE_MINUTES * 60_000,
+      ).toISOString(),
+      groupName: theme.name,
+      groupColor: theme.color,
+      bookerUserId: bookerUserId ?? undefined,
+      suggestedDropoffOrder: args.memberUserIds,
+      reportCount: 0,
     });
 
     for (const availabilityId of args.availabilityIds) {
       await ctx.db.patch(availabilityId as Id<"availabilities">, { status: "matched" });
     }
 
-    for (const member of args.members) {
+    for (const [index, member] of args.members.entries()) {
       await ctx.db.insert("groupMembers", {
         groupId,
         userId: member.userId,
         availabilityId: member.availabilityId,
         displayName: member.displayName,
+        emoji: getEmojiForMember(groupId, index),
         accepted: null,
+        acknowledgementStatus: "pending",
         acknowledgedAt: null,
+        participationStatus: "active",
+        qrToken: `${groupId}:${member.userId}:${index}`,
+        paymentStatus: "none",
       });
     }
 
