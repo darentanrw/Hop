@@ -1,5 +1,6 @@
 import { isNusAliasFormat } from "@hop/shared";
 import { Resend } from "resend";
+import { buildInboundBodyText, extractPassphraseFromBody } from "../lib/inbound-email";
 import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
@@ -17,21 +18,6 @@ function extractNameFromFromField(from: string): string {
   const unquotedMatch = trimmed.match(/^([^<]+)</);
   if (unquotedMatch) return unquotedMatch[1].trim();
   return "";
-}
-
-function extractPassphraseFromBody(text: string): string | null {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  const patterns = [
-    /\b([a-z]{4,}-[a-z]{4,}-[a-z]{4,})\b/i,
-    /\*\*([^*]+)\*\*/,
-    /passphrase[:\s]+([^\s\n]+)/i,
-    /verification[:\s]+([^\s\n]+)/i,
-  ];
-  for (const pattern of patterns) {
-    const m = normalized.match(pattern);
-    if (m) return m[1].trim();
-  }
-  return null;
 }
 
 export const handleInboundEmail = httpAction(async (ctx, request) => {
@@ -63,7 +49,7 @@ export const handleInboundEmail = httpAction(async (ctx, request) => {
     return new Response("Failed to process email", { status: 500 });
   }
 
-  const bodyText = email.text ?? email.html ?? "";
+  const bodyText = buildInboundBodyText(email);
   const passphrase = extractPassphraseFromBody(bodyText);
   // Prefer headers.from because it commonly contains the quoted display name.
   const fromForName =
