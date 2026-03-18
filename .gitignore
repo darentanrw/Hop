@@ -12,3 +12,4 @@ apps/web/node_modules
 services/matcher/node_modules
 apps/web/dev.db
 
+.vercel
