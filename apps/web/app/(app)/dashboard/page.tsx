@@ -2,6 +2,7 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchAction, fetchQuery } from "convex/nextjs";
 import Link from "next/link";
 import { PreferencesForm } from "../../../components/preferences-form";
+import { PwaStatusCard } from "../../../components/pwa-status-card";
 import { api } from "../../../convex/_generated/api";
 
 function getGreeting() {
@@ -118,6 +119,9 @@ export default async function DashboardPage() {
           </Link>
         </div>
       )}
+
+      {/* Availability list */}
+      <PwaStatusCard />
 
       {/* Availability list */}
       <div>

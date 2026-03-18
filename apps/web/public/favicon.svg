@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="hop-accent" x1="48" y1="48" x2="464" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f0a030" />
+      <stop offset="1" stop-color="#e8733a" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="#080c18" />
+  <rect x="72" y="72" width="368" height="368" rx="96" fill="#0e1225" stroke="rgba(255,255,255,0.06)" />
+  <path d="M160 140h52v88h88v-88h52v232h-52v-96h-88v96h-52z" fill="url(#hop-accent)" />
+  <circle cx="184" cy="396" r="28" fill="#44d4c8" />
+  <circle cx="328" cy="396" r="28" fill="#44d4c8" />
+</svg>
