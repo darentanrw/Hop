@@ -1,14 +1,19 @@
 "use client";
 
+import { useAuthActions } from "@convex-dev/auth/react";
 import { useState } from "react";
 
 export function LogoutButton() {
+  const { signOut } = useAuthActions();
   const [busy, setBusy] = useState(false);
 
   async function handleLogout() {
     setBusy(true);
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/";
+    try {
+      await signOut();
+    } finally {
+      window.location.href = "/";
+    }
   }
 
   return (

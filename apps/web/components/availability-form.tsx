@@ -1,7 +1,9 @@
 "use client";
 
 import type { RiderProfile } from "@hop/shared";
+import { useMutation } from "convex/react";
 import { type FormEvent, useState } from "react";
+import { api } from "../convex/_generated/api";
 
 type AvailabilityFormProps = {
   profile: RiderProfile;
@@ -13,6 +15,7 @@ function defaultDate(hoursFromNow: number) {
 }
 
 export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormProps) {
+  const createAvailability = useMutation(api.mutations.createAvailability);
   const [windowStart, setWindowStart] = useState(defaultDate(24));
   const [windowEnd, setWindowEnd] = useState(defaultDate(28));
   const [address, setAddress] = useState("");
@@ -47,10 +50,8 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
       return;
     }
 
-    const response = await fetch("/api/availability", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      await createAvailability({
         windowStart: new Date(windowStart).toISOString(),
         windowEnd: new Date(windowEnd).toISOString(),
         selfDeclaredGender: profile.selfDeclaredGender,
@@ -60,19 +61,18 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
         sealedDestinationRef: matcherPayload.sealedDestinationRef,
         routeDescriptorRef: matcherPayload.routeDescriptorRef,
         estimatedFareBand: matcherPayload.estimatedFareBand,
-      }),
-    });
-    const payload = await response.json();
-    setBusy(false);
-
-    if (!response.ok) {
-      setStatus({ type: "error", text: payload.error ?? "Could not save availability." });
-      return;
+      });
+      setStatus({ type: "success", text: "Availability saved." });
+      setAddress("");
+      window.location.href = "/dashboard";
+    } catch (err) {
+      setStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Could not save availability.",
+      });
+    } finally {
+      setBusy(false);
     }
-
-    setStatus({ type: "success", text: "Availability saved. Matching is running." });
-    setAddress("");
-    window.location.href = "/dashboard";
   }
 
   return (

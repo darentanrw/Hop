@@ -73,6 +73,7 @@ export function BottomNav() {
           <Link
             key={tab.href}
             href={tab.href}
+            prefetch={pathname === tab.href ? false : undefined}
             className={`nav-tab ${pathname === tab.href ? "active" : ""}`}
           >
             {tab.icon}

@@ -7,7 +7,7 @@ Privacy-first NUS campus rideshare, implemented as a web-first PWA plus a separa
 - `apps/web`: Next.js App Router app for OTP login, preferences, private availability submission, tentative groups, acknowledgements, and address reveal
 - `services/matcher`: separate matcher service that receives plaintext addresses, stores only sealed destination blobs in memory, returns opaque refs, computes compatibility, and releases encrypted address envelopes
 - `packages/shared`: shared types and constants
-- Prisma schema scaffold for a production Postgres-backed version
+- Convex for database and auth (OTP via Resend, email reply verification)
 
 ## Privacy boundary
 
@@ -18,19 +18,75 @@ Privacy-first NUS campus rideshare, implemented as a web-first PWA plus a separa
 
 ## Local development
 
-1. Copy `.env.example` to `.env`.
-2. Install dependencies:
-   - `pnpm install`
-3. Run the matcher service:
-   - `pnpm dev:matcher`
-4. Run the web app:
-   - `pnpm dev:web`
-5. Open the web app at `http://localhost:3000`.
+1. Install dependencies: `pnpm install`
+2. Set up environment variables:
+   - **Next.js**: Copy `apps/web/.env.example` to `apps/web/.env.local`
+   - **Matcher**: Copy `services/matcher/.env.example` to `services/matcher/.env`
+3. Run Convex dev (creates project, syncs schema, sets `NEXT_PUBLIC_CONVEX_URL` in `apps/web/.env.local`):
+   - `cd apps/web && npx convex dev`
+4. Configure Convex environment variables (see [Convex Auth setup](#convex-auth-setup) below).
+5. In separate terminals:
+   - `pnpm dev:web` — Next.js app (port 3000)
+   - `pnpm dev:matcher` — matcher service (port 4001)
+6. Open the web app at `http://localhost:3000`.
+
+## Convex Auth setup
+
+Convex Auth requires several environment variables in your Convex deployment (not in `.env`). Set them via the [Convex dashboard](https://dashboard.convex.dev) or `npx convex env set`:
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `SITE_URL` | Redirect URL after auth (e.g. `http://localhost:3000`) | Yes |
+| `JWT_PRIVATE_KEY` | Private key for signing JWTs | Yes |
+| `JWKS` | Public key set (JSON) for verifying JWTs | Yes |
+| `AUTH_RESEND_KEY` | Resend API key for OTP, verification, and inbound emails | Yes |
+| `RESEND_FROM_EMAIL` | Sender address (e.g. `Hop <login@hophome.app>`) | No (has default) |
+| `RESEND_INBOUND_ADDRESS` | Inbound address that receives verification replies (e.g. `reply@xxx.resend.app`) | Yes, for email reply flow |
+
+### Generating JWT keys
+
+Run the key generator and paste the output into Convex dashboard → Deployment Settings → Environment Variables:
+
+```bash
+cd apps/web && pnpm convex:generate-keys
+```
+
+This uses the [jose](https://github.com/panva/jose) library to generate `JWT_PRIVATE_KEY` and `JWKS`.
+
+### Setting variables via CLI
+
+```bash
+cd apps/web
+npx convex env set SITE_URL http://localhost:3000
+npx convex env set AUTH_RESEND_KEY re_your_resend_api_key
+# JWT_PRIVATE_KEY and JWKS: use output from pnpm convex:generate-keys
+```
+
+Or copy `apps/web/.env.convex.example` to `apps/web/.env.convex`, fill in values, then run:
+
+```bash
+cd apps/web && npx convex env set --from-file .env.convex
+```
+
+## Resend Inbound (email reply verification)
+
+For first-time users to verify by replying with the passphrase:
+
+1. **Resend dashboard** → **Receiving** → **Add address**  
+   Create inbound address `login@hophome.app` (add MX records Resend provides).
+
+2. **Configure webhook**  
+   - URL: `https://<your-deployment>.convex.site/resend-inbound`  
+   - Event: `email.received`
+
+3. **Set Convex env**  
+   ```bash
+   npx convex env set RESEND_INBOUND_ADDRESS login@hophome.app
+   npx convex env set RESEND_FROM_EMAIL "Hop <login@hophome.app>"
+   ```
 
 ## Notes
 
-- OTP uses a dev-only response field so you can log in locally without email infrastructure.
-- The data layer is currently an in-memory beta scaffold so the app can run from an empty repo today.
-- `apps/web/prisma/schema.prisma` models the intended production Postgres schema.
+- Without `AUTH_RESEND_KEY`, OTP and verification emails will fail.
 - The matcher service intentionally uses coarse route heuristics for the prototype instead of true road-network routing.
 
