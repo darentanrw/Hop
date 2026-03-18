@@ -29,8 +29,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Validate
+        run: |
+          pnpm lint
+          pnpm test
+          pnpm --filter @hop/shared build
+          pnpm --filter @hop/matcher build
 
       - name: Deploy to Vercel
         id: deploy
@@ -42,4 +46,4 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           github-comment: ${{ github.event_name == 'pull_request' }}
           vercel-args: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && '--prod' || '' }}
-          working-directory: .
+          working-directory: ./apps/web
