@@ -9,6 +9,7 @@ import {
   overlapMinutes,
 } from "@hop/shared";
 import { v } from "convex/values";
+import { createStubCompatibility, createStubRevealEnvelopes } from "../lib/matcher-stub";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalMutation, mutation } from "./_generated/server";
@@ -117,6 +118,10 @@ function combinations<T>(items: T[], size: number): T[][] {
 }
 
 async function fetchCompatibility(routeDescriptorRefs: string[]) {
+  if ((process.env.MATCHER_MODE ?? "stub") !== "live") {
+    return createStubCompatibility(routeDescriptorRefs);
+  }
+
   const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
   const response = await fetch(`${matcherBaseUrl}/matcher/compatibility`, {
     method: "POST",
@@ -141,6 +146,10 @@ async function fetchRevealEnvelopes(
     publicKey: string;
   }>,
 ) {
+  if ((process.env.MATCHER_MODE ?? "stub") !== "live") {
+    return await createStubRevealEnvelopes(members);
+  }
+
   const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
   const response = await fetch(`${matcherBaseUrl}/matcher/reveal-envelopes`, {
     method: "POST",

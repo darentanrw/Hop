@@ -20,10 +20,7 @@ export default async function AvailabilityPage() {
         </p>
       </div>
 
-      <AvailabilityForm
-        profile={riderProfile}
-        matcherBaseUrl={process.env.NEXT_PUBLIC_MATCHER_BASE_URL ?? "http://localhost:4001"}
-      />
+      <AvailabilityForm profile={riderProfile} />
     </div>
   );
 }
