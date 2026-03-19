@@ -2341,18 +2341,6 @@ code {
   margin: 0 auto;
 }
 
-.admin-simulator-shell::before {
-  content: "";
-  position: absolute;
-  inset: -32px -24px auto;
-  height: 540px;
-  pointer-events: none;
-  border-radius: 36px;
-  background: radial-gradient(circle at 18% 0%, rgba(184, 120, 8, 0.06), transparent 34%),
-    radial-gradient(circle at 82% 10%, rgba(13, 136, 128, 0.05), transparent 30%),
-    linear-gradient(180deg, rgba(245, 246, 250, 0.8), transparent);
-}
-
 .admin-simulator-hero {
   position: relative;
   z-index: 1;
@@ -2849,11 +2837,6 @@ code {
 @media (max-width: 720px) {
   .admin-simulator-page {
     padding-inline: 12px;
-  }
-
-  .admin-simulator-shell::before {
-    inset: -12px -12px auto;
-    height: 420px;
   }
 
   .admin-simulator-hero {
