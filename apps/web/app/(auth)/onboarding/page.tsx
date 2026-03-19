@@ -16,6 +16,7 @@ const genderOptions: { value: SelfDeclaredGender; label: string }[] = [
 export default function OnboardingPage() {
   const router = useRouter();
   const user = useQuery(api.queries.currentUser);
+  const verificationStatus = useQuery(api.queries.getVerificationStatus);
   const completeOnboarding = useMutation(api.mutations.completeOnboarding);
   const [status, setStatus] = useState<{
     type: "success" | "error";
@@ -41,7 +42,35 @@ export default function OnboardingPage() {
       setForm((c) => ({ ...c, name: userName }));
     }
   }, [user?.name, form.name]);
+
+  useEffect(() => {
+    if (verificationStatus === undefined) return;
+    if (verificationStatus === null) {
+      router.replace("/login");
+      return;
+    }
+    if (!verificationStatus.emailVerified) {
+      router.replace("/verify-email");
+      return;
+    }
+    if (verificationStatus.onboardingComplete) {
+      router.replace("/dashboard");
+    }
+  }, [verificationStatus, router]);
+
   const canSubmit = acceptedTc && confirmedTruthful && form.name.trim().length > 0;
+
+  if (verificationStatus === undefined) {
+    return (
+      <div className="auth-page">
+        <div className="auth-body">
+          <div className="card" style={{ textAlign: "center", padding: 32 }}>
+            <p className="text-muted">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
