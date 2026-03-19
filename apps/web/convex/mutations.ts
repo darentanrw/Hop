@@ -529,7 +529,10 @@ export const cancelTripParticipation = mutation({
       if (updatedMemberUserIds.length !== group.memberUserIds.length) {
         groupPatch.memberUserIds = updatedMemberUserIds;
         if (updatedMemberUserIds.length > 0) {
-          groupPatch.groupSize = Math.max(2, updatedMemberUserIds.length);
+          // Keep group.groupSize consistent with the number of remaining memberUserIds.
+          // If only one rider remains, groupSize should become 1 (and downstream lifecycle can
+          // decide whether to cancel the group).
+          groupPatch.groupSize = updatedMemberUserIds.length;
         }
 
         // P1 FIX: If the cancelling user is the booker, reassign to next active member by credibility
