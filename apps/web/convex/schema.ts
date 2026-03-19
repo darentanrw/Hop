@@ -164,6 +164,7 @@ const schema = defineSchema({
     paymentDueAt: v.optional(v.string()),
     closedAt: v.optional(v.string()),
     reportCount: v.optional(v.number()),
+    rewardedUserIds: v.optional(v.array(v.string())),
   }),
   groupMembers: defineTable({
     groupId: v.id("groups"),

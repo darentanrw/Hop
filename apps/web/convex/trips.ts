@@ -263,18 +263,27 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
     // Track members who verified payment and increment their successfulTrips immediately
     const paymentMembers = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
     const verifiedMembers = paymentMembers.filter((member) => member.paymentStatus === "verified");
+    // @ts-ignore — group document has untyped fields from dynamic patching\n    const groupAny = group as any;
+    const rewardedUserIds: Id<"users">[] =
+      (groupAny.rewardedUserIds as Id<"users">[] | undefined) ?? [];
 
     for (const member of verifiedMembers) {
-      const user = await ctx.db.get(member.userId as Id<"users">);
-      if (user) {
-        // Check if this user already got successfulTrips for this group (use auditEvents)
-        const alreadyRewarded = false; // TODO: implement dedup check
-        if (!alreadyRewarded) {
-          await ctx.db.patch(member.userId as Id<"users">, {
-            successfulTrips: (user.successfulTrips ?? 0) + 1,
-          });
-        }
-      }
+      const userId = member.userId as Id<"users">;
+      const alreadyRewarded = rewardedUserIds.some((id) => id === userId);
+      if (alreadyRewarded) continue;
+
+      const user = await ctx.db.get(userId);
+      if (!user) continue;
+
+      await ctx.db.patch(userId, {
+        successfulTrips: (user.successfulTrips ?? 0) + 1,
+      });
+
+      // Persist that this user has been rewarded for this group
+      rewardedUserIds.push(userId);
+      await ctx.db.patch(group._id, {
+        rewardedUserIds,
+      });
     }
 
     // Check if all payment members have paid
