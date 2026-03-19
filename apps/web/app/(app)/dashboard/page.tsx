@@ -122,9 +122,7 @@ function StatusCard({ state }: { state: StatusState }) {
             >
               Looking for a ride
             </div>
-            <p className="text-sm text-muted">
-              You&apos;ll get an alert when a group forms.
-            </p>
+            <p className="text-sm text-muted">You&apos;ll get an alert when a group forms.</p>
           </div>
         </div>
       </div>
