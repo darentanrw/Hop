@@ -2,13 +2,6 @@ import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
-const fareBand = v.union(
-  v.literal("S$10-15"),
-  v.literal("S$16-20"),
-  v.literal("S$21-25"),
-  v.literal("S$26+"),
-);
-
 const selfDeclaredGender = v.union(
   v.literal("woman"),
   v.literal("man"),
@@ -19,6 +12,8 @@ const selfDeclaredGender = v.union(
 const groupStatus = v.union(v.literal("tentative"), v.literal("revealed"), v.literal("dissolved"));
 const lifecycleGroupStatus = v.union(
   v.literal("tentative"),
+  v.literal("semi_locked"),
+  v.literal("locked"),
   v.literal("revealed"),
   v.literal("dissolved"),
   v.literal("matched_pending_ack"),
@@ -126,7 +121,7 @@ const schema = defineSchema({
     maxGroupSize: v.number(),
     sealedDestinationRef: v.string(),
     routeDescriptorRef: v.string(),
-    estimatedFareBand: fareBand,
+    estimatedFareBand: v.optional(v.string()),
     createdAt: v.string(),
     status: availabilityStatus,
   }).index("userId", ["userId"]),
@@ -137,7 +132,7 @@ const schema = defineSchema({
     windowStart: v.string(),
     windowEnd: v.string(),
     groupSize: v.number(),
-    estimatedFareBand: fareBand,
+    estimatedFareBand: v.optional(v.string()),
     maxDetourMinutes: v.number(),
     averageScore: v.number(),
     minimumScore: v.number(),
@@ -159,6 +154,7 @@ const schema = defineSchema({
     receiptSubmittedAt: v.optional(v.string()),
     paymentDueAt: v.optional(v.string()),
     closedAt: v.optional(v.string()),
+    generalAreaLabels: v.optional(v.array(v.string())),
     reportCount: v.optional(v.number()),
   }),
   groupMembers: defineTable({

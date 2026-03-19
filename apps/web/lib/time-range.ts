@@ -40,25 +40,51 @@ function singaporeDateFromParts(
   return new Date(Date.UTC(year, month - 1, day, hour - SINGAPORE_OFFSET_HOURS, minute, 0, 0));
 }
 
-export function getDefaultDateInput(daysFromToday = 1) {
+export function getMinDateInput() {
+  return inputDateFormatter.format(new Date());
+}
+
+export function getDefaultDateInput(daysFromToday = 0) {
   const date = new Date();
   date.setUTCDate(date.getUTCDate() + daysFromToday);
   return inputDateFormatter.format(date);
 }
 
-export function getDefaultRange() {
+const MIN_ADVANCE_MINUTES = 30;
+
+export function getEarliestSlotForDate(dateInput: string) {
+  const todayStr = inputDateFormatter.format(new Date());
+  if (dateInput !== todayStr) return 0;
+
+  const nowSgt = new Date(Date.now() + SINGAPORE_OFFSET_HOURS * 3_600_000);
+  const minutesSinceMidnight = nowSgt.getUTCHours() * 60 + nowSgt.getUTCMinutes();
+  return Math.ceil((minutesSinceMidnight + MIN_ADVANCE_MINUTES) / SLOT_MINUTES);
+}
+
+export function getDefaultRange(dateInput?: string) {
+  const earliestSlot = dateInput ? getEarliestSlotForDate(dateInput) : 0;
+  const defaultStart = Math.max(36, earliestSlot);
+  const defaultEnd = Math.min(SLOTS_PER_DAY, defaultStart + 4);
+
+  if (defaultEnd - defaultStart < MIN_DURATION_SLOTS) {
+    return {
+      startSlot: Math.max(0, SLOTS_PER_DAY - MIN_DURATION_SLOTS),
+      endSlot: SLOTS_PER_DAY,
+    };
+  }
+
   return {
-    startSlot: 36,
-    endSlot: 40,
+    startSlot: defaultStart,
+    endSlot: defaultEnd,
   };
 }
 
-export function clampSlot(slot: number) {
-  return Math.max(0, Math.min(SLOTS_PER_DAY - 1, Math.round(slot)));
+export function clampSlot(slot: number, minSlot = 0) {
+  return Math.max(minSlot, Math.min(SLOTS_PER_DAY - 1, Math.round(slot)));
 }
 
-export function clampRange(startSlot: number, endSlot: number) {
-  const nextStart = clampSlot(startSlot);
+export function clampRange(startSlot: number, endSlot: number, minSlot = 0) {
+  const nextStart = clampSlot(startSlot, minSlot);
   const nextEnd = Math.max(
     nextStart + MIN_DURATION_SLOTS,
     Math.min(SLOTS_PER_DAY, Math.round(endSlot)),
@@ -66,7 +92,7 @@ export function clampRange(startSlot: number, endSlot: number) {
 
   if (nextEnd > SLOTS_PER_DAY) {
     return {
-      startSlot: Math.max(0, SLOTS_PER_DAY - MIN_DURATION_SLOTS),
+      startSlot: Math.max(minSlot, SLOTS_PER_DAY - MIN_DURATION_SLOTS),
       endSlot: SLOTS_PER_DAY,
     };
   }
@@ -81,12 +107,13 @@ export function updateRangeForHandle(
   handle: "start" | "end",
   nextSlot: number,
   current: { startSlot: number; endSlot: number },
+  minSlot = 0,
 ) {
   if (handle === "start") {
-    return clampRange(nextSlot, current.endSlot);
+    return clampRange(nextSlot, current.endSlot, minSlot);
   }
 
-  return clampRange(current.startSlot, nextSlot);
+  return clampRange(current.startSlot, nextSlot, minSlot);
 }
 
 export function slotToClockParts(slot: number) {

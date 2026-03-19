@@ -4,18 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@hop/shared": "workspace:*",
-    "dotenv": "^16.4.5",
     "cors": "^2.8.5",
-    "express": "^5.1.0"
+    "dotenv": "^16.4.5",
+    "express": "^5.1.0",
+    "ngeohash": "^0.6.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.18",
     "@types/express": "^5.0.1",
+    "@types/ngeohash": "^0.6.8",
     "tsx": "^4.19.4"
   }
 }

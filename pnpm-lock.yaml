@@ -101,6 +101,9 @@ importers:
       express:
         specifier: ^5.1.0
         version: 5.2.1
+      ngeohash:
+        specifier: ^0.6.3
+        version: 0.6.3
     devDependencies:
       '@types/cors':
         specifier: ^2.8.18
@@ -108,6 +111,9 @@ importers:
       '@types/express':
         specifier: ^5.0.1
         version: 5.0.6
+      '@types/ngeohash':
+        specifier: ^0.6.8
+        version: 0.6.8
       tsx:
         specifier: ^4.19.4
         version: 4.21.0
@@ -874,6 +880,9 @@ packages:
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
 
+  '@types/ngeohash@0.6.8':
+    resolution: {integrity: sha512-A90x3HMwE1yXbWCnd0ztHzv8rAQPjwTzX2diYI/6OrWm/3oairDaehw5WPWJFgZ+8+J/OuF99IbipmMa2le6tQ==}
+
   '@types/node@24.12.0':
     resolution: {integrity: sha512-GYDxsZi3ChgmckRT9HPU0WEhKLP08ev/Yfcq2AstjrDASOYCSXeyjDsHg4v5t4jOj7cyDX3vmprafKlWIG9MXQ==}
 
@@ -1371,6 +1380,10 @@ packages:
         optional: true
       sass:
         optional: true
+
+  ngeohash@0.6.3:
+    resolution: {integrity: sha512-kltF0cOxgx1AbmVzKxYZaoB0aj7mOxZeHaerEtQV0YaqnkXNq26WWqMmJ6lTqShYxVRWZ/mwvvTrNeOwdslWiw==}
+    engines: {node: '>=v0.2.0'}
 
   oauth4webapi@3.8.5:
     resolution: {integrity: sha512-A8jmyUckVhRJj5lspguklcl90Ydqk61H3dcU0oLhH3Yv13KpAliKTt5hknpGGPZSSfOwGyraNEFmofDYH+1kSg==}
@@ -2314,6 +2327,8 @@ snapshots:
 
   '@types/http-errors@2.0.5': {}
 
+  '@types/ngeohash@0.6.8': {}
+
   '@types/node@24.12.0':
     dependencies:
       undici-types: 7.16.0
@@ -2849,6 +2864,8 @@ snapshots:
     transitivePeerDependencies:
       - '@babel/core'
       - babel-plugin-macros
+
+  ngeohash@0.6.3: {}
 
   oauth4webapi@3.8.5: {}
 
