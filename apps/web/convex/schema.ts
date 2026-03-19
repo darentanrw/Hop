@@ -39,6 +39,7 @@ const memberParticipationStatus = v.union(
   v.literal("active"),
   v.literal("removed_no_ack"),
   v.literal("removed_no_show"),
+  v.literal("cancelled_by_user"),
 );
 const memberAcknowledgementStatus = v.union(
   v.literal("pending"),
@@ -77,6 +78,9 @@ const schema = defineSchema({
     emailDomain: v.optional(v.string()),
     emailVerified: v.optional(v.boolean()),
     onboardingComplete: v.optional(v.boolean()),
+    successfulTrips: v.optional(v.number()),
+    cancelledTrips: v.optional(v.number()),
+    reportedCount: v.optional(v.number()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),

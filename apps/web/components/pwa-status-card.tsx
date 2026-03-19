@@ -11,10 +11,9 @@ function isStandaloneMode() {
 }
 
 export function PwaStatusCard() {
-  const [installed, setInstalled] = useState(() => isStandaloneMode());
-  const [notifications, setNotifications] = useState<NotificationPermission | "unsupported">(
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
-  );
+  const [installed, setInstalled] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationPermission | "unsupported">("default");
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const sync = () => {
@@ -25,6 +24,7 @@ export function PwaStatusCard() {
     };
 
     sync();
+    setHydrated(true);
     window.addEventListener("appinstalled", sync);
     const media = window.matchMedia?.("(display-mode: standalone)");
     media?.addEventListener?.("change", sync);
