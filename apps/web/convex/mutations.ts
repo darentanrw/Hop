@@ -23,6 +23,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { action, internalMutation, mutation } from "./_generated/server";
+import { resolveQaActingUserId } from "./local-qa";
 
 type MatchingCandidate = {
   availabilityId: Id<"availabilities">;
@@ -415,9 +416,10 @@ export const updateAcknowledgement = mutation({
   args: {
     groupId: v.id("groups"),
     accepted: v.boolean(),
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { groupId, accepted }) => {
-    const userId = await getAuthUserId(ctx);
+  handler: async (ctx, { groupId, accepted, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(groupId);
