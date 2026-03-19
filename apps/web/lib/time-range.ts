@@ -2,20 +2,43 @@ export const SLOT_MINUTES = 30;
 export const SLOTS_PER_DAY = 48;
 export const MIN_DURATION_SLOTS = 2;
 
-function localDateFromParts(
+const SINGAPORE_TIME_ZONE = "Asia/Singapore";
+const SINGAPORE_OFFSET_HOURS = 8;
+
+const timeFormatter = new Intl.DateTimeFormat("en-SG", {
+  hour: "numeric",
+  minute: "2-digit",
+  timeZone: SINGAPORE_TIME_ZONE,
+});
+
+const dateFormatter = new Intl.DateTimeFormat("en-SG", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  timeZone: SINGAPORE_TIME_ZONE,
+});
+
+const inputDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  timeZone: SINGAPORE_TIME_ZONE,
+});
+
+function singaporeDateFromParts(
   year: number,
   month: number,
   day: number,
   hour: number,
   minute: number,
 ) {
-  return new Date(year, month - 1, day, hour, minute, 0, 0);
+  return new Date(Date.UTC(year, month - 1, day, hour - SINGAPORE_OFFSET_HOURS, minute, 0, 0));
 }
 
 export function getDefaultDateInput(daysFromToday = 1) {
   const date = new Date();
-  date.setDate(date.getDate() + daysFromToday);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  date.setUTCDate(date.getUTCDate() + daysFromToday);
+  return inputDateFormatter.format(date);
 }
 
 export function getDefaultRange() {
@@ -71,10 +94,7 @@ export function slotToClockParts(slot: number) {
 
 export function slotToLabel(slot: number) {
   const { hour, minute } = slotToClockParts(slot);
-  return localDateFromParts(2026, 1, 1, hour, minute).toLocaleTimeString("en-SG", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return timeFormatter.format(singaporeDateFromParts(2026, 1, 1, hour, minute));
 }
 
 export function slotOptions() {
@@ -90,14 +110,20 @@ export function slotsToIsoRange(dateInput: string, startSlot: number, endSlot: n
   const endParts = slotToClockParts(endSlot);
 
   return {
-    windowStart: localDateFromParts(
+    windowStart: singaporeDateFromParts(
       year,
       month,
       day,
       startParts.hour,
       startParts.minute,
     ).toISOString(),
-    windowEnd: localDateFromParts(year, month, day, endParts.hour, endParts.minute).toISOString(),
+    windowEnd: singaporeDateFromParts(
+      year,
+      month,
+      day,
+      endParts.hour,
+      endParts.minute,
+    ).toISOString(),
   };
 }
 
@@ -105,16 +131,12 @@ export function formatRangeSummary(dateInput: string, startSlot: number, endSlot
   const [year, month, day] = dateInput.split("-").map(Number);
   const start = slotToClockParts(startSlot);
   const end = slotToClockParts(endSlot);
-  const baseDate = localDateFromParts(year, month, day, start.hour, start.minute);
-  const endDate = localDateFromParts(year, month, day, end.hour, end.minute);
+  const baseDate = singaporeDateFromParts(year, month, day, start.hour, start.minute);
+  const endDate = singaporeDateFromParts(year, month, day, end.hour, end.minute);
 
-  const dateLabel = baseDate.toLocaleDateString("en-SG", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-  const startLabel = baseDate.toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" });
-  const endLabel = endDate.toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" });
+  const dateLabel = dateFormatter.format(baseDate);
+  const startLabel = timeFormatter.format(baseDate);
+  const endLabel = timeFormatter.format(endDate);
 
   return `${dateLabel}, ${startLabel} - ${endLabel}`;
 }
