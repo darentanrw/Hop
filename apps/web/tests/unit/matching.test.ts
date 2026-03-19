@@ -13,7 +13,9 @@ import { evaluateGroup, formGroups, pairKey } from "../../lib/matching";
 const SOON = new Date(Date.now() + 2 * 3_600_000).toISOString();
 const SOON_END = new Date(Date.now() + 4 * 3_600_000).toISOString();
 
-function makeCandidate(overrides: Partial<MatchingCandidate> & { userId: string }): MatchingCandidate {
+function makeCandidate(
+  overrides: Partial<MatchingCandidate> & { userId: string },
+): MatchingCandidate {
   return {
     availabilityId: `avail_${overrides.userId}`,
     windowStart: SOON,
@@ -165,7 +167,7 @@ describe("group formation — location-based scenarios", () => {
       makeEdge("route_clementi_2", "route_holland", {
         spreadDistanceKm: 3.0,
         detourMinutes: 5,
-        score: 0.80,
+        score: 0.8,
       }),
     ];
     const groups = formGroups([riderA, riderC, riderD], edges);
@@ -241,7 +243,7 @@ describe("group formation — location-based scenarios", () => {
       makeEdge("route_clementi_2", "route_holland", {
         spreadDistanceKm: 3.0,
         detourMinutes: 5,
-        score: 0.80,
+        score: 0.8,
       }),
     ];
 
@@ -346,7 +348,7 @@ describe("evaluateGroup — constraint validation", () => {
     const result = evaluateGroup(members, compatibilityMap);
 
     expect(result).not.toBeNull();
-    expect(result!.averageScore).toBe(0.88);
-    expect(result!.maxDetourMinutes).toBe(5);
+    expect(result?.averageScore).toBe(0.88);
+    expect(result?.maxDetourMinutes).toBe(5);
   });
 });

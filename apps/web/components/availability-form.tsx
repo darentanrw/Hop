@@ -190,7 +190,10 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
               style={{ width: "100%" }}
             />
             {destinationAddress ? (
-              <div className="text-xs" style={{ color: "var(--color-success, #22c55e)", marginTop: 4 }}>
+              <div
+                className="text-xs"
+                style={{ color: "var(--color-success, #22c55e)", marginTop: 4 }}
+              >
                 {destinationAddress}
               </div>
             ) : null}
@@ -232,7 +235,9 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
                   >
                     <strong>{s.title}</strong>
                     <br />
-                    <span className="text-muted" style={{ fontSize: 12 }}>{s.address}</span>
+                    <span className="text-muted" style={{ fontSize: 12 }}>
+                      {s.address}
+                    </span>
                   </button>
                 ))}
               </div>

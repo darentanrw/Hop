@@ -138,8 +138,7 @@ export function formGroups(
       if (
         !best ||
         current.averageScore > best.averageScore ||
-        (current.averageScore === best.averageScore &&
-          current.minimumScore > best.minimumScore) ||
+        (current.averageScore === best.averageScore && current.minimumScore > best.minimumScore) ||
         (current.averageScore === best.averageScore &&
           current.minimumScore === best.minimumScore &&
           current.maxDetourMinutes < best.maxDetourMinutes)
@@ -152,9 +151,7 @@ export function formGroups(
 
     selectedGroups.push(best);
     for (const member of best.members) {
-      const index = unmatched.findIndex(
-        (entry) => entry.availabilityId === member.availabilityId,
-      );
+      const index = unmatched.findIndex((entry) => entry.availabilityId === member.availabilityId);
       if (index >= 0) unmatched.splice(index, 1);
     }
     return true;

@@ -61,7 +61,7 @@ export function TimeRangePicker({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [activeHandle, endSlot, onRangeChange, startSlot]);
+  }, [activeHandle, endSlot, minSlot, onRangeChange, startSlot]);
 
   const startPercent = (startSlot / SLOTS_PER_DAY) * 100;
   const endPercent = (endSlot / SLOTS_PER_DAY) * 100;
@@ -152,7 +152,10 @@ export function TimeRangePicker({
             }}
             onKeyDown={(event) => handleKeyDown("end", event)}
             aria-label="Adjust end time"
-            aria-valuemin={Math.max(minSlot + MIN_DURATION_SLOTS, normalized.startSlot + MIN_DURATION_SLOTS)}
+            aria-valuemin={Math.max(
+              minSlot + MIN_DURATION_SLOTS,
+              normalized.startSlot + MIN_DURATION_SLOTS,
+            )}
             aria-valuemax={SLOTS_PER_DAY}
             aria-valuenow={normalized.endSlot}
           />
@@ -176,7 +179,9 @@ export function TimeRangePicker({
             onChange={(event) => moveHandle("start", Number(event.target.value))}
           >
             {options
-              .filter((option) => option.value >= minSlot && option.value <= endSlot - MIN_DURATION_SLOTS)
+              .filter(
+                (option) => option.value >= minSlot && option.value <= endSlot - MIN_DURATION_SLOTS,
+              )
               .map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -192,7 +197,11 @@ export function TimeRangePicker({
             onChange={(event) => moveHandle("end", Number(event.target.value))}
           >
             {options
-              .filter((option) => option.value >= Math.max(minSlot + MIN_DURATION_SLOTS, startSlot + MIN_DURATION_SLOTS))
+              .filter(
+                (option) =>
+                  option.value >=
+                  Math.max(minSlot + MIN_DURATION_SLOTS, startSlot + MIN_DURATION_SLOTS),
+              )
               .map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
