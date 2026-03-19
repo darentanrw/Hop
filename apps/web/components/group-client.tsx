@@ -34,6 +34,7 @@ type ActiveTripPayload = {
   currentUserId: string;
   currentUserMember: {
     userId: string;
+    displayName: string;
     emoji: string;
     destinationLockedAt: string | null;
     qrToken: string | null;
@@ -42,6 +43,7 @@ type ActiveTripPayload = {
   } | null;
   members: Array<{
     userId: string;
+    displayName: string;
     emoji: string;
     acknowledgementStatus: string;
     participationStatus: string;
@@ -166,8 +168,23 @@ async function uploadFile(
   return payload.storageId;
 }
 
-export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload | null }) {
-  const liveGroup = useQuery(api.trips.getActiveTrip);
+export function GroupClient({
+  initialGroup,
+  qaActingUserId,
+}: {
+  initialGroup: ActiveTripPayload | null;
+  qaActingUserId?: string;
+}) {
+  const qaArgs = useMemo(
+    () =>
+      qaActingUserId
+        ? {
+            actingUserId: qaActingUserId as Id<"users">,
+          }
+        : {},
+    [qaActingUserId],
+  );
+  const liveGroup = useQuery(api.trips.getActiveTrip, qaArgs);
   const group = liveGroup === undefined ? initialGroup : liveGroup;
 
   const syncLifecycle = useMutation(api.trips.advanceCurrentGroupLifecycle);
@@ -200,12 +217,12 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
   const lastScannedAtRef = useRef(0);
 
   useEffect(() => {
-    void syncLifecycle({});
+    void syncLifecycle(qaArgs);
     const interval = window.setInterval(() => {
-      void syncLifecycle({});
+      void syncLifecycle(qaArgs);
     }, 15_000);
     return () => window.clearInterval(interval);
-  }, [syncLifecycle]);
+  }, [qaArgs, syncLifecycle]);
 
   useEffect(() => {
     if (!group?.actions.canShowQr || !group.currentUserMember?.qrToken) {
@@ -246,7 +263,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
 
     try {
       await task();
-      await syncLifecycle({});
+      await syncLifecycle(qaArgs);
     } catch (error) {
       setStatus({
         type: "error",
@@ -295,8 +312,9 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         await scanGroupQrToken({
           groupId: group.group.id as Id<"groups">,
           qrToken: trimmedValue,
+          ...qaArgs,
         });
-        await syncLifecycle({});
+        await syncLifecycle(qaArgs);
         setStatus({ type: "success", text: "Rider checked in." });
       } catch (error) {
         setStatus({
@@ -307,7 +325,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         scannerBusyRef.current = false;
       }
     },
-    [group, scanGroupQrToken, syncLifecycle],
+    [group, qaArgs, scanGroupQrToken, syncLifecycle],
   );
 
   const startLiveScanner = useCallback(() => {
@@ -397,6 +415,13 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
 
   return (
     <div className="stack stagger">
+      {qaActingUserId ? (
+        <div className="notice notice-info qa-view-banner">
+          Viewing this QA group as {group.currentUserMember?.emoji ?? "🙂"}{" "}
+          {group.currentUserMember?.displayName ?? "this rider"}.
+        </div>
+      ) : null}
+
       {/* ── Hero Card ── */}
       <div
         className="card group-hero-card"
@@ -512,7 +537,11 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
                 <div className="member-info">
                   <div className="member-name">
-                    {member.isBooker ? "Booker" : "Rider"}
+                    {member.displayName}
+                    <span className="text-muted" style={{ fontWeight: 500 }}>
+                      {" "}
+                      · {member.isBooker ? "Booker" : "Rider"}
+                    </span>
                     {isMe ? " · You" : ""}
                   </div>
                 </div>
@@ -536,6 +565,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 await updateAcknowledgement({
                   groupId: group.group.id as Id<"groups">,
                   accepted: true,
+                  ...qaArgs,
                 });
                 setStatus({ type: "success", text: "You're confirmed for this ride." });
               })
@@ -553,6 +583,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 await updateAcknowledgement({
                   groupId: group.group.id as Id<"groups">,
                   accepted: false,
+                  ...qaArgs,
                 });
                 setStatus({ type: "info", text: "You've declined this ride." });
               })
@@ -594,7 +625,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             disabled={busy}
             onClick={() =>
               runAction(async () => {
-                await startMeetupCheckIn({ groupId: group.group.id as Id<"groups"> });
+                await startMeetupCheckIn({
+                  groupId: group.group.id as Id<"groups">,
+                  ...qaArgs,
+                });
                 setStatus({ type: "success", text: "Check-in is open." });
               })
             }
@@ -694,7 +728,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             disabled={busy || !group.actions.canDepart}
             onClick={() =>
               runAction(async () => {
-                await departGroup({ groupId: group.group.id as Id<"groups"> });
+                await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
                 setStatus({ type: "success", text: "Departed. Safe travels!" });
               })
             }
@@ -738,6 +772,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                   groupId: group.group.id as Id<"groups">,
                   totalCostCents: Math.round(Number(receiptTotal) * 100),
                   storageId,
+                  ...qaArgs,
                 });
                 setReceiptFile(null);
                 setReceiptTotal("");
@@ -776,6 +811,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 await submitPaymentProof({
                   groupId: group.group.id as Id<"groups">,
                   storageId,
+                  ...qaArgs,
                 });
                 setPaymentFile(null);
                 setStatus({
@@ -821,6 +857,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                           await verifyPayment({
                             groupId: group.group.id as Id<"groups">,
                             memberUserId: member.userId,
+                            ...qaArgs,
                           });
                           setStatus({ type: "success", text: "Payment confirmed." });
                         })
@@ -895,6 +932,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                     | "misconduct"
                     | "other",
                   description: reportDescription.trim(),
+                  ...qaArgs,
                 });
                 setReportDescription("");
                 setReportedUserId("");
