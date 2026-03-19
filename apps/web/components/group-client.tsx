@@ -247,10 +247,12 @@ export function GroupClient({
   const [chatBusy, setChatBusy] = useState(false);
 
   const chatGroupId = group?.group.id as Id<"groups"> | undefined;
-  const showTabs = group?.actions.canChat ?? false;
+  const canChat = group?.actions.canChat ?? false;
+  const canReport = group?.actions.canReport ?? false;
+  const showTabs = canChat || canReport;
   const chatMessages = useQuery(
     api.chat.listMessages,
-    chatGroupId && showTabs ? { groupId: chatGroupId, ...qaArgs } : "skip",
+    chatGroupId && canChat ? { groupId: chatGroupId, ...qaArgs } : "skip",
   );
   const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -309,8 +311,10 @@ export function GroupClient({
   }, [qaArgs]);
 
   useEffect(() => {
+    if (tab === "chat" && !canChat) setTab("ride");
+    if (tab === "report" && !canReport) setTab("ride");
     if (!showTabs && tab !== "ride") setTab("ride");
-  }, [showTabs, tab]);
+  }, [showTabs, canChat, canReport, tab]);
 
   const prevChatCountRef = useRef(0);
   const currentChatCount = chatMessages?.length ?? 0;
@@ -552,20 +556,24 @@ export function GroupClient({
           >
             Ride
           </button>
-          <button
-            type="button"
-            className={`group-tab ${tab === "chat" ? "group-tab-active" : ""}`}
-            onClick={() => setTab("chat")}
-          >
-            Chat
-          </button>
-          <button
-            type="button"
-            className={`group-tab ${tab === "report" ? "group-tab-active" : ""}`}
-            onClick={() => setTab("report")}
-          >
-            Report
-          </button>
+          {canChat ? (
+            <button
+              type="button"
+              className={`group-tab ${tab === "chat" ? "group-tab-active" : ""}`}
+              onClick={() => setTab("chat")}
+            >
+              Chat
+            </button>
+          ) : null}
+          {canReport ? (
+            <button
+              type="button"
+              className={`group-tab ${tab === "report" ? "group-tab-active" : ""}`}
+              onClick={() => setTab("report")}
+            >
+              Report
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -1294,7 +1302,7 @@ export function GroupClient({
       ) : null}
 
       {/* ── CHAT TAB ── */}
-      {tab === "chat" && showTabs ? (
+      {tab === "chat" && canChat ? (
         <div className="chat-view">
           <div className="chat-messages">
             {chatMessages && chatMessages.length > 0 ? (
@@ -1373,7 +1381,7 @@ export function GroupClient({
       ) : null}
 
       {/* ── REPORT TAB ── */}
-      {tab === "report" && showTabs ? (
+      {tab === "report" && canReport ? (
         <div
           className="card stack-sm"
           style={{ animation: "fadeUp 0.3s var(--ease-out-expo) both" }}
