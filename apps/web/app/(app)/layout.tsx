@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { BottomNav } from "../../components/bottom-nav";
 import { ClientKeyRegistrar } from "../../components/client-key-registrar";
 import { LocalQaPanel } from "../../components/local-qa-panel";
-import { LogoutButton } from "../../components/logout-button";
 import { PwaCoachmark } from "../../components/pwa-coachmark";
+import { TopBarContent } from "../../components/top-bar-content";
 import { api } from "../../convex/_generated/api";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -23,10 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <div className="page-container">
-        <div className="top-bar">
-          <div className="hop-logo">H</div>
-          <LogoutButton />
-        </div>
+        <TopBarContent profile={riderProfile} />
         <ClientKeyRegistrar />
         <PwaCoachmark />
         <LocalQaPanel />

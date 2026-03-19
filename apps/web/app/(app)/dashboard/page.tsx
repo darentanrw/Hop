@@ -1,10 +1,10 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import Link from "next/link";
+import { AvailabilityList } from "../../../components/availability-list";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { PwaStatusCard } from "../../../components/pwa-status-card";
 import { api } from "../../../convex/_generated/api";
-import { formatStoredWindow } from "../../../lib/time-range";
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -12,12 +12,6 @@ function getGreeting() {
   if (hour < 17) return "Good afternoon";
   return "Good evening";
 }
-
-const statusConfig: Record<string, { icon: string; class: string; label: string }> = {
-  open: { icon: "🔍", class: "status-open", label: "Searching" },
-  matched: { icon: "✓", class: "status-matched", label: "Matched" },
-  cancelled: { icon: "✕", class: "status-cancelled", label: "Cancelled" },
-};
 
 export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
@@ -138,28 +132,7 @@ export default async function DashboardPage() {
           <Link href="/availability">+ Add</Link>
         </div>
 
-        {activeAvailabilities.length > 0 ? (
-          <div className="stack-sm">
-            {activeAvailabilities.map((a) => {
-              const config = statusConfig[a.status] ?? statusConfig.open;
-              return (
-                <div key={a._id} className="availability-item">
-                  <div className={`avail-icon ${config.class}`}>{config.icon}</div>
-                  <div className="avail-info">
-                    <div className="avail-time">
-                      {formatStoredWindow(a.windowStart, a.windowEnd)}
-                    </div>
-                    <div className="avail-meta">{config.label}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="card" style={{ textAlign: "center", padding: "24px 16px" }}>
-            <p className="text-muted text-sm">No availability submitted yet.</p>
-          </div>
-        )}
+        <AvailabilityList availabilities={availabilities ?? []} />
       </div>
 
       {/* Preferences */}
