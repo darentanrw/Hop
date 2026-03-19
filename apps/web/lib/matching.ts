@@ -112,6 +112,7 @@ function combinations<T>(items: T[], size: number): T[][] {
 export function formGroups(
   candidates: MatchingCandidate[],
   edges: CompatibilityEdge[],
+  geohashByRef?: Map<string, string>,
 ): SelectedGroup[] {
   const compatibilityMap = new Map<string, CompatibilityEdge>();
   for (const edge of edges) {
@@ -125,13 +126,15 @@ export function formGroups(
     let best: SelectedGroup | null = null;
 
     for (const candidateMembers of combinations(unmatched, size)) {
-      const hoursUntilStart =
-        (new Date(candidateMembers[0].windowStart).getTime() - Date.now()) / 3_600_000;
+      const sharedWindowStart = Math.max(
+        ...candidateMembers.map((m) => new Date(m.windowStart).getTime()),
+      );
+      const hoursUntilStart = (sharedWindowStart - Date.now()) / 3_600_000;
       if (size < 4 && hoursUntilStart > SMALL_GROUP_RELEASE_HOURS) {
         continue;
       }
 
-      const evaluation = evaluateGroup(candidateMembers, compatibilityMap);
+      const evaluation = evaluateGroup(candidateMembers, compatibilityMap, geohashByRef);
       if (!evaluation) continue;
 
       const current = { members: candidateMembers, ...evaluation };
