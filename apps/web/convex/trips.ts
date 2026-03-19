@@ -263,9 +263,7 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
     // Track members who verified payment and increment their successfulTrips immediately
     const paymentMembers = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
     const verifiedMembers = paymentMembers.filter((member) => member.paymentStatus === "verified");
-    // @ts-ignore — group document has untyped fields from dynamic patching\n    const groupAny = group as any;
-    const rewardedUserIds: Id<"users">[] =
-      (groupAny.rewardedUserIds as Id<"users">[] | undefined) ?? [];
+    const rewardedUserIds = [...((group.rewardedUserIds as Id<"users">[] | undefined) ?? [])];
 
     for (const member of verifiedMembers) {
       const userId = member.userId as Id<"users">;
