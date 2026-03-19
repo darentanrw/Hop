@@ -4,6 +4,7 @@ import {
   HARD_LOCK_MINUTES_BEFORE,
   LOCK_HOURS_BEFORE,
   MAX_DETOUR_MINUTES,
+  MAX_DISTINCT_LOCATIONS,
   MAX_GROUP_SIZE,
   MAX_SPREAD_KM,
   MEETUP_GRACE_MINUTES,
@@ -1078,7 +1079,12 @@ export const lateJoinGroup = action({
       {},
     )) as string[];
     const allRefs = [...new Set([...existingRefs, availability.routeDescriptorRef])];
-    const { edges } = await fetchCompatibility(allRefs);
+    const { edges, geohashByRef } = await fetchCompatibility(allRefs);
+
+    const geohashRecord: Record<string, string> = {};
+    if (geohashByRef) {
+      for (const [key, value] of geohashByRef) geohashRecord[key] = value;
+    }
 
     return (await ctx.runMutation(internal.mutations.attemptLateJoin, {
       userId,
@@ -1095,6 +1101,7 @@ export const lateJoinGroup = action({
         detourMinutes: e.detourMinutes,
         spreadDistanceKm: e.spreadDistanceKm,
       })),
+      geohashByRef: geohashRecord,
     })) as { joined: boolean; reason?: string; groupId?: string };
   },
 });
@@ -1122,6 +1129,7 @@ export const attemptLateJoin = internalMutation({
         spreadDistanceKm: v.number(),
       }),
     ),
+    geohashByRef: v.record(v.string(), v.string()),
   },
   handler: async (ctx, args) => {
     const existingMembership = await ctx.db
@@ -1220,6 +1228,16 @@ export const attemptLateJoin = internalMutation({
         return edge.detourMinutes <= MAX_DETOUR_MINUTES && edge.spreadDistanceKm <= MAX_SPREAD_KM;
       });
       if (!routeOk) continue;
+
+      const allRefs = [
+        ...activeAvailabilities.map((a) => a?.routeDescriptorRef).filter(Boolean),
+        args.routeDescriptorRef,
+      ] as string[];
+      const allClusters = allRefs.map((ref) => args.geohashByRef[ref]).filter(Boolean);
+      if (allClusters.length === allRefs.length) {
+        const distinctLocations = new Set(allClusters).size;
+        if (distinctLocations > MAX_DISTINCT_LOCATIONS) continue;
+      }
 
       targetGroup = group;
       targetActiveMembers = activeMembers;
