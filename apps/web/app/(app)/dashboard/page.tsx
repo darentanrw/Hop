@@ -26,6 +26,7 @@ type StatusState =
       meetTime: string;
       meetLocation: string;
       groupStatus: string;
+      actionHint: string | null;
     };
 
 function resolveStatus(
@@ -54,6 +55,14 @@ function resolveStatus(
     meetTime: group.group.meetingTime,
     meetLocation: group.group.meetingLocationLabel,
     groupStatus: status,
+    actionHint:
+      status === "meetup_checkin"
+        ? group.actions.canShowQr
+          ? "Go to the last page, Group, to show your QR code to the booker."
+          : group.actions.canScanQr
+            ? "Go to the last page, Group, to scan each rider's QR code."
+            : null
+        : null,
   };
 }
 
@@ -252,6 +261,14 @@ function StatusCard({ state }: { state: StatusState }) {
         <p className="text-sm text-muted">
           Meet at {state.meetLocation} · {formatMeetTime(state.meetTime)}
         </p>
+        {state.actionHint ? (
+          <div className="notice notice-info" style={{ marginTop: 14 }}>
+            <div>
+              <strong style={{ display: "block", marginBottom: 4 }}>Next step</strong>
+              <span>{state.actionHint}</span>
+            </div>
+          </div>
+        ) : null}
       </div>
     </Link>
   );
