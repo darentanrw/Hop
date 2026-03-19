@@ -40,6 +40,8 @@ function makeEdge(
     score: 0.85,
     detourMinutes: 5,
     spreadDistanceKm: 1.2,
+    routeOverlap: 10,
+    destinationProximity: 0.3,
     ...overrides,
   };
 }

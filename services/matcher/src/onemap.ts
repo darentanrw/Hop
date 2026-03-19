@@ -13,9 +13,172 @@ export type GeocodedAddress = {
 export type DrivingRoute = {
   distanceMeters: number;
   timeSeconds: number;
+  polyline: Array<[number, number]>;
 };
 
+type OneMapSearchResponse = {
+  found: number;
+  results: Array<{
+    LATITUDE: string;
+    LONGITUDE: string;
+    POSTAL: string;
+    BUILDING: string;
+  }>;
+};
+
+function normalizeCoordinatePair(pair: unknown): [number, number] | null {
+  if (!Array.isArray(pair) || pair.length < 2) return null;
+  const first = Number(pair[0]);
+  const second = Number(pair[1]);
+  if (!Number.isFinite(first) || !Number.isFinite(second)) return null;
+
+  // Most geo APIs encode as [lng, lat].
+  if (Math.abs(first) > 90 || Math.abs(second) <= 90) {
+    return [second, first];
+  }
+
+  return [first, second];
+}
+
+function decodePolyline(encoded: string) {
+  const points: Array<[number, number]> = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < encoded.length) {
+    let result = 0;
+    let shift = 0;
+    let byte = 0;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20 && index <= encoded.length);
+
+    const deltaLat = result & 1 ? ~(result >> 1) : result >> 1;
+    lat += deltaLat;
+
+    result = 0;
+    shift = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20 && index <= encoded.length);
+
+    const deltaLng = result & 1 ? ~(result >> 1) : result >> 1;
+    lng += deltaLng;
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+
+  return points;
+}
+
+function parseRouteGeometry(raw: unknown): Array<[number, number]> {
+  if (Array.isArray(raw)) {
+    return raw
+      .map(normalizeCoordinatePair)
+      .filter((point): point is [number, number] => point !== null);
+  }
+
+  if (raw && typeof raw === "object" && "coordinates" in raw) {
+    return parseRouteGeometry((raw as { coordinates?: unknown }).coordinates);
+  }
+
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        return parseRouteGeometry(JSON.parse(trimmed));
+      } catch {
+        return [];
+      }
+    }
+    return decodePolyline(trimmed);
+  }
+
+  return [];
+}
+
 let cachedToken: { token: string; expiresAt: number } | null = null;
+
+const ROUTE_CACHE_TTL_MS = 30 * 60_000;
+const ROUTE_CACHE_MAX = 2048;
+const GEOCODE_CACHE_MAX = 512;
+
+type RouteCacheEntry = { route: DrivingRoute; expiresAt: number };
+const routeCache = new Map<string, RouteCacheEntry>();
+const geocodeCache = new Map<string, GeocodedAddress | null>();
+const inflightRoutes = new Map<string, Promise<DrivingRoute>>();
+
+function routeCacheKey(startLat: number, startLng: number, endLat: number, endLng: number) {
+  return `${startLat.toFixed(6)},${startLng.toFixed(6)}->${endLat.toFixed(6)},${endLng.toFixed(6)}`;
+}
+
+function geocodeCacheKey(query: string) {
+  return query.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function evictOldest<V>(map: Map<string, V>, max: number) {
+  while (map.size > max) {
+    const first = map.keys().next();
+    if (first.done) break;
+    map.delete(first.value);
+  }
+}
+
+function normalizeSearchTerm(query: string) {
+  return query.trim().replace(/\s+/g, " ");
+}
+
+function buildSearchCandidates(query: string) {
+  const normalized = normalizeSearchTerm(query);
+  const candidates = [normalized];
+  const dePunctuated = normalized
+    .replace(/[.,;()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (dePunctuated && dePunctuated !== normalized) {
+    candidates.push(dePunctuated);
+  }
+
+  const postalMatch = normalized.match(/\b\d{6}\b/);
+  if (postalMatch) {
+    candidates.push(`Singapore ${postalMatch[0]}`);
+    candidates.push(postalMatch[0]);
+  }
+
+  return [...new Set(candidates)];
+}
+
+async function searchAddress(query: string): Promise<OneMapSearchResponse> {
+  const url = `${ONEMAP_SEARCH_URL}?searchVal=${encodeURIComponent(query)}&returnGeom=Y&getAddrDetails=Y`;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await sleep(INITIAL_BACKOFF_MS * 2 ** (attempt - 1));
+    }
+
+    const response = await fetch(url);
+
+    if (response.status === 429) {
+      lastError = new Error("OneMap search failed: 429");
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`OneMap search failed: ${response.status}`);
+    }
+
+    return (await response.json()) as OneMapSearchResponse;
+  }
+
+  throw lastError ?? new Error("OneMap search failed after retries");
+}
 
 export async function getAuthToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - TOKEN_REFRESH_BUFFER_MS) {
@@ -48,34 +211,91 @@ export async function getAuthToken(): Promise<string> {
 }
 
 export async function geocodeAddress(query: string): Promise<GeocodedAddress | null> {
-  const url = `${ONEMAP_SEARCH_URL}?searchVal=${encodeURIComponent(query)}&returnGeom=Y&getAddrDetails=Y`;
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`OneMap search failed: ${response.status}`);
+  const cacheKey = geocodeCacheKey(query);
+  if (geocodeCache.has(cacheKey)) {
+    return geocodeCache.get(cacheKey) ?? null;
   }
 
-  const data = (await response.json()) as {
-    found: number;
-    results: Array<{
-      LATITUDE: string;
-      LONGITUDE: string;
-      POSTAL: string;
-      BUILDING: string;
-    }>;
-  };
+  for (const candidate of buildSearchCandidates(query)) {
+    const data = await searchAddress(candidate);
+    if (data.found === 0 || data.results.length === 0) {
+      continue;
+    }
 
-  if (data.found === 0 || data.results.length === 0) {
-    return null;
+    const result = data.results[0];
+    const lat = Number.parseFloat(result.LATITUDE);
+    const lng = Number.parseFloat(result.LONGITUDE);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      continue;
+    }
+
+    const geocoded: GeocodedAddress = {
+      lat,
+      lng,
+      postalCode: result.POSTAL ?? "",
+      buildingName: result.BUILDING ?? "",
+    };
+    evictOldest(geocodeCache, GEOCODE_CACHE_MAX);
+    geocodeCache.set(cacheKey, geocoded);
+    return geocoded;
   }
 
-  const result = data.results[0];
-  return {
-    lat: Number.parseFloat(result.LATITUDE),
-    lng: Number.parseFloat(result.LONGITUDE),
-    postalCode: result.POSTAL,
-    buildingName: result.BUILDING,
-  };
+  evictOldest(geocodeCache, GEOCODE_CACHE_MAX);
+  geocodeCache.set(cacheKey, null);
+  return null;
+}
+
+const MAX_RETRIES = 4;
+const INITIAL_BACKOFF_MS = 500;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchDrivingRoute(
+  startLat: number,
+  startLng: number,
+  endLat: number,
+  endLng: number,
+): Promise<DrivingRoute> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await sleep(INITIAL_BACKOFF_MS * 2 ** (attempt - 1));
+    }
+
+    const token = await getAuthToken();
+    const url = `${ONEMAP_ROUTE_URL}?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`;
+    const response = await fetch(url, {
+      headers: { Authorization: token },
+    });
+
+    if (response.status === 429) {
+      lastError = new Error("OneMap route failed: 429");
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`OneMap route failed: ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      route_summary: {
+        total_distance: number;
+        total_time: number;
+      };
+      route_geometry?: unknown;
+    };
+
+    return {
+      distanceMeters: data.route_summary.total_distance,
+      timeSeconds: data.route_summary.total_time,
+      polyline: parseRouteGeometry(data.route_geometry),
+    };
+  }
+
+  throw lastError ?? new Error("OneMap route failed after retries");
 }
 
 export async function getDrivingRoute(
@@ -84,27 +304,30 @@ export async function getDrivingRoute(
   endLat: number,
   endLng: number,
 ): Promise<DrivingRoute> {
-  const token = await getAuthToken();
-  const url = `${ONEMAP_ROUTE_URL}?start=${startLat},${startLng}&end=${endLat},${endLng}&routeType=drive`;
-  const response = await fetch(url, {
-    headers: { Authorization: token },
-  });
+  const key = routeCacheKey(startLat, startLng, endLat, endLng);
 
-  if (!response.ok) {
-    throw new Error(`OneMap route failed: ${response.status}`);
+  const cached = routeCache.get(key);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.route;
   }
 
-  const data = (await response.json()) as {
-    route_summary: {
-      total_distance: number;
-      total_time: number;
-    };
-  };
+  const inflight = inflightRoutes.get(key);
+  if (inflight) return inflight;
 
-  return {
-    distanceMeters: data.route_summary.total_distance,
-    timeSeconds: data.route_summary.total_time,
-  };
+  const promise = fetchDrivingRoute(startLat, startLng, endLat, endLng)
+    .then((route) => {
+      inflightRoutes.delete(key);
+      evictOldest(routeCache, ROUTE_CACHE_MAX);
+      routeCache.set(key, { route, expiresAt: Date.now() + ROUTE_CACHE_TTL_MS });
+      return route;
+    })
+    .catch((error) => {
+      inflightRoutes.delete(key);
+      throw error;
+    });
+
+  inflightRoutes.set(key, promise);
+  return promise;
 }
 
 const EARTH_RADIUS_KM = 6371;
@@ -121,4 +344,18 @@ export function haversineKm(lat1: number, lng1: number, lat2: number, lng2: numb
 
 export function clearCachedToken() {
   cachedToken = null;
+}
+
+export function clearRouteCaches() {
+  routeCache.clear();
+  geocodeCache.clear();
+  inflightRoutes.clear();
+}
+
+export function getRouteCacheStats() {
+  return {
+    routeCacheSize: routeCache.size,
+    geocodeCacheSize: geocodeCache.size,
+    inflightCount: inflightRoutes.size,
+  };
 }

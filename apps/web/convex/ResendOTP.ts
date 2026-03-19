@@ -1,6 +1,7 @@
 import { Email } from "@convex-dev/auth/providers/Email";
 import { isAllowedUniversityEmail } from "@hop/shared";
 import { Resend as ResendAPI } from "resend";
+import { buildOtpEmail } from "../lib/notification-email";
 
 export const ResendOTP = Email({
   id: "resend-otp",
@@ -19,14 +20,7 @@ export const ResendOTP = Email({
       from,
       to: [email],
       subject: "Your Hop verification code",
-      html: [
-        '<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px">',
-        "<h2>Your verification code</h2>",
-        `<p style="font-size:32px;letter-spacing:8px;font-weight:bold;text-align:center;margin:24px 0">${token}</p>`,
-        "<p>This code expires in 10 minutes. If you did not request this code you can safely ignore this email.</p>",
-        "<p style='color:#888;font-size:12px'>Hop — privacy-first campus rideshare</p>",
-        "</div>",
-      ].join(""),
+      html: buildOtpEmail(token),
     });
     if (error) {
       throw new Error(`Failed to send OTP email: ${JSON.stringify(error)}`);

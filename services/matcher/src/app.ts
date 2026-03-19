@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import type { CompatibilityEdge } from "@hop/shared";
+import type { CompatibilityEdge, MatcherSimulatorPreviewRequest } from "@hop/shared";
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import {
+  buildSimulatorPreview,
   computeLocationClusters,
   revealEnvelopes,
   scoreRouteDescriptors,
@@ -27,6 +28,19 @@ function createRequestId() {
 
 function getDurationMs(startedAt: bigint) {
   return Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
+}
+
+function hasValidPreviewSecret(request: Request) {
+  const expected = process.env.MATCHER_ADMIN_PREVIEW_SECRET?.trim();
+  const provided = request.get("x-hop-admin-preview-secret")?.trim() ?? "";
+
+  if (!expected || !provided) return false;
+
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  if (expectedBuffer.length !== providedBuffer.length) return false;
+
+  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 function summarizeCompatibilityScores(edges: CompatibilityEdge[]) {
@@ -268,6 +282,59 @@ export function createMatcherApp(options: CreateMatcherAppOptions = {}) {
       logger.error("matcher.envelopes_reveal_failed", {
         ...getRequestLogContext(request),
         memberCount: members.length,
+        error,
+      });
+      response.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/matcher/admin/preview", async (request, response) => {
+    if (!hasValidPreviewSecret(request)) {
+      response.status(403).json({ error: "Forbidden." });
+      return;
+    }
+
+    const riders = Array.isArray(request.body?.riders)
+      ? (request.body.riders as Array<Record<string, unknown>>)
+      : [];
+    const groups = Array.isArray(request.body?.groups)
+      ? (request.body.groups as Array<Record<string, unknown>>)
+      : [];
+
+    try {
+      const preview = await buildSimulatorPreview({
+        riders: riders.map((rider) => ({
+          riderId: String(rider?.riderId ?? ""),
+          routeDescriptorRef: String(rider?.routeDescriptorRef ?? ""),
+          sealedDestinationRef: String(rider?.sealedDestinationRef ?? ""),
+          alias: String(rider?.alias ?? ""),
+        })),
+        groups: groups.map((group) => ({
+          groupId: String(group?.groupId ?? ""),
+          members: Array.isArray(group?.members)
+            ? (group.members as Array<Record<string, unknown>>).map((member) => ({
+                riderId: String(member?.riderId ?? ""),
+                routeDescriptorRef: String(member?.routeDescriptorRef ?? ""),
+                sealedDestinationRef: String(member?.sealedDestinationRef ?? ""),
+                alias: String(member?.alias ?? ""),
+              }))
+            : [],
+        })),
+      } satisfies MatcherSimulatorPreviewRequest);
+
+      logger.info("matcher.admin_preview_generated", {
+        ...getRequestLogContext(request),
+        riderCount: preview.riders.length,
+        groupCount: preview.groups.length,
+      });
+
+      response.json(preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Preview generation failed.";
+      logger.error("matcher.admin_preview_failed", {
+        ...getRequestLogContext(request),
+        riderCount: riders.length,
+        groupCount: groups.length,
         error,
       });
       response.status(500).json({ error: message });

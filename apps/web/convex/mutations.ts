@@ -29,6 +29,7 @@ import {
 } from "../lib/group-lifecycle";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
+import { buildLoginUrl, buildNotificationEmail } from "../lib/notification-email";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
@@ -57,16 +58,6 @@ type RevealContext = {
   }>;
   requesterEnvelopes: RevealEnvelope[];
 };
-
-function buildNotificationEmail(title: string, body: string) {
-  return [
-    '<div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:24px">',
-    `<h2 style="margin:0 0 12px">${title}</h2>`,
-    `<p style="margin:0 0 12px;line-height:1.5">${body}</p>`,
-    '<p style="margin:0;color:#667085;font-size:12px">Hop keeps your ride group updated automatically.</p>',
-    "</div>",
-  ].join("");
-}
 
 async function scheduleLifecycleNotifications(
   ctx: MutationCtx,
@@ -1186,6 +1177,7 @@ export const lockGroups = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const lockHorizon = now + LOCK_HOURS_BEFORE * 3_600_000;
+    const loginUrl = buildLoginUrl();
 
     const groups = await ctx.db.query("groups").collect();
     const joinableGroups = groups.filter(
@@ -1234,12 +1226,16 @@ export const lockGroups = internalMutation({
           groupId: group._id,
           kind: "group_locked",
           eventKey: `${group._id}:locked:${member.userId}`,
-          title: `${group.groupName ?? "Your group"} is locked`,
-          body: "Your ride group is now finalized. Confirm within 30 minutes to lock in your spot.",
-          emailSubject: `${group.groupName ?? "Your Hop group"} is locked — confirm now`,
+          title: "Your group is locked",
+          body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+          emailSubject: "Your Hop group is locked — confirm in 30 minutes",
           emailHtml: buildNotificationEmail(
-            `${group.groupName ?? "Your group"} is locked`,
-            "Your ride group is now finalized. Confirm within 30 minutes to lock in your spot.",
+            "Your group is locked",
+            "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+            {
+              href: loginUrl,
+              label: "Log in to confirm ride",
+            },
           ),
         })),
       );
@@ -1254,6 +1250,7 @@ export const hardLockGroups = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const hardLockHorizon = now + HARD_LOCK_MINUTES_BEFORE * 60_000;
+    const loginUrl = buildLoginUrl();
 
     const groups = await ctx.db.query("groups").collect();
     const semiLockedGroups = groups.filter(
@@ -1300,12 +1297,16 @@ export const hardLockGroups = internalMutation({
           groupId: group._id,
           kind: "group_hard_locked",
           eventKey: `${group._id}:hard_locked:${member.userId}`,
-          title: `${group.groupName ?? "Your group"} is locked`,
-          body: "All groups finalized. Confirm your ride — booker will book once everyone checks in.",
-          emailSubject: `${group.groupName ?? "Your Hop group"} is locked — confirm now`,
+          title: "Your group is locked",
+          body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+          emailSubject: "Your Hop group is locked — confirm in 30 minutes",
           emailHtml: buildNotificationEmail(
-            `${group.groupName ?? "Your group"} is locked`,
-            "All groups finalized. Confirm your ride — booker will book once everyone checks in.",
+            "Your group is locked",
+            "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+            {
+              href: loginUrl,
+              label: "Log in to confirm ride",
+            },
           ),
         })),
       );
@@ -1622,6 +1623,7 @@ export const attemptLateJoin = internalMutation({
 
     if (shouldLockNow) {
       const bookerUserId = selectBookerUserId(newMemberUserIds);
+      const loginUrl = buildLoginUrl();
       await ctx.db.patch(targetGroup._id, {
         status: "matched_pending_ack",
         groupSize: newMemberUserIds.length,
@@ -1637,17 +1639,16 @@ export const attemptLateJoin = internalMutation({
             groupId: targetGroup._id,
             kind: "group_locked",
             eventKey: `${targetGroup._id}:late_join_locked:${userId}`,
-            title: `${targetGroup.groupName ?? "Your group"} is locked`,
-            body:
-              newMemberUserIds.length >= MAX_GROUP_SIZE
-                ? "Your ride group is now full. Confirm within 30 minutes to lock in your spot."
-                : "Your ride window is now within 3 hours. Confirm within 30 minutes to lock in your spot.",
-            emailSubject: `${targetGroup.groupName ?? "Your Hop group"} is locked — confirm now`,
+            title: "Your group is locked",
+            body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+            emailSubject: "Your Hop group is locked — confirm in 30 minutes",
             emailHtml: buildNotificationEmail(
-              `${targetGroup.groupName ?? "Your group"} is locked`,
-              newMemberUserIds.length >= MAX_GROUP_SIZE
-                ? "Your ride group is now full. Confirm within 30 minutes to lock in your spot."
-                : "Your ride window is now within 3 hours. Confirm within 30 minutes to lock in your spot.",
+              "Your group is locked",
+              "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+              {
+                href: loginUrl,
+                label: "Log in to confirm ride",
+              },
             ),
           }),
         ),

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { once } from "node:events";
 import type { Server } from "node:http";
+import type { MatcherSimulatorPreviewResponse } from "@hop/shared";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("./onemap", async (importOriginal) => {
@@ -13,12 +14,18 @@ vi.mock("./onemap", async (importOriginal) => {
 });
 
 import { createMatcherApp } from "./app";
+import { clearMatcherStore } from "./core";
 import { type LogEntry, createLogger } from "./logger";
 import { geocodeAddress, getDrivingRoute } from "./onemap";
 
 const mockGeocode = vi.mocked(geocodeAddress);
 const mockRoute = vi.mocked(getDrivingRoute);
 const originalFetch = globalThis.fetch;
+
+type DestinationSubmission = {
+  sealedDestinationRef: string;
+  routeDescriptorRef: string;
+};
 
 function generatePublicKey() {
   const { publicKey } = crypto.generateKeyPairSync("rsa", {
@@ -64,12 +71,15 @@ describe("matcher app logging", () => {
   beforeEach(() => {
     mockGeocode.mockReset();
     mockRoute.mockReset();
+    clearMatcherStore();
+    vi.stubEnv("MATCHER_ADMIN_PREVIEW_SECRET", "test-preview-secret");
   });
 
   afterEach(async () => {
     await Promise.all([...servers].map((server) => stopServer(server)));
     servers.clear();
     globalThis.fetch = originalFetch;
+    vi.unstubAllEnvs();
   });
 
   test("logs submit-destination lifecycle without leaking the plaintext address", async () => {
@@ -270,10 +280,10 @@ describe("matcher app logging", () => {
     const right = (await rightSubmission.json()) as { routeDescriptorRef: string };
 
     mockRoute
-      .mockResolvedValueOnce({ distanceMeters: 8000, timeSeconds: 720 })
-      .mockResolvedValueOnce({ distanceMeters: 8200, timeSeconds: 740 })
-      .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60 })
-      .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 65 });
+      .mockResolvedValueOnce({ distanceMeters: 8000, timeSeconds: 720, polyline: [] })
+      .mockResolvedValueOnce({ distanceMeters: 8200, timeSeconds: 740, polyline: [] })
+      .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60, polyline: [] })
+      .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 65, polyline: [] });
 
     const response = await fetch(`${baseUrl}/matcher/compatibility`, {
       method: "POST",
@@ -306,6 +316,88 @@ describe("matcher app logging", () => {
         detourMinutes: expect.any(Number),
         spreadDistanceKm: expect.any(Number),
       },
+    });
+  });
+
+  test("admin preview requires the shared secret and returns masked route previews", async () => {
+    const logEntries: LogEntry[] = [];
+    const { server, baseUrl } = await startTestServer(logEntries);
+    servers.add(server);
+
+    mockGeocode.mockResolvedValueOnce({
+      lat: 1.3151,
+      lng: 103.7649,
+      postalCode: "120123",
+      buildingName: "BLK 123",
+    });
+
+    const submissionResponse = await fetch(`${baseUrl}/matcher/submit-destination`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: "123 Clementi Ave 3 Singapore 120123" }),
+    });
+    const submission = (await submissionResponse.json()) as DestinationSubmission;
+
+    const forbidden = await fetch(`${baseUrl}/matcher/admin/preview`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ riders: [], groups: [] }),
+    });
+    expect(forbidden.status).toBe(403);
+
+    mockRoute.mockResolvedValueOnce({
+      distanceMeters: 8000,
+      timeSeconds: 720,
+      polyline: [
+        [1.3049, 103.7734],
+        [1.3151, 103.7649],
+      ],
+    });
+
+    const response = await fetch(`${baseUrl}/matcher/admin/preview`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-hop-admin-preview-secret": "test-preview-secret",
+      },
+      body: JSON.stringify({
+        riders: [
+          {
+            riderId: "sim_rider_1",
+            routeDescriptorRef: submission.routeDescriptorRef,
+            sealedDestinationRef: submission.sealedDestinationRef,
+            alias: "Rider 1",
+          },
+        ],
+        groups: [
+          {
+            groupId: "sim_group_1",
+            members: [
+              {
+                riderId: "sim_rider_1",
+                routeDescriptorRef: submission.routeDescriptorRef,
+                sealedDestinationRef: submission.sealedDestinationRef,
+                alias: "Rider 1",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const preview = (await response.json()) as MatcherSimulatorPreviewResponse;
+    expect(preview.riders[0].maskedLocationLabel).toBe("Postal sector 12");
+    expect(JSON.stringify(preview)).not.toContain("Clementi Ave");
+    expect(preview.groups[0].legs[0].polyline).toEqual([
+      [1.3049, 103.7734],
+      [1.3151, 103.7649],
+    ]);
+    expect(
+      logEntries.find((entry) => entry.event === "matcher.admin_preview_generated"),
+    ).toMatchObject({
+      riderCount: 1,
+      groupCount: 1,
     });
   });
 });

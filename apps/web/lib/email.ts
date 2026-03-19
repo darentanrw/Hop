@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { buildOtpEmail } from "./notification-email";
 
 let resendClient: Resend | null = null;
 
@@ -27,14 +28,7 @@ export async function sendOtpEmail(to: string, code: string): Promise<void> {
     from,
     to,
     subject: "Your Hop verification code",
-    html: [
-      '<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px">',
-      "<h2>Your verification code</h2>",
-      `<p style="font-size:32px;letter-spacing:8px;font-weight:bold;text-align:center;margin:24px 0">${code}</p>`,
-      "<p>This code expires in 10 minutes. If you did not request this code you can safely ignore this email.</p>",
-      "<p style='color:#888;font-size:12px'>Hop — privacy-first campus rideshare</p>",
-      "</div>",
-    ].join(""),
+    html: buildOtpEmail(code),
   });
 
   if (error) {

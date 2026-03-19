@@ -2,11 +2,13 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
+import { buildNotificationEmail } from "../lib/notification-email";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { CHAT_ELIGIBLE_STATUSES } from "./chat";
 import { resolveQaActingUserId } from "./localQa";
 
 const ACTIVE_GROUP_STATUSES = new Set([
@@ -23,6 +25,9 @@ const ACTIVE_GROUP_STATUSES = new Set([
   "payment_pending",
   "reported",
 ]);
+
+const REDELEGATE_STATUSES = new Set(["group_confirmed", "meetup_preparation", "meetup_checkin"]);
+const BOOKER_ABSENT_BUFFER_MS = 5 * 60_000;
 
 type GroupDoc = Doc<"groups">;
 type GroupMemberDoc = Doc<"groupMembers">;
@@ -44,16 +49,6 @@ function formatCurrency(cents: number) {
     style: "currency",
     currency: "SGD",
   }).format(cents / 100);
-}
-
-function buildNotificationEmail(title: string, body: string) {
-  return [
-    '<div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:24px">',
-    `<h2 style="margin:0 0 12px">${title}</h2>`,
-    `<p style="margin:0 0 12px;line-height:1.5">${body}</p>`,
-    '<p style="margin:0;color:#667085;font-size:12px">Hop keeps your ride group updated automatically.</p>',
-    "</div>",
-  ].join("");
 }
 
 async function scheduleLifecycleNotifications(
@@ -304,6 +299,7 @@ function buildActions(
   options?: {
     everyoneCheckedIn: boolean;
     graceExpired: boolean;
+    bookerAbsentWindowPassed: boolean;
   },
 ) {
   const currentStatus = group.status;
@@ -339,6 +335,12 @@ function buildActions(
       (currentUserMember?.amountDueCents ?? 0) > 0 &&
       currentUserMember?.paymentStatus !== "verified",
     canVerifyPayments: currentStatus === "payment_pending" && isBooker,
+    canRedelegateBooker: isBooker && REDELEGATE_STATUSES.has(currentStatus),
+    canReportBookerAbsent:
+      !isBooker &&
+      currentStatus === "meetup_checkin" &&
+      Boolean(options?.bookerAbsentWindowPassed) &&
+      currentMemberIsActive,
     canReport: currentStatus !== "matched_pending_ack" && Boolean(currentUserMember),
   };
 }
@@ -364,6 +366,9 @@ async function buildTripPayload(
   const graceExpired = group.graceDeadline
     ? new Date(group.graceDeadline).getTime() <= Date.now()
     : false;
+  const meetingTime = group.meetingTime ?? group.windowStart;
+  const bookerAbsentWindowPassed =
+    new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
 
   const sortedByDropoff = [...activeMembers].sort(
     (left, right) =>
@@ -413,6 +418,9 @@ async function buildTripPayload(
       receiptSubmittedAt: group.receiptSubmittedAt ?? null,
       paymentDueAt: group.paymentDueAt ?? null,
       reportCount: reports.length,
+      bookerCheckedIn: activeMembers.some(
+        (member) => member.userId === group.bookerUserId && Boolean(member.checkedInAt),
+      ),
     },
     currentUserId,
     currentUserMember: currentUserMemberWithPaymentProof
@@ -466,10 +474,16 @@ async function buildTripPayload(
         emoji: member.emoji ?? "🙂",
         order: member.dropoffOrder ?? null,
       })),
-    actions: buildActions(group, currentUserId, currentUserMember, {
-      everyoneCheckedIn,
-      graceExpired,
-    }),
+    actions: {
+      ...buildActions(group, currentUserId, currentUserMember, {
+        everyoneCheckedIn,
+        graceExpired,
+        bookerAbsentWindowPassed,
+      }),
+      canChat:
+        CHAT_ELIGIBLE_STATUSES.has(group.status) &&
+        (currentUserMember?.participationStatus ?? "active") === "active",
+    },
   };
 }
 
@@ -860,6 +874,109 @@ export const verifyPayment = mutation({
     }
 
     await syncLifecycleForGroup(ctx, (await ctx.db.get(groupId)) ?? group);
+    return { ok: true };
+  },
+});
+
+export const redelegateBooker = mutation({
+  args: {
+    groupId: v.id("groups"),
+    newBookerUserId: v.id("users"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, newBookerUserId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
+    if (!userId) throw new Error("Not authenticated");
+
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+    if (group.bookerUserId !== userId) throw new Error("Only the current booker can redelegate.");
+    if (!REDELEGATE_STATUSES.has(group.status)) {
+      throw new Error("Cannot redelegate booker in the current group status.");
+    }
+
+    const members = await listGroupMembers(ctx, groupId);
+    const activeMembers = getActiveMembers(members);
+    const target = activeMembers.find((member) => member.userId === (newBookerUserId as string));
+    if (!target) throw new Error("Target user is not an active member of this group.");
+    if (target.userId === (userId as string)) {
+      throw new Error("Cannot redelegate to yourself.");
+    }
+
+    await ctx.db.patch(groupId, { bookerUserId: newBookerUserId });
+    return { ok: true };
+  },
+});
+
+export const reportBookerAbsent = mutation({
+  args: {
+    groupId: v.id("groups"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
+    if (!userId) throw new Error("Not authenticated");
+
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+    if (group.bookerUserId === userId) {
+      throw new Error("The booker cannot report themselves absent.");
+    }
+    if (group.status !== "meetup_checkin") {
+      throw new Error("Cannot report booker absent in the current group status.");
+    }
+
+    const meetingTime = group.meetingTime ?? group.windowStart;
+    const bufferElapsed = new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
+    if (!bufferElapsed) {
+      throw new Error("The 5-minute grace window after meeting time has not passed yet.");
+    }
+
+    const members = await listGroupMembers(ctx, groupId);
+    const activeMembers = getActiveMembers(members);
+
+    const callerMember = activeMembers.find((member) => member.userId === (userId as string));
+    if (!callerMember) throw new Error("You are not an active member of this group.");
+
+    const bookerMember = activeMembers.find(
+      (member) => member.userId === (group.bookerUserId as string),
+    );
+    if (bookerMember?.checkedInAt) throw new Error("The booker has already checked in.");
+
+    const checkedInNonBooker = activeMembers.filter(
+      (member) => member.userId !== (group.bookerUserId as string) && Boolean(member.checkedInAt),
+    );
+    const candidates =
+      checkedInNonBooker.length > 0
+        ? checkedInNonBooker
+        : activeMembers.filter((member) => member.userId !== (group.bookerUserId as string));
+
+    if (candidates.length === 0) throw new Error("No eligible members to become booker.");
+
+    const candidateUserIds = candidates.map((member) => member.userId);
+    const credibilityScores = new Map<string, number>();
+    for (const member of candidates) {
+      const user = await ctx.db.get(member.userId as Id<"users">);
+      if (user) {
+        credibilityScores.set(
+          member.userId,
+          calculateCredibilityScore({
+            successfulTrips: user.successfulTrips ?? 0,
+            cancelledTrips: user.cancelledTrips ?? 0,
+            reportedCount: user.reportedCount ?? 0,
+          }),
+        );
+      }
+    }
+
+    const newBookerUserId = selectBookerUserId(candidateUserIds, credibilityScores);
+    if (!newBookerUserId) throw new Error("No eligible members to become booker.");
+
+    await ctx.db.patch(groupId, {
+      bookerUserId: newBookerUserId as Id<"users">,
+      bookerRedelegatedAt: nowIso(),
+    });
+
     return { ok: true };
   },
 });

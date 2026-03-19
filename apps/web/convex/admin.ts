@@ -1,10 +1,10 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
 import { v } from "convex/values";
 import { selectBookerUserId } from "../lib/group-lifecycle";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { requireAdmin } from "./adminAccess";
 
 const LOCAL_QA_BOT_PREFIX = "local-qa-bot-";
 const ACTIVE_GROUP_STATUSES = new Set([
@@ -165,11 +165,21 @@ export const bootstrapLocalQaUser = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
+    const { userId } = await requireAdmin(ctx);
     const user = await ensureLocalQaUser(ctx, userId);
     return { ok: true, user };
+  },
+});
+
+export const adminAccess = query({
+  args: {},
+  handler: async (ctx) => {
+    const actor = await requireAdminOrNull(ctx);
+    return {
+      isAuthenticated: Boolean(actor?.userId),
+      isAdmin: actor?.isAdmin === true,
+      email: actor?.user?.email ?? null,
+    };
   },
 });
 
@@ -184,8 +194,7 @@ export const seedLocalQaPool = mutation({
   },
   handler: async (ctx, { liveDestinations }) => {
     ensureLocalQaEnabled();
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const { userId } = await requireAdmin(ctx);
     if (liveDestinations.length < 2) {
       throw new Error("Seed local QA with at least 2 live matcher destinations.");
     }
@@ -241,6 +250,7 @@ export const createLocalQaGroup = mutation({
   },
   handler: async (ctx, { scenario }) => {
     ensureLocalQaEnabled();
+    await requireAdmin(ctx);
     void ctx;
     void scenario;
     throw new Error(
@@ -253,9 +263,7 @@ export const forceLocalQaBotAcknowledgements = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
+    const { userId } = await requireAdmin(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("There is no active QA group to update.");
@@ -311,9 +319,7 @@ export const deleteCurrentLocalQaGroup = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
+    const { userId } = await requireAdmin(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("There is no active QA group to delete.");
@@ -375,9 +381,7 @@ export const forceLockGroups = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
+    const { userId } = await requireAdmin(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("No active group to lock.");
@@ -405,9 +409,7 @@ export const forceHardLockGroups = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
-
+    const { userId } = await requireAdmin(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("No active group to hard-lock.");
@@ -445,10 +447,11 @@ export const localQaSnapshot = query({
   args: {},
   handler: async (ctx) => {
     const enabled = process.env.ENABLE_LOCAL_QA === "true";
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    const actor = await requireAdminOrNull(ctx);
+    if (!actor?.userId || !actor.isAdmin) return null;
 
-    const user = await ctx.db.get(userId);
+    const userId = actor.userId;
+    const user = actor.user;
     if (!user) return null;
 
     const preference = await ctx.db
@@ -509,6 +512,20 @@ export const localQaConfig = query({
     enabled: process.env.ENABLE_LOCAL_QA === "true",
   }),
 });
+
+async function requireAdminOrNull(ctx: QueryCtx) {
+  try {
+    return await requireAdmin(ctx);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "Not authenticated" || error.message === "Admin access required.")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
 
 /**
  * Internal admin mutation: delete a user and all related data.

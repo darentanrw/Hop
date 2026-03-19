@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalQuery, query } from "./_generated/server";
+import { requireAdmin } from "./adminAccess";
 
 async function getRiderProfileInternal(ctx: QueryCtx) {
   const userId = await getAuthUserId(ctx);
@@ -137,8 +138,7 @@ export const getPendingVerificationByEmail = query({
 export const adminSnapshot = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    await requireAdmin(ctx);
     const users = await ctx.db.query("users").collect();
     const availabilities = await ctx.db.query("availabilities").collect();
     const groups = await ctx.db.query("groups").collect();

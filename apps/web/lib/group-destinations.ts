@@ -1,3 +1,5 @@
+import { sortOpaqueDestinationEntries } from "@hop/shared";
+
 type AvailabilityDestination = {
   createdAt?: string;
   sealedDestinationRef: string;
@@ -34,20 +36,27 @@ export function buildLockedGroupDestinations(
       destinationAddress: undefined,
       destinationLockedAt,
       destinationSubmittedAt: destinationLockedAt,
-      sortKey: availability.sealedDestinationRef.toLowerCase(),
+      sealedDestinationRef: availability.sealedDestinationRef,
+      stableId: member.userId,
+      secondaryStableId: member.availabilityId,
       userId: member.userId,
     };
   });
 
-  const ordered = [...sortable].sort(
-    (left, right) =>
-      left.sortKey.localeCompare(right.sortKey) ||
-      left.userId.localeCompare(right.userId) ||
-      left.availabilityId.localeCompare(right.availabilityId),
-  );
+  const ordered = sortOpaqueDestinationEntries(sortable);
 
-  return ordered.map<LockedGroupDestination>(({ sortKey: _sortKey, ...member }, index) => ({
-    ...member,
-    dropoffOrder: index + 1,
-  }));
+  return ordered.map<LockedGroupDestination>(
+    (
+      {
+        sealedDestinationRef: _sealedDestinationRef,
+        stableId: _stableId,
+        secondaryStableId: _secondaryStableId,
+        ...member
+      },
+      index,
+    ) => ({
+      ...member,
+      dropoffOrder: index + 1,
+    }),
+  );
 }

@@ -95,12 +95,18 @@ export function generateQrPassphrase(seed: string): string {
 }
 
 const groupThemes = [
-  { name: "Amber Orbit", color: "#f0a030" },
-  { name: "Teal Drift", color: "#44d4c8" },
-  { name: "Coral Glide", color: "#ef6b6b" },
-  { name: "Sky Loop", color: "#60a5fa" },
-  { name: "Moss Lane", color: "#34d399" },
-  { name: "Sunset Tide", color: "#fb923c" },
+  { name: "Sky Loop", color: "#3b82f6" },       // blue
+  { name: "Sunset Blaze", color: "#f97316" },   // orange
+  { name: "Forest Grove", color: "#22c55e" },   // green
+  { name: "Crimson Rush", color: "#ef4444" },   // red
+  { name: "Cobalt Glide", color: "#2563eb" },   // deep blue
+  { name: "Amber Orbit", color: "#ea870a" },    // amber
+  { name: "Turquoise Bay", color: "#14b8a6" },  // teal
+  { name: "Tangerine Arc", color: "#e57a1a" },  // tangerine
+  { name: "Slate Path", color: "#64748b" },     // slate
+  { name: "Lime Twist", color: "#a3e635" },     // lime
+  { name: "Magenta Pop", color: "#db2777" },    // magenta
+  { name: "Charcoal Edge", color: "#111827" },  // charcoal/dark
 ];
 
 const riderEmojiPool = ["🦊", "🐼", "🦁", "🐯", "🦉", "🐢", "🐳", "🦄", "🐻", "🐝", "🦋", "🐙"];
@@ -113,8 +119,19 @@ function hashString(input: string) {
   return hash;
 }
 
-export function getGroupTheme(seed: string) {
-  return groupThemes[hashString(seed) % groupThemes.length];
+export function getGroupTheme(seed: string, usedIndices?: Set<number>) {
+  let index = hashString(seed) % groupThemes.length;
+
+  if (usedIndices) {
+    let attempts = 0;
+    while (usedIndices.has(index) && attempts < groupThemes.length) {
+      index = (index + 1) % groupThemes.length;
+      attempts++;
+    }
+    usedIndices.add(index);
+  }
+
+  return groupThemes[index];
 }
 
 export function getEmojiForMember(seed: string, index: number) {

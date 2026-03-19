@@ -42,12 +42,18 @@ For local dev, that means:
 - `apps/web/.env.local`
   ```bash
   NEXT_PUBLIC_MATCHER_BASE_URL=http://localhost:4001
+  MATCHER_ADMIN_PREVIEW_SECRET=replace-me
   ```
 - `apps/web/.env.convex`
   ```bash
   SITE_URL=http://localhost:3000
   MATCHER_BASE_URL=http://localhost:4001
+  ADMIN_EMAILS=admin@u.nus.edu
   # plus JWT_PRIVATE_KEY, JWKS, AUTH_RESEND_KEY, RESEND_FROM_EMAIL, RESEND_INBOUND_ADDRESS
+  ```
+- `services/matcher/.env`
+  ```bash
+  MATCHER_ADMIN_PREVIEW_SECRET=replace-me
   ```
 
 `npx convex dev` will automatically write `NEXT_PUBLIC_CONVEX_URL` into `apps/web/.env.local`, so you should not manage that value by hand.
@@ -64,6 +70,7 @@ Convex Auth requires several environment variables in your Convex deployment, no
 | `AUTH_RESEND_KEY` | Resend API key for OTP, verification, and inbound emails | Yes |
 | `RESEND_FROM_EMAIL` | Sender address (e.g. `Hop <login@hophome.app>`) | No (has default) |
 | `RESEND_INBOUND_ADDRESS` | Inbound address that receives verification replies (e.g. `reply@xxx.resend.app`) | Yes, for email reply flow |
+| `ADMIN_EMAILS` | Comma-separated admin allowlist for `/admin` access | No |
 
 ### Generating JWT keys
 
@@ -109,12 +116,14 @@ The production site should use a **deployed Convex production deployment**, not 
 3. In Vercel, set these project environment variables:
    - `CONVEX_DEPLOY_KEY` — lets the production Vercel build run `convex deploy`
    - `NEXT_PUBLIC_MATCHER_BASE_URL` — public matcher base URL for the web app
+   - `MATCHER_ADMIN_PREVIEW_SECRET` — shared secret for the admin simulator preview endpoint
 
 ### Production config rule of thumb
 
 - Vercel env:
   - `CONVEX_DEPLOY_KEY`
   - `NEXT_PUBLIC_MATCHER_BASE_URL`
+  - `MATCHER_ADMIN_PREVIEW_SECRET`
   - optionally `NEXT_PUBLIC_CONVEX_URL` for preview deployments
 - Convex production env:
   - `SITE_URL`
@@ -124,6 +133,7 @@ The production site should use a **deployed Convex production deployment**, not 
   - `RESEND_FROM_EMAIL`
   - `RESEND_INBOUND_ADDRESS`
   - `MATCHER_BASE_URL`
+  - `ADMIN_EMAILS`
 
 ### How production deploys work
 

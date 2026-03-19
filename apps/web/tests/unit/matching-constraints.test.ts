@@ -14,6 +14,8 @@ function makeEdge(overrides?: Partial<CompatibilityEdge>): CompatibilityEdge {
     score: 0.82,
     detourMinutes: 6,
     spreadDistanceKm: 3.2,
+    routeOverlap: 10,
+    destinationProximity: 0.5,
     ...overrides,
   };
 }
