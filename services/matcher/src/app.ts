@@ -74,6 +74,27 @@ function summarizeCompatibilityScores(edges: CompatibilityEdge[]) {
   };
 }
 
+function normalizeRevealErrorMessage(error: unknown) {
+  if (!(error instanceof Error)) {
+    return "Reveal failed.";
+  }
+
+  const message = error.message.toLowerCase();
+  const looksLikeInvalidKey =
+    message.includes("asymmetric key") ||
+    message.includes("not-a-valid-key") ||
+    message.includes("asn1") ||
+    message.includes("spki") ||
+    message.includes("public key") ||
+    message.includes("header too long");
+
+  if (looksLikeInvalidKey) {
+    return "Invalid asymmetric key provided.";
+  }
+
+  return error.message;
+}
+
 function respondWithBadRequest(
   request: Request,
   response: Response,
@@ -278,7 +299,7 @@ export function createMatcherApp(options: CreateMatcherAppOptions = {}) {
 
       response.json({ envelopes });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Reveal failed.";
+      const message = normalizeRevealErrorMessage(error);
       logger.error("matcher.envelopes_reveal_failed", {
         ...getRequestLogContext(request),
         memberCount: members.length,
