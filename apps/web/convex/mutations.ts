@@ -20,6 +20,7 @@ import {
 import { createStubCompatibility, createStubRevealEnvelopes } from "../lib/matcher-stub";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { action, internalMutation, mutation } from "./_generated/server";
 
 type MatchingCandidate = {
@@ -65,6 +66,38 @@ type RevealContext = {
   }>;
   requesterEnvelopes: RevealEnvelope[];
 };
+
+function buildNotificationEmail(title: string, body: string) {
+  return [
+    '<div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:24px">',
+    `<h2 style="margin:0 0 12px">${title}</h2>`,
+    `<p style="margin:0 0 12px;line-height:1.5">${body}</p>`,
+    '<p style="margin:0;color:#667085;font-size:12px">Hop keeps your ride group updated automatically.</p>',
+    "</div>",
+  ].join("");
+}
+
+async function scheduleLifecycleNotifications(
+  ctx: MutationCtx,
+  notifications: Array<{
+    userId: Id<"users">;
+    groupId?: Id<"groups">;
+    kind: string;
+    eventKey: string;
+    title: string;
+    body: string;
+    emailSubject: string;
+    emailHtml: string;
+  }>,
+) {
+  if (notifications.length === 0) {
+    return;
+  }
+
+  await ctx.scheduler.runAfter(0, internal.notifications.dispatchLifecycleNotifications, {
+    notifications,
+  });
+}
 
 function pairKey(left: string, right: string) {
   return [left, right].sort().join("::");
@@ -599,6 +632,23 @@ export const createTentativeGroup = internalMutation({
       },
       createdAt: new Date().toISOString(),
     });
+
+    await scheduleLifecycleNotifications(
+      ctx,
+      args.members.map((member) => ({
+        userId: member.userId as Id<"users">,
+        groupId,
+        kind: "match_found",
+        eventKey: `${groupId}:match_found:${member.userId}`,
+        title: `You are matched in ${theme.name}`,
+        body: `Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`,
+        emailSubject: `Confirm your Hop ride in ${theme.name}`,
+        emailHtml: buildNotificationEmail(
+          `You are matched in ${theme.name}`,
+          `Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`,
+        ),
+      })),
+    );
 
     return groupId;
   },
