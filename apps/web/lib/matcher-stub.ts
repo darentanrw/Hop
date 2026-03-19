@@ -1,37 +1,29 @@
-import type { AddressEnvelope, CompatibilityEdge, FareBand } from "@hop/shared";
-
-const fareBands: FareBand[] = ["S$10-15", "S$16-20", "S$21-25", "S$26+"];
+import type { AddressEnvelope, CompatibilityEdge } from "@hop/shared";
 
 const destinations = [
   {
     address: "Blk 123 Clementi Ave 3, Singapore 120123",
     cluster: 0,
-    fareBand: "S$10-15" as FareBand,
   },
   {
     address: "Blk 45 Holland Drive, Singapore 270045",
     cluster: 1,
-    fareBand: "S$16-20" as FareBand,
   },
   {
     address: "Blk 88 Jurong East Street 13, Singapore 600088",
     cluster: 2,
-    fareBand: "S$21-25" as FareBand,
   },
   {
     address: "Blk 101 Toa Payoh Lorong 1, Singapore 310101",
     cluster: 3,
-    fareBand: "S$26+" as FareBand,
   },
   {
     address: "Blk 7 Bukit Timah Road, Singapore 259688",
     cluster: 1,
-    fareBand: "S$16-20" as FareBand,
   },
   {
     address: "Blk 56 Commonwealth Drive, Singapore 140056",
     cluster: 0,
-    fareBand: "S$10-15" as FareBand,
   },
 ];
 
@@ -112,7 +104,6 @@ export function createStubMatcherSubmission(seed: string, userDestination?: stri
   return {
     sealedDestinationRef: `stub:destination:${encodeAddress(addressToEncode)}`,
     routeDescriptorRef: `stub:route:${destination.cluster}:${seedHash % 1000}`,
-    estimatedFareBand: destination.fareBand,
   };
 }
 
@@ -124,7 +115,6 @@ export function createStubMatcherSubmissionForAddress(address: string) {
   return {
     sealedDestinationRef: `stub:destination:${encodeAddress(trimmedAddress)}`,
     routeDescriptorRef: `stub:route:${addressHash % 4}:${addressHash % 1000}`,
-    estimatedFareBand: fareBands[hashString(`fare:${normalizedAddress}`) % fareBands.length],
   };
 }
 
@@ -142,8 +132,11 @@ export function createStubCompatibility(routeDescriptorRefs: string[]): Compatib
       const distance = Math.abs(getCluster(leftRef) - getCluster(rightRef));
       const destinationProximity = distance === 0 ? 0.93 : distance === 1 ? 0.82 : 0.72;
       const routeOverlap = Math.max(0.62, destinationProximity - 0.05);
-      const score = Number((0.55 * routeOverlap + 0.45 * destinationProximity).toFixed(2));
+      const score = Number(
+        (0.55 * routeOverlap + 0.3 * destinationProximity + 0.15 * 0.5).toFixed(2),
+      );
       const detourMinutes = distance === 0 ? 4 : distance === 1 ? 8 : 11;
+      const spreadDistanceKm = distance === 0 ? 0.5 : distance === 1 ? 3.2 : 6.8;
 
       edges.push({
         leftRef,
@@ -152,12 +145,21 @@ export function createStubCompatibility(routeDescriptorRefs: string[]): Compatib
         detourMinutes,
         routeOverlap: Number(routeOverlap.toFixed(2)),
         destinationProximity: Number(destinationProximity.toFixed(2)),
-        fareBand: fareBands[(getCluster(leftRef) + getCluster(rightRef)) % fareBands.length],
+        spreadDistanceKm: Number(spreadDistanceKm.toFixed(2)),
       });
     }
   }
 
   return edges;
+}
+
+export function createStubGeohashMap(routeDescriptorRefs: string[]): Map<string, string> {
+  const geohashByRef = new Map<string, string>();
+  for (const ref of routeDescriptorRefs) {
+    const cluster = getCluster(ref);
+    geohashByRef.set(ref, `stubgh${cluster}`);
+  }
+  return geohashByRef;
 }
 
 export function decodeStubDestinationRef(sealedDestinationRef: string) {

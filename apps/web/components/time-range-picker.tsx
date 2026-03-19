@@ -6,6 +6,7 @@ import {
   SLOTS_PER_DAY,
   clampRange,
   formatRangeSummaryParts,
+  getMinDateInput,
   slotFromPointerPosition,
   slotOptions,
   updateRangeForHandle,
@@ -15,6 +16,7 @@ type TimeRangePickerProps = {
   dateInput: string;
   startSlot: number;
   endSlot: number;
+  minSlot?: number;
   onDateInputChange: (value: string) => void;
   onRangeChange: (next: { startSlot: number; endSlot: number }) => void;
 };
@@ -27,6 +29,7 @@ export function TimeRangePicker({
   dateInput,
   startSlot,
   endSlot,
+  minSlot = 0,
   onDateInputChange,
   onRangeChange,
 }: TimeRangePickerProps) {
@@ -44,7 +47,7 @@ export function TimeRangePicker({
 
       const rect = track.getBoundingClientRect();
       const slot = slotFromPointerPosition(event.clientX, rect.left, rect.width);
-      onRangeChange(updateRangeForHandle(handle, slot, { startSlot, endSlot }));
+      onRangeChange(updateRangeForHandle(handle, slot, { startSlot, endSlot }, minSlot));
     }
 
     function handlePointerUp() {
@@ -58,21 +61,21 @@ export function TimeRangePicker({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [activeHandle, endSlot, onRangeChange, startSlot]);
+  }, [activeHandle, endSlot, minSlot, onRangeChange, startSlot]);
 
   const startPercent = (startSlot / SLOTS_PER_DAY) * 100;
   const endPercent = (endSlot / SLOTS_PER_DAY) * 100;
   const { dateLabel, timeLabel } = formatRangeSummaryParts(dateInput, startSlot, endSlot);
 
   function moveHandle(handle: "start" | "end", nextSlot: number) {
-    onRangeChange(updateRangeForHandle(handle, nextSlot, { startSlot, endSlot }));
+    onRangeChange(updateRangeForHandle(handle, nextSlot, { startSlot, endSlot }, minSlot));
   }
 
   function handleTrackPointerDown(event: React.PointerEvent<HTMLDivElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
     const slot = slotFromPointerPosition(event.clientX, rect.left, rect.width);
     const nearestHandle = Math.abs(slot - startSlot) <= Math.abs(slot - endSlot) ? "start" : "end";
-    onRangeChange(updateRangeForHandle(nearestHandle, slot, { startSlot, endSlot }));
+    onRangeChange(updateRangeForHandle(nearestHandle, slot, { startSlot, endSlot }, minSlot));
     setActiveHandle(nearestHandle);
   }
 
@@ -87,7 +90,8 @@ export function TimeRangePicker({
     );
   }
 
-  const normalized = clampRange(startSlot, endSlot);
+  const normalized = clampRange(startSlot, endSlot, minSlot);
+  const minDateStr = getMinDateInput();
 
   return (
     <div className="time-range-picker stack-sm">
@@ -97,7 +101,7 @@ export function TimeRangePicker({
           id="avail-date"
           type="date"
           value={dateInput}
-          min={dateInput}
+          min={minDateStr}
           onChange={(event) => onDateInputChange(event.target.value)}
           required
         />
@@ -137,7 +141,7 @@ export function TimeRangePicker({
             }}
             onKeyDown={(event) => handleKeyDown("start", event)}
             aria-label="Adjust start time"
-            aria-valuemin={0}
+            aria-valuemin={minSlot}
             aria-valuemax={normalized.endSlot - MIN_DURATION_SLOTS}
             aria-valuenow={normalized.startSlot}
           />
@@ -151,7 +155,10 @@ export function TimeRangePicker({
             }}
             onKeyDown={(event) => handleKeyDown("end", event)}
             aria-label="Adjust end time"
-            aria-valuemin={normalized.startSlot + MIN_DURATION_SLOTS}
+            aria-valuemin={Math.max(
+              minSlot + MIN_DURATION_SLOTS,
+              normalized.startSlot + MIN_DURATION_SLOTS,
+            )}
             aria-valuemax={SLOTS_PER_DAY}
             aria-valuenow={normalized.endSlot}
           />
@@ -175,7 +182,9 @@ export function TimeRangePicker({
             onChange={(event) => moveHandle("start", Number(event.target.value))}
           >
             {options
-              .filter((option) => option.value <= endSlot - MIN_DURATION_SLOTS)
+              .filter(
+                (option) => option.value >= minSlot && option.value <= endSlot - MIN_DURATION_SLOTS,
+              )
               .map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -191,7 +200,11 @@ export function TimeRangePicker({
             onChange={(event) => moveHandle("end", Number(event.target.value))}
           >
             {options
-              .filter((option) => option.value >= startSlot + MIN_DURATION_SLOTS)
+              .filter(
+                (option) =>
+                  option.value >=
+                  Math.max(minSlot + MIN_DURATION_SLOTS, startSlot + MIN_DURATION_SLOTS),
+              )
               .map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}

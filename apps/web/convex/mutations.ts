@@ -1,8 +1,15 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   ACK_WINDOW_MINUTES,
+  HARD_LOCK_MINUTES_BEFORE,
+  LOCK_HOURS_BEFORE,
   MAX_DETOUR_MINUTES,
+  MAX_DISTINCT_LOCATIONS,
+  MAX_GROUP_SIZE,
+  MAX_SPREAD_KM,
   MEETUP_GRACE_MINUTES,
+  MIN_GROUP_SIZE,
+  MIN_TIME_OVERLAP_MINUTES,
   PICKUP_ORIGIN_ID,
   PICKUP_ORIGIN_LABEL,
   SMALL_GROUP_RELEASE_HOURS,
@@ -20,34 +27,18 @@ import {
   getGroupTheme,
   selectBookerUserId,
 } from "../lib/group-lifecycle";
-import { createStubCompatibility, createStubRevealEnvelopes } from "../lib/matcher-stub";
+import {
+  createStubCompatibility,
+  createStubGeohashMap,
+  createStubRevealEnvelopes,
+} from "../lib/matcher-stub";
+import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
+import { formGroups } from "../lib/matching";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
-import { action, internalMutation, mutation } from "./_generated/server";
+import type { ActionCtx, MutationCtx } from "./_generated/server";
+import { action, internalAction, internalMutation, mutation } from "./_generated/server";
 import { resolveQaActingUserId } from "./localQa";
-
-type MatchingCandidate = {
-  availabilityId: Id<"availabilities">;
-  userId: Id<"users">;
-  windowStart: string;
-  windowEnd: string;
-  selfDeclaredGender: "woman" | "man" | "nonbinary" | "prefer_not_to_say";
-  sameGenderOnly: boolean;
-  minGroupSize: number;
-  maxGroupSize: number;
-  routeDescriptorRef: string;
-  sealedDestinationRef: string;
-  estimatedFareBand: "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
-  displayName: string;
-};
-
-type CompatibilityEdge = {
-  leftRef: string;
-  rightRef: string;
-  score: number;
-  detourMinutes: number;
-};
 
 type RevealEnvelope = {
   recipientUserId: string;
@@ -103,68 +94,14 @@ async function scheduleLifecycleNotifications(
   });
 }
 
-function pairKey(left: string, right: string) {
-  return [left, right].sort().join("::");
-}
-
-function groupAllowedForMembers(members: MatchingCandidate[]) {
-  const size = members.length;
-  return members.every((member) => size >= member.minGroupSize && size <= member.maxGroupSize);
-}
-
-function evaluateGroup(
-  members: MatchingCandidate[],
-  compatibilityMap: Map<string, CompatibilityEdge>,
-) {
-  const pairScores: CompatibilityEdge[] = [];
-
-  for (let index = 0; index < members.length; index += 1) {
-    for (let compareIndex = index + 1; compareIndex < members.length; compareIndex += 1) {
-      const left = members[index];
-      const right = members[compareIndex];
-      const edge = compatibilityMap.get(pairKey(left.routeDescriptorRef, right.routeDescriptorRef));
-      if (!edge) return null;
-      if (edge.detourMinutes > MAX_DETOUR_MINUTES) return null;
-      if (overlapMinutes(left, right) < 60) return null;
-      if (!arePreferencesCompatible(left, right)) return null;
-      pairScores.push(edge);
-    }
-  }
-
-  if (!groupAllowedForMembers(members)) {
-    return null;
-  }
-
-  const averageScore =
-    pairScores.reduce((total, score) => total + score.score, 0) / Math.max(pairScores.length, 1);
-  const minimumScore = Math.min(...pairScores.map((score) => score.score), 1);
-  const maxDetourMinutes = Math.max(...pairScores.map((score) => score.detourMinutes), 0);
-
-  return {
-    averageScore: Number(averageScore.toFixed(2)),
-    minimumScore: Number(minimumScore.toFixed(2)),
-    maxDetourMinutes,
-  };
-}
-
-function combinations<T>(items: T[], size: number): T[][] {
-  if (size === 0) return [[]];
-  if (items.length < size) return [];
-  if (size === 1) return items.map((item) => [item]);
-
-  const result: T[][] = [];
-  items.forEach((item, index) => {
-    const rest = items.slice(index + 1);
-    for (const tail of combinations(rest, size - 1)) {
-      result.push([item, ...tail]);
-    }
-  });
-  return result;
-}
+// formGroups, evaluateGroup, and related helpers are in ../lib/matching.ts
 
 async function fetchCompatibility(routeDescriptorRefs: string[]) {
   if ((process.env.MATCHER_MODE ?? "stub") !== "live") {
-    return createStubCompatibility(routeDescriptorRefs);
+    return {
+      edges: createStubCompatibility(routeDescriptorRefs),
+      geohashByRef: createStubGeohashMap(routeDescriptorRefs),
+    };
   }
 
   const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
@@ -179,8 +116,14 @@ async function fetchCompatibility(routeDescriptorRefs: string[]) {
     throw new Error("Unable to fetch matcher compatibility.");
   }
 
-  const payload = (await response.json()) as { edges: CompatibilityEdge[] };
-  return payload.edges;
+  const payload = (await response.json()) as {
+    edges: CompatibilityEdge[];
+    geohashByRef?: Record<string, string>;
+  };
+  return {
+    edges: payload.edges,
+    geohashByRef: new Map(Object.entries(payload.geohashByRef ?? {})),
+  };
 }
 
 async function fetchRevealEnvelopes(
@@ -341,12 +284,6 @@ export const createAvailability = mutation({
     maxGroupSize: v.number(),
     sealedDestinationRef: v.string(),
     routeDescriptorRef: v.string(),
-    estimatedFareBand: v.union(
-      v.literal("S$10-15"),
-      v.literal("S$16-20"),
-      v.literal("S$21-25"),
-      v.literal("S$26+"),
-    ),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -678,12 +615,6 @@ export const createTentativeGroup = internalMutation({
     windowStart: v.string(),
     windowEnd: v.string(),
     groupSize: v.number(),
-    estimatedFareBand: v.union(
-      v.literal("S$10-15"),
-      v.literal("S$16-20"),
-      v.literal("S$21-25"),
-      v.literal("S$26+"),
-    ),
     maxDetourMinutes: v.number(),
     averageScore: v.number(),
     minimumScore: v.number(),
@@ -698,10 +629,23 @@ export const createTentativeGroup = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
+    const inProgressStatuses = new Set([
+      "tentative",
+      "semi_locked",
+      "locked",
+      "matched_pending_ack",
+      "group_confirmed",
+      "meetup_preparation",
+      "meetup_checkin",
+      "depart_ready",
+      "in_trip",
+      "receipt_pending",
+      "payment_pending",
+    ]);
     const activeGroups = await ctx.db.query("groups").collect();
     const conflictingGroup = activeGroups.find(
       (group) =>
-        group.status !== "dissolved" &&
+        inProgressStatuses.has(group.status) &&
         group.memberUserIds.some((memberUserId) => args.memberUserIds.includes(memberUserId)),
     );
     if (conflictingGroup) {
@@ -762,13 +706,12 @@ export const createTentativeGroup = internalMutation({
     const bookerUserId = selectBookerUserId(args.memberUserIds, credibilityScores);
 
     const groupId = await ctx.db.insert("groups", {
-      status: "matched_pending_ack",
+      status: "tentative",
       pickupOriginId: PICKUP_ORIGIN_ID,
       pickupLabel: PICKUP_ORIGIN_LABEL,
       windowStart: args.windowStart,
       windowEnd: args.windowEnd,
       groupSize: args.groupSize,
-      estimatedFareBand: args.estimatedFareBand,
       maxDetourMinutes: args.maxDetourMinutes,
       averageScore: args.averageScore,
       minimumScore: args.minimumScore,
@@ -892,6 +835,39 @@ export const storeRevealedEnvelopes = internalMutation({
   },
 });
 
+function computeGroupWindow(members: MatchingCandidate[]) {
+  const latestStart = Math.max(...members.map((m) => new Date(m.windowStart).getTime()));
+  const earliestEnd = Math.min(...members.map((m) => new Date(m.windowEnd).getTime()));
+  return {
+    windowStart: new Date(latestStart).toISOString(),
+    windowEnd: new Date(Math.max(earliestEnd, latestStart)).toISOString(),
+  };
+}
+
+async function createGroupsFromSelection(ctx: ActionCtx, selectedGroups: SelectedGroup[]) {
+  let created = 0;
+  for (const selected of selectedGroups) {
+    const { windowStart, windowEnd } = computeGroupWindow(selected.members);
+    const groupId = await ctx.runMutation(internal.mutations.createTentativeGroup, {
+      windowStart,
+      windowEnd,
+      groupSize: selected.members.length,
+      maxDetourMinutes: selected.maxDetourMinutes,
+      averageScore: selected.averageScore,
+      minimumScore: selected.minimumScore,
+      availabilityIds: selected.members.map((member) => member.availabilityId),
+      memberUserIds: selected.members.map((member) => member.userId),
+      members: selected.members.map((member) => ({
+        userId: member.userId,
+        availabilityId: member.availabilityId,
+        displayName: member.displayName,
+      })),
+    });
+    if (groupId) created += 1;
+  }
+  return created;
+}
+
 export const runMatching = action({
   args: {},
   handler: async (ctx) => {
@@ -906,93 +882,63 @@ export const runMatching = action({
       return { created: 0 };
     }
 
-    const edges = await fetchCompatibility(candidates.map((entry) => entry.routeDescriptorRef));
-    const compatibilityMap = new Map<string, CompatibilityEdge>();
-    for (const edge of edges) {
-      compatibilityMap.set(pairKey(edge.leftRef, edge.rightRef), edge);
+    const { edges, geohashByRef } = await fetchCompatibility(
+      candidates.map((entry) => entry.routeDescriptorRef),
+    );
+    const selectedGroups = formGroups(candidates, edges, geohashByRef);
+    const created = await createGroupsFromSelection(ctx, selectedGroups);
+    return { created };
+  },
+});
+
+export const runMatchingCron = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    if (candidates.length < 2) {
+      return { created: 0 };
     }
 
-    const unmatched = [...candidates];
-    const selectedGroups: Array<{
-      members: MatchingCandidate[];
-      averageScore: number;
-      minimumScore: number;
-      maxDetourMinutes: number;
-    }> = [];
+    const { edges, geohashByRef } = await fetchCompatibility(
+      candidates.map((entry) => entry.routeDescriptorRef),
+    );
+    const selectedGroups = formGroups(candidates, edges, geohashByRef);
+    const created = await createGroupsFromSelection(ctx, selectedGroups);
+    return { created };
+  },
+});
 
-    const trySize = (size: number) => {
-      let best: {
-        members: MatchingCandidate[];
-        averageScore: number;
-        minimumScore: number;
-        maxDetourMinutes: number;
-      } | null = null;
+export const runMatchingWithEdges = action({
+  args: {
+    edges: v.array(
+      v.object({
+        leftRef: v.string(),
+        rightRef: v.string(),
+        score: v.number(),
+        detourMinutes: v.number(),
+        spreadDistanceKm: v.number(),
+        routeOverlap: v.number(),
+        destinationProximity: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, { edges }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
 
-      for (const candidateMembers of combinations(unmatched, size)) {
-        const hoursUntilStart =
-          (new Date(candidateMembers[0].windowStart).getTime() - Date.now()) / 3_600_000;
-        if (size < 4 && hoursUntilStart > SMALL_GROUP_RELEASE_HOURS) {
-          continue;
-        }
-
-        const evaluation = evaluateGroup(candidateMembers, compatibilityMap);
-        if (!evaluation) continue;
-
-        const current = { members: candidateMembers, ...evaluation };
-        if (
-          !best ||
-          current.averageScore > best.averageScore ||
-          (current.averageScore === best.averageScore &&
-            current.minimumScore > best.minimumScore) ||
-          (current.averageScore === best.averageScore &&
-            current.minimumScore === best.minimumScore &&
-            current.maxDetourMinutes < best.maxDetourMinutes)
-        ) {
-          best = current;
-        }
-      }
-
-      if (!best) return false;
-
-      selectedGroups.push(best);
-      for (const member of best.members) {
-        const index = unmatched.findIndex(
-          (entry) => entry.availabilityId === member.availabilityId,
-        );
-        if (index >= 0) unmatched.splice(index, 1);
-      }
-      return true;
-    };
-
-    while (unmatched.length >= 2) {
-      if (trySize(4)) continue;
-      if (trySize(3)) continue;
-      if (trySize(2)) continue;
-      break;
+    const candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    if (candidates.length < 2) {
+      return { created: 0 };
     }
 
-    let created = 0;
-    for (const selected of selectedGroups) {
-      const fareBands = selected.members.map((member) => member.estimatedFareBand);
-      const groupId = await ctx.runMutation(internal.mutations.createTentativeGroup, {
-        windowStart: selected.members[0].windowStart,
-        windowEnd: selected.members[0].windowEnd,
-        groupSize: selected.members.length,
-        estimatedFareBand: fareBands.sort()[0],
-        maxDetourMinutes: selected.maxDetourMinutes,
-        averageScore: selected.averageScore,
-        minimumScore: selected.minimumScore,
-        availabilityIds: selected.members.map((member) => member.availabilityId),
-        memberUserIds: selected.members.map((member) => member.userId),
-        members: selected.members.map((member) => ({
-          userId: member.userId,
-          availabilityId: member.availabilityId,
-          displayName: member.displayName,
-        })),
-      });
-      if (groupId) created += 1;
-    }
-
+    const selectedGroups = formGroups(candidates, edges);
+    const created = await createGroupsFromSelection(ctx, selectedGroups);
     return { created };
   },
 });
@@ -1045,5 +991,583 @@ export const revealGroupAddresses = action({
         (envelope) => envelope.recipientUserId === (requesterId as string),
       ),
     };
+  },
+});
+
+export const lockGroups = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const lockHorizon = now + LOCK_HOURS_BEFORE * 3_600_000;
+
+    const groups = await ctx.db.query("groups").collect();
+    const tentativeGroups = groups.filter(
+      (g) => g.status === "tentative" && new Date(g.windowStart).getTime() <= lockHorizon,
+    );
+
+    let lockedCount = 0;
+    let semiLockedCount = 0;
+
+    for (const group of tentativeGroups) {
+      const members = await ctx.db
+        .query("groupMembers")
+        .withIndex("groupId", (q) => q.eq("groupId", group._id))
+        .collect();
+      const activeMembers = members.filter((m) => m.participationStatus === "active");
+
+      const activeCount = activeMembers.length;
+
+      if (activeCount >= MAX_GROUP_SIZE) {
+        const bookerUserId = selectBookerUserId(activeMembers.map((m) => m.userId));
+        await ctx.db.patch(group._id, {
+          status: "matched_pending_ack",
+          groupSize: activeCount,
+          confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
+          bookerUserId: bookerUserId ?? group.bookerUserId,
+        });
+        lockedCount += 1;
+
+        await scheduleLifecycleNotifications(
+          ctx,
+          activeMembers.map((member) => ({
+            userId: member.userId as Id<"users">,
+            groupId: group._id,
+            kind: "group_locked",
+            eventKey: `${group._id}:locked:${member.userId}`,
+            title: `${group.groupName ?? "Your group"} is locked`,
+            body: "Your ride group is full. Confirm within 30 minutes to lock in your spot.",
+            emailSubject: `${group.groupName ?? "Your Hop group"} is locked — confirm now`,
+            emailHtml: buildNotificationEmail(
+              `${group.groupName ?? "Your group"} is locked`,
+              "Your ride group is full. Confirm within 30 minutes to lock in your spot.",
+            ),
+          })),
+        );
+      } else {
+        const spotsLeft = MAX_GROUP_SIZE - activeCount;
+        await ctx.db.patch(group._id, { status: "semi_locked", groupSize: activeCount });
+        semiLockedCount += 1;
+
+        await scheduleLifecycleNotifications(
+          ctx,
+          activeMembers.map((member) => ({
+            userId: member.userId as Id<"users">,
+            groupId: group._id,
+            kind: "group_semi_locked",
+            eventKey: `${group._id}:semi_locked:${member.userId}`,
+            title: `${group.groupName ?? "Your group"} is forming`,
+            body: `${activeCount} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
+            emailSubject: `${group.groupName ?? "Your Hop group"} is forming`,
+            emailHtml: buildNotificationEmail(
+              `${group.groupName ?? "Your group"} is forming`,
+              `${activeCount} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
+            ),
+          })),
+        );
+      }
+    }
+
+    return { lockedCount, semiLockedCount };
+  },
+});
+
+export const hardLockGroups = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const hardLockHorizon = now + HARD_LOCK_MINUTES_BEFORE * 60_000;
+
+    const groups = await ctx.db.query("groups").collect();
+    const semiLockedGroups = groups.filter(
+      (g) => g.status === "semi_locked" && new Date(g.windowStart).getTime() <= hardLockHorizon,
+    );
+
+    let hardLockedCount = 0;
+    let dissolvedCount = 0;
+
+    for (const group of semiLockedGroups) {
+      const members = await ctx.db
+        .query("groupMembers")
+        .withIndex("groupId", (q) => q.eq("groupId", group._id))
+        .collect();
+
+      const activeMembers = members.filter((m) => m.participationStatus === "active");
+
+      if (activeMembers.length < MIN_GROUP_SIZE) {
+        await ctx.db.patch(group._id, { status: "dissolved" });
+        for (const member of members) {
+          const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+          if (availability?.status === "matched") {
+            await ctx.db.patch(availability._id, { status: "open" });
+          }
+        }
+        dissolvedCount += 1;
+        continue;
+      }
+
+      const memberUserIds = activeMembers.map((m) => m.userId);
+      const bookerUserId = selectBookerUserId(memberUserIds);
+
+      await ctx.db.patch(group._id, {
+        status: "matched_pending_ack",
+        confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
+        bookerUserId: bookerUserId ?? group.bookerUserId,
+      });
+      hardLockedCount += 1;
+
+      await scheduleLifecycleNotifications(
+        ctx,
+        activeMembers.map((member) => ({
+          userId: member.userId as Id<"users">,
+          groupId: group._id,
+          kind: "group_hard_locked",
+          eventKey: `${group._id}:hard_locked:${member.userId}`,
+          title: `${group.groupName ?? "Your group"} is locked`,
+          body: "All groups finalized. Confirm your ride — booker will book once everyone checks in.",
+          emailSubject: `${group.groupName ?? "Your Hop group"} is locked — confirm now`,
+          emailHtml: buildNotificationEmail(
+            `${group.groupName ?? "Your group"} is locked`,
+            "All groups finalized. Confirm your ride — booker will book once everyone checks in.",
+          ),
+        })),
+      );
+    }
+
+    return { hardLockedCount, dissolvedCount };
+  },
+});
+
+export const lateJoinGroup = action({
+  args: {
+    availabilityId: v.id("availabilities"),
+  },
+  handler: async (
+    ctx,
+    { availabilityId },
+  ): Promise<{ joined: boolean; reason?: string; groupId?: string }> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const availability = (await ctx.runQuery(internal.queries.getAvailabilityById, {
+      availabilityId,
+    })) as {
+      _id: Id<"availabilities">;
+      userId: Id<"users">;
+      windowStart: string;
+      windowEnd: string;
+      routeDescriptorRef: string;
+      sealedDestinationRef: string;
+      selfDeclaredGender: "woman" | "man" | "nonbinary" | "prefer_not_to_say";
+      sameGenderOnly: boolean;
+      status: string;
+    } | null;
+
+    if (!availability || availability.userId !== userId || availability.status !== "open") {
+      throw new Error("No valid open availability found.");
+    }
+
+    const existingRefs = (await ctx.runQuery(
+      internal.queries.getSemiLockedGroupRouteRefs,
+      {},
+    )) as string[];
+    const allRefs = [...new Set([...existingRefs, availability.routeDescriptorRef])];
+    const { edges, geohashByRef } = await fetchCompatibility(allRefs);
+
+    const geohashRecord: Record<string, string> = {};
+    if (geohashByRef) {
+      for (const [key, value] of geohashByRef) geohashRecord[key] = value;
+    }
+
+    return (await ctx.runMutation(internal.mutations.attemptLateJoin, {
+      userId,
+      availabilityId,
+      windowStart: availability.windowStart,
+      windowEnd: availability.windowEnd,
+      routeDescriptorRef: availability.routeDescriptorRef,
+      sealedDestinationRef: availability.sealedDestinationRef,
+      selfDeclaredGender: availability.selfDeclaredGender,
+      sameGenderOnly: availability.sameGenderOnly,
+      compatibilityEdges: edges.map((e) => ({
+        leftRef: e.leftRef,
+        rightRef: e.rightRef,
+        detourMinutes: e.detourMinutes,
+        spreadDistanceKm: e.spreadDistanceKm,
+      })),
+      geohashByRef: geohashRecord,
+    })) as { joined: boolean; reason?: string; groupId?: string };
+  },
+});
+
+export const attemptLateJoin = internalMutation({
+  args: {
+    userId: v.id("users"),
+    availabilityId: v.id("availabilities"),
+    windowStart: v.string(),
+    windowEnd: v.string(),
+    routeDescriptorRef: v.string(),
+    sealedDestinationRef: v.string(),
+    selfDeclaredGender: v.union(
+      v.literal("woman"),
+      v.literal("man"),
+      v.literal("nonbinary"),
+      v.literal("prefer_not_to_say"),
+    ),
+    sameGenderOnly: v.boolean(),
+    compatibilityEdges: v.array(
+      v.object({
+        leftRef: v.string(),
+        rightRef: v.string(),
+        detourMinutes: v.number(),
+        spreadDistanceKm: v.number(),
+      }),
+    ),
+    geohashByRef: v.record(v.string(), v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existingMembership = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", args.userId))
+      .collect();
+    const activeMemberships = existingMembership.filter((m) => m.participationStatus === "active");
+    if (activeMemberships.length > 0) {
+      const activeGroupStatuses = new Set([
+        "tentative",
+        "semi_locked",
+        "locked",
+        "matched_pending_ack",
+        "group_confirmed",
+        "meetup_preparation",
+        "meetup_checkin",
+        "depart_ready",
+        "in_trip",
+        "receipt_pending",
+        "payment_pending",
+      ]);
+      for (const membership of activeMemberships) {
+        const group = await ctx.db.get(membership.groupId);
+        if (group && activeGroupStatuses.has(group.status)) {
+          return { joined: false, reason: "Already in an active group." };
+        }
+      }
+    }
+
+    const edgeMap = new Map<string, { detourMinutes: number; spreadDistanceKm: number }>();
+    for (const edge of args.compatibilityEdges) {
+      const key = [edge.leftRef, edge.rightRef].sort().join("::");
+      edgeMap.set(key, edge);
+    }
+
+    const joiner = { windowStart: args.windowStart, windowEnd: args.windowEnd };
+    const groups = await ctx.db.query("groups").collect();
+    const candidateGroups = groups.filter((g) => {
+      if (g.status !== "semi_locked") return false;
+      return overlapMinutes(joiner, g) > MIN_TIME_OVERLAP_MINUTES;
+    });
+
+    const joinerAvailability = await ctx.db.get(args.availabilityId);
+
+    let targetGroup = null;
+    let targetActiveMembers: Array<{
+      _id: Id<"groupMembers">;
+      userId: string;
+      availabilityId: string;
+      participationStatus?: string;
+      displayName: string;
+      [key: string]: unknown;
+    }> = [];
+    const activeAvailabilitiesByUserId = new Map<
+      string,
+      { windowStart: string; windowEnd: string }
+    >();
+    for (const group of candidateGroups) {
+      const members = await ctx.db
+        .query("groupMembers")
+        .withIndex("groupId", (q) => q.eq("groupId", group._id))
+        .collect();
+      const activeMembers = members.filter((m) => m.participationStatus === "active");
+
+      if (activeMembers.length >= MAX_GROUP_SIZE) continue;
+
+      const activeAvailabilities = await Promise.all(
+        activeMembers.map((m) => ctx.db.get(m.availabilityId as Id<"availabilities">)),
+      );
+
+      const newSize = activeMembers.length + 1;
+
+      const sizeOk =
+        activeAvailabilities.every((avail) => {
+          if (!avail) return true;
+          return (
+            newSize >= (avail.minGroupSize ?? MIN_GROUP_SIZE) &&
+            newSize <= (avail.maxGroupSize ?? MAX_GROUP_SIZE)
+          );
+        }) &&
+        joinerAvailability != null &&
+        newSize >= (joinerAvailability.minGroupSize ?? MIN_GROUP_SIZE) &&
+        newSize <= (joinerAvailability.maxGroupSize ?? MAX_GROUP_SIZE);
+      if (!sizeOk) continue;
+
+      const genderOk = activeAvailabilities.every((avail) => {
+        if (!avail) return true;
+        return arePreferencesCompatible(
+          { selfDeclaredGender: args.selfDeclaredGender, sameGenderOnly: args.sameGenderOnly },
+          { selfDeclaredGender: avail.selfDeclaredGender, sameGenderOnly: avail.sameGenderOnly },
+        );
+      });
+      if (!genderOk) continue;
+
+      const routeOk = activeAvailabilities.every((avail) => {
+        if (!avail) return true;
+        const key = [args.routeDescriptorRef, avail.routeDescriptorRef].sort().join("::");
+        const edge = edgeMap.get(key);
+        if (!edge) return false;
+        return edge.detourMinutes <= MAX_DETOUR_MINUTES && edge.spreadDistanceKm <= MAX_SPREAD_KM;
+      });
+      if (!routeOk) continue;
+
+      const allRefs = [
+        ...activeAvailabilities.map((a) => a?.routeDescriptorRef).filter(Boolean),
+        args.routeDescriptorRef,
+      ] as string[];
+      const allClusters = allRefs.map((ref) => args.geohashByRef[ref]).filter(Boolean);
+      if (allClusters.length === allRefs.length) {
+        const distinctLocations = new Set(allClusters).size;
+        if (distinctLocations > MAX_DISTINCT_LOCATIONS) continue;
+      }
+
+      targetGroup = group;
+      targetActiveMembers = activeMembers;
+      for (let i = 0; i < activeMembers.length; i++) {
+        const avail = activeAvailabilities[i];
+        if (avail) {
+          activeAvailabilitiesByUserId.set(activeMembers[i].userId, {
+            windowStart: avail.windowStart,
+            windowEnd: avail.windowEnd,
+          });
+        }
+      }
+      break;
+    }
+
+    if (!targetGroup) {
+      return { joined: false, reason: "No compatible semi-locked groups found." };
+    }
+
+    const user = await ctx.db.get(args.userId);
+    const displayName = user?.name?.trim() || "Hop member";
+
+    const newMemberUserIds = [...targetActiveMembers.map((m) => m.userId), args.userId];
+    const newAvailabilityIds = [
+      ...targetActiveMembers.map((m) => m.availabilityId),
+      args.availabilityId as string,
+    ];
+
+    const allRosterMembers = [
+      ...targetActiveMembers.map((m) => ({
+        availabilityId: m.availabilityId,
+        userId: m.userId,
+      })),
+      { availabilityId: args.availabilityId as string, userId: args.userId as string },
+    ];
+    const availabilityById = new Map<
+      string,
+      { createdAt?: string; sealedDestinationRef: string }
+    >();
+    for (const member of allRosterMembers) {
+      const avail = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+      if (avail) {
+        availabilityById.set(member.availabilityId, {
+          createdAt: avail.createdAt,
+          sealedDestinationRef: avail.sealedDestinationRef,
+        });
+      }
+    }
+
+    const allLockedDestinations = buildLockedGroupDestinations(allRosterMembers, availabilityById);
+    const newMemberDest = allLockedDestinations.find((d) => d.userId === (args.userId as string));
+    if (!newMemberDest) {
+      return { joined: false, reason: "Failed to compute destination for new member." };
+    }
+
+    const suggestedDropoffOrder = allLockedDestinations.map((d) => d.userId);
+
+    const allWindows = [
+      ...targetActiveMembers.map((m) => {
+        const a = activeAvailabilitiesByUserId.get(m.userId);
+        return {
+          start: a?.windowStart ?? targetGroup.windowStart,
+          end: a?.windowEnd ?? targetGroup.windowEnd,
+        };
+      }),
+      { start: args.windowStart, end: args.windowEnd },
+    ];
+    const sharedStart = new Date(
+      Math.max(...allWindows.map((w) => new Date(w.start).getTime())),
+    ).toISOString();
+    const sharedEnd = new Date(
+      Math.max(
+        Math.min(...allWindows.map((w) => new Date(w.end).getTime())),
+        Math.max(...allWindows.map((w) => new Date(w.start).getTime())),
+      ),
+    ).toISOString();
+    const updatedMeetingTime = deriveMeetingTime(sharedStart);
+    const updatedGraceDeadline = new Date(
+      new Date(updatedMeetingTime).getTime() + MEETUP_GRACE_MINUTES * 60_000,
+    ).toISOString();
+
+    await ctx.db.patch(targetGroup._id, {
+      groupSize: newMemberUserIds.length,
+      memberUserIds: newMemberUserIds,
+      availabilityIds: newAvailabilityIds,
+      suggestedDropoffOrder,
+      windowStart: sharedStart,
+      windowEnd: sharedEnd,
+      meetingTime: updatedMeetingTime,
+      graceDeadline: updatedGraceDeadline,
+    });
+
+    await ctx.db.patch(args.availabilityId, { status: "matched" });
+
+    for (const dest of allLockedDestinations) {
+      if (dest.userId === (args.userId as string)) continue;
+      const activeMember = targetActiveMembers.find((m) => m.userId === dest.userId);
+      if (activeMember) {
+        await ctx.db.patch(activeMember._id, { dropoffOrder: dest.dropoffOrder });
+      }
+    }
+
+    await ctx.db.insert("groupMembers", {
+      groupId: targetGroup._id,
+      userId: args.userId,
+      availabilityId: args.availabilityId as string,
+      displayName,
+      emoji: getEmojiForMember(targetGroup._id, newMemberUserIds.length - 1),
+      accepted: true,
+      acknowledgementStatus: "accepted",
+      acknowledgedAt: new Date().toISOString(),
+      participationStatus: "active",
+      destinationAddress: newMemberDest.destinationAddress,
+      destinationSubmittedAt: newMemberDest.destinationSubmittedAt,
+      destinationLockedAt: newMemberDest.destinationLockedAt,
+      dropoffOrder: newMemberDest.dropoffOrder,
+      qrToken: generateQrPassphrase(
+        `${targetGroup._id}:${args.userId}:${newMemberUserIds.length - 1}`,
+      ),
+      paymentStatus: "none",
+    });
+
+    await scheduleLifecycleNotifications(
+      ctx,
+      targetActiveMembers
+        .filter((m) => m.userId !== args.userId)
+        .map((member) => ({
+          userId: member.userId as Id<"users">,
+          groupId: targetGroup._id,
+          kind: "late_join",
+          eventKey: `${targetGroup._id}:late_join:${args.userId}:${member.userId}`,
+          title: "A new rider joined your group!",
+          body: `${displayName} joined ${targetGroup.groupName ?? "your group"}.`,
+          emailSubject: "A new rider joined your Hop group",
+          emailHtml: buildNotificationEmail(
+            "A new rider joined your group!",
+            `${displayName} joined ${targetGroup.groupName ?? "your group"}.`,
+          ),
+        })),
+    );
+
+    return { joined: true, groupId: targetGroup._id };
+  },
+});
+
+export const requestRedelegate = mutation({
+  args: {
+    groupId: v.id("groups"),
+    volunteerAsBooker: v.boolean(),
+  },
+  handler: async (ctx, { groupId, volunteerAsBooker }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+    const REDELEGATABLE_STATUSES = new Set([
+      "semi_locked",
+      "locked",
+      "matched_pending_ack",
+      "meetup_preparation",
+    ]);
+    if (!REDELEGATABLE_STATUSES.has(group.status)) {
+      throw new Error("Group is not in a state that allows redelegation.");
+    }
+
+    const members = await ctx.db
+      .query("groupMembers")
+      .withIndex("groupId", (q) => q.eq("groupId", groupId))
+      .collect();
+    const activeMembers = members.filter((m) => m.participationStatus === "active");
+    const member = activeMembers.find((m) => m.userId === userId);
+    if (!member) throw new Error("Not an active member of this group");
+
+    const allRedelegationVotes = await ctx.db
+      .query("auditEvents")
+      .withIndex("action", (q) => q.eq("action", "group.redelegate_vote"))
+      .collect();
+    const redelegationVotes = allRedelegationVotes.filter((e) => e.metadata?.groupId === groupId);
+    const alreadyVoted = redelegationVotes.some((e) => e.metadata?.voterId === userId);
+    if (alreadyVoted) throw new Error("You have already voted to redelegate.");
+
+    await ctx.db.insert("auditEvents", {
+      action: "group.redelegate_vote",
+      actorId: userId,
+      metadata: {
+        groupId,
+        voterId: userId,
+        volunteerAsBooker,
+      },
+      createdAt: new Date().toISOString(),
+    });
+
+    const totalVotes = redelegationVotes.length + 1;
+    const threshold = Math.ceil(activeMembers.length / 2);
+
+    if (totalVotes >= threshold) {
+      const volunteers = [
+        ...redelegationVotes
+          .filter((e) => e.metadata?.volunteerAsBooker)
+          .map((e) => e.metadata?.voterId as string),
+        ...(volunteerAsBooker ? [userId as string] : []),
+      ];
+
+      const newBooker =
+        volunteers.length > 0
+          ? selectBookerUserId(volunteers)
+          : selectBookerUserId(activeMembers.map((m) => m.userId));
+
+      if (newBooker) {
+        await ctx.db.patch(groupId, { bookerUserId: newBooker });
+
+        await scheduleLifecycleNotifications(
+          ctx,
+          activeMembers.map((m) => {
+            const bookerMember = activeMembers.find((am) => am.userId === newBooker);
+            return {
+              userId: m.userId as Id<"users">,
+              groupId,
+              kind: "booker_changed",
+              eventKey: `${groupId}:booker_changed:${newBooker}:${m.userId}`,
+              title: "Booker changed",
+              body: `Booker changed to ${bookerMember?.displayName ?? "a group member"}.`,
+              emailSubject: "Hop group booker changed",
+              emailHtml: buildNotificationEmail(
+                "Booker changed",
+                `Booker changed to ${bookerMember?.displayName ?? "a group member"}.`,
+              ),
+            };
+          }),
+        );
+      }
+    }
+
+    return { ok: true, totalVotes, threshold };
   },
 });

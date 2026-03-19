@@ -180,7 +180,6 @@ export const getMatchingCandidates = internalQuery({
       maxGroupSize: availability.maxGroupSize,
       routeDescriptorRef: availability.routeDescriptorRef,
       sealedDestinationRef: availability.sealedDestinationRef,
-      estimatedFareBand: availability.estimatedFareBand,
       displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
     }));
   },
@@ -240,5 +239,27 @@ export const getRevealContext = internalQuery({
         ciphertext: envelope.ciphertext,
       })),
     };
+  },
+});
+
+export const getAvailabilityById = internalQuery({
+  args: { availabilityId: v.id("availabilities") },
+  handler: async (ctx, { availabilityId }) => {
+    return await ctx.db.get(availabilityId);
+  },
+});
+
+export const getSemiLockedGroupRouteRefs = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const groups = await ctx.db.query("groups").collect();
+    const semiLocked = groups.filter((g) => g.status === "semi_locked");
+    const allAvailIds = semiLocked.flatMap((g) => g.availabilityIds);
+    const refs: string[] = [];
+    for (const id of allAvailIds) {
+      const avail = await ctx.db.get(id as Id<"availabilities">);
+      if (avail?.routeDescriptorRef) refs.push(avail.routeDescriptorRef);
+    }
+    return [...new Set(refs)];
   },
 });

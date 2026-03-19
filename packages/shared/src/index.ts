@@ -1,14 +1,21 @@
 export const NUS_ALLOWED_DOMAINS = ["u.nus.edu", "nus.edu.sg"] as const;
 export const PICKUP_ORIGIN_ID = "nus-utown";
 export const PICKUP_ORIGIN_LABEL = "NUS Utown";
+export const PICKUP_ORIGIN_LAT = 1.3049;
+export const PICKUP_ORIGIN_LNG = 103.7734;
 export const ACK_WINDOW_MINUTES = 30;
-export const MIN_TIME_OVERLAP_MINUTES = 60;
+export const MIN_TIME_OVERLAP_MINUTES = 0;
 export const SMALL_GROUP_RELEASE_HOURS = 5;
 export const MAX_GROUP_SIZE = 4;
 export const MIN_GROUP_SIZE = 2;
 export const MAX_DETOUR_MINUTES = 12;
 export const MEETUP_GRACE_MINUTES = 5;
 export const PAYMENT_WINDOW_HOURS = 24;
+export const MAX_SPREAD_KM = 8;
+export const MAX_DISTINCT_LOCATIONS = 3;
+export const LOCK_HOURS_BEFORE = 3;
+export const HARD_LOCK_MINUTES_BEFORE = 30;
+export const GEOHASH_PRECISION = 6;
 
 /**
  * Calculate user credibility score (0.5–1.0) based on trip history.
@@ -36,10 +43,10 @@ export function calculateCredibilityScore(user: {
 
 export type SelfDeclaredGender = "woman" | "man" | "nonbinary" | "prefer_not_to_say";
 
-export type FareBand = "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
-
 export type GroupStatus =
   | "tentative"
+  | "semi_locked"
+  | "locked"
   | "revealed"
   | "dissolved"
   | "matched_pending_ack"
@@ -78,7 +85,6 @@ export interface AvailabilityEntry {
   maxGroupSize: number;
   sealedDestinationRef: string;
   routeDescriptorRef: string;
-  estimatedFareBand: FareBand;
   createdAt: string;
   status: "open" | "matched" | "cancelled";
 }
@@ -99,13 +105,13 @@ export interface TentativeGroup {
   windowStart: string;
   windowEnd: string;
   groupSize: number;
-  estimatedFareBand: FareBand;
   maxDetourMinutes: number;
   averageScore: number;
   minimumScore: number;
   confirmationDeadline: string;
   createdAt: string;
   revealedAt: string | null;
+  generalAreaLabels?: string[];
 }
 
 export interface GroupSummaryResponse {
@@ -128,7 +134,7 @@ export interface CompatibilityEdge {
   routeOverlap: number;
   destinationProximity: number;
   detourMinutes: number;
-  fareBand: FareBand;
+  spreadDistanceKm: number;
 }
 
 export interface OtpRequestResponse {

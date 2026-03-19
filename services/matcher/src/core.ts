@@ -1,5 +1,14 @@
 import crypto from "node:crypto";
-import type { AddressEnvelope, CompatibilityEdge, FareBand } from "@hop/shared";
+import type { AddressEnvelope, CompatibilityEdge } from "@hop/shared";
+import {
+  GEOHASH_PRECISION,
+  MAX_DETOUR_MINUTES,
+  MAX_SPREAD_KM,
+  PICKUP_ORIGIN_LAT,
+  PICKUP_ORIGIN_LNG,
+} from "@hop/shared";
+import ngeohash from "ngeohash";
+import { geocodeAddress, getDrivingRoute, haversineKm } from "./onemap";
 
 type DestinationRecord = {
   sealedDestinationRef: string;
@@ -8,17 +17,22 @@ type DestinationRecord = {
   iv: string;
   authTag: string;
   normalizedAddress: string;
-  features: {
-    postalPrefix: string;
-    tokenSet: string[];
-    routeHash: string;
-  };
-  estimatedFareBand: FareBand;
+  lat: number;
+  lng: number;
+  geohash6: string;
+  geohash5: string;
+};
+
+type DescriptorRecord = {
+  lat: number;
+  lng: number;
+  geohash6: string;
+  geohash5: string;
 };
 
 type MatcherStore = {
   destinations: Map<string, DestinationRecord>;
-  descriptors: Map<string, DestinationRecord["features"]>;
+  descriptors: Map<string, DescriptorRecord>;
 };
 
 const globalStore = globalThis as typeof globalThis & { __hopMatcherStore?: MatcherStore };
@@ -49,28 +63,6 @@ function normalizeAddress(address: string) {
   return address.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function tokenizeAddress(normalizedAddress: string) {
-  return normalizedAddress
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
-function postalPrefix(normalizedAddress: string) {
-  const sixDigit = normalizedAddress.match(/\b(\d{6})\b/);
-  if (sixDigit) return sixDigit[1].slice(0, 3);
-  return crypto.createHash("sha256").update(normalizedAddress).digest("hex").slice(0, 3);
-}
-
-function computeFareBand(normalizedAddress: string): FareBand {
-  const hashValue = Number.parseInt(
-    crypto.createHash("sha256").update(normalizedAddress).digest("hex").slice(0, 4),
-    16,
-  );
-  const bucket = hashValue % 4;
-  return ["S$10-15", "S$16-20", "S$21-25", "S$26+"][bucket] as FareBand;
-}
-
 function sealAddress(address: string) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", getSealingKey(), iv);
@@ -99,26 +91,26 @@ function unsealAddress(record: DestinationRecord) {
   return plaintext.toString("utf8");
 }
 
-function jaccardSimilarity(left: string[], right: string[]) {
-  const leftSet = new Set(left);
-  const rightSet = new Set(right);
-  const intersection = [...leftSet].filter((token) => rightSet.has(token)).length;
-  const union = new Set([...leftSet, ...rightSet]).size;
-
-  return union === 0 ? 0 : intersection / union;
+function areGeohashNeighbors(hashA: string, hashB: string): boolean {
+  if (hashA === hashB) return true;
+  const neighbors = ngeohash.neighbors(hashA);
+  return Object.values(neighbors).includes(hashB);
 }
 
-export function submitDestination(address: string) {
+export async function submitDestination(address: string) {
   const normalizedAddress = normalizeAddress(address);
-  const tokenSet = tokenizeAddress(normalizedAddress);
-  const features = {
-    postalPrefix: postalPrefix(normalizedAddress),
-    tokenSet,
-    routeHash: crypto.createHash("sha256").update(normalizedAddress).digest("hex").slice(0, 10),
-  };
+
+  const geocoded = await geocodeAddress(address);
+  if (!geocoded) {
+    throw new Error("Could not geocode the address. Please check the address and try again.");
+  }
+
+  const { lat, lng } = geocoded;
+  const geohash6 = ngeohash.encode(lat, lng, GEOHASH_PRECISION);
+  const geohash5 = ngeohash.encode(lat, lng, 5);
+
   const sealedDestinationRef = `dest_${crypto.randomUUID()}`;
   const routeDescriptorRef = `route_${crypto.randomUUID()}`;
-  const estimatedFareBand = computeFareBand(normalizedAddress);
   const sealed = sealAddress(address);
   const store = getStore();
 
@@ -126,20 +118,24 @@ export function submitDestination(address: string) {
     sealedDestinationRef,
     routeDescriptorRef,
     normalizedAddress,
-    features,
-    estimatedFareBand,
+    lat,
+    lng,
+    geohash6,
+    geohash5,
     ...sealed,
   });
-  store.descriptors.set(routeDescriptorRef, features);
+  store.descriptors.set(routeDescriptorRef, { lat, lng, geohash6, geohash5 });
 
   return {
     sealedDestinationRef,
     routeDescriptorRef,
-    estimatedFareBand,
   };
 }
 
-export function scoreRouteDescriptors(routeDescriptorRefs: string[]): CompatibilityEdge[] {
+export async function scoreRouteDescriptors(
+  routeDescriptorRefs: string[],
+  timeOverlapByPair?: Map<string, number>,
+): Promise<CompatibilityEdge[]> {
   const store = getStore();
   const edges: CompatibilityEdge[] = [];
 
@@ -158,19 +154,52 @@ export function scoreRouteDescriptors(routeDescriptorRefs: string[]): Compatibil
         continue;
       }
 
-      const destinationProximity =
-        left.postalPrefix === right.postalPrefix
-          ? 0.92
-          : left.postalPrefix.slice(0, 2) === right.postalPrefix.slice(0, 2)
-            ? 0.75
-            : 0.4;
-      const routeOverlap = Math.max(
-        destinationProximity - 0.08,
-        jaccardSimilarity(left.tokenSet, right.tokenSet),
+      const geohash6Match = areGeohashNeighbors(left.geohash6, right.geohash6);
+      const geohash5Match = !geohash6Match && areGeohashNeighbors(left.geohash5, right.geohash5);
+
+      if (!geohash6Match && !geohash5Match) {
+        continue;
+      }
+
+      const spreadDistanceKm = haversineKm(left.lat, left.lng, right.lat, right.lng);
+      if (spreadDistanceKm > MAX_SPREAD_KM) {
+        continue;
+      }
+
+      let detourMinutes: number;
+      try {
+        const [routeToLeft, routeToRight, routeLeftToRight, routeRightToLeft] = await Promise.all([
+          getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, left.lat, left.lng),
+          getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, right.lat, right.lng),
+          getDrivingRoute(left.lat, left.lng, right.lat, right.lng),
+          getDrivingRoute(right.lat, right.lng, left.lat, left.lng),
+        ]);
+
+        const longestSingleTrip = Math.max(routeToLeft.timeSeconds, routeToRight.timeSeconds);
+        const sequentialTrip = Math.min(
+          routeToLeft.timeSeconds + routeLeftToRight.timeSeconds,
+          routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
+        );
+        detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
+      } catch {
+        detourMinutes = spreadDistanceKm * 1.5;
+      }
+
+      if (detourMinutes > MAX_DETOUR_MINUTES) {
+        continue;
+      }
+
+      const routeOverlap = Math.max(0, 1 - detourMinutes / MAX_DETOUR_MINUTES);
+      const destinationProximity = Math.max(0, 1 - spreadDistanceKm / MAX_SPREAD_KM);
+
+      const pairKeyStr = [leftRef, rightRef].sort().join("::");
+      const timeOverlapNorm = timeOverlapByPair
+        ? Math.min(1, (timeOverlapByPair.get(pairKeyStr) ?? 60) / 120)
+        : 0.5;
+
+      const score = Number(
+        (0.55 * routeOverlap + 0.3 * destinationProximity + 0.15 * timeOverlapNorm).toFixed(2),
       );
-      const score = Number((0.55 * routeOverlap + 0.45 * destinationProximity).toFixed(2));
-      const detourMinutes = Math.max(2, Math.round((1 - score) * 18));
-      const fareBand = routeOverlap > 0.82 && destinationProximity > 0.82 ? "S$10-15" : "S$16-20";
 
       edges.push({
         leftRef,
@@ -178,13 +207,60 @@ export function scoreRouteDescriptors(routeDescriptorRefs: string[]): Compatibil
         routeOverlap: Number(routeOverlap.toFixed(2)),
         destinationProximity: Number(destinationProximity.toFixed(2)),
         score,
-        detourMinutes,
-        fareBand,
+        detourMinutes: Number(detourMinutes.toFixed(1)),
+        spreadDistanceKm: Number(spreadDistanceKm.toFixed(2)),
       });
     }
   }
 
   return edges;
+}
+
+export function countDistinctLocations(members: Array<{ geohash6: string }>): number {
+  const seen = new Set<string>();
+  for (const member of members) {
+    let merged = false;
+    for (const existing of seen) {
+      if (member.geohash6 === existing || areGeohashNeighbors(member.geohash6, existing)) {
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) {
+      seen.add(member.geohash6);
+    }
+  }
+  return seen.size;
+}
+
+export function getDescriptor(routeDescriptorRef: string): DescriptorRecord | undefined {
+  return getStore().descriptors.get(routeDescriptorRef);
+}
+
+export function computeLocationClusters(routeDescriptorRefs: string[]): Record<string, string> {
+  const store = getStore();
+  const clusterByRef: Record<string, string> = {};
+  const canonicalGeohashes: string[] = [];
+
+  for (const ref of routeDescriptorRefs) {
+    const descriptor = store.descriptors.get(ref);
+    if (!descriptor) continue;
+
+    let merged = false;
+    for (const existing of canonicalGeohashes) {
+      if (areGeohashNeighbors(descriptor.geohash6, existing)) {
+        clusterByRef[ref] = existing;
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) {
+      canonicalGeohashes.push(descriptor.geohash6);
+      clusterByRef[ref] = descriptor.geohash6;
+    }
+  }
+
+  return clusterByRef;
 }
 
 function importRecipientKey(publicKey: string) {

@@ -10,6 +10,9 @@ import { mutation, query } from "./_generated/server";
 import { resolveQaActingUserId } from "./localQa";
 
 const ACTIVE_GROUP_STATUSES = new Set([
+  "tentative",
+  "semi_locked",
+  "locked",
   "matched_pending_ack",
   "group_confirmed",
   "meetup_preparation",
@@ -393,7 +396,6 @@ async function buildTripPayload(
       windowStart: group.windowStart,
       windowEnd: group.windowEnd,
       groupSize: group.groupSize,
-      estimatedFareBand: group.estimatedFareBand,
       maxDetourMinutes: group.maxDetourMinutes,
       confirmationDeadline: group.confirmationDeadline,
       meetingTime: group.meetingTime ?? group.windowStart,

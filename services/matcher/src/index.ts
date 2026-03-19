@@ -1,7 +1,15 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import { revealEnvelopes, scoreRouteDescriptors, submitDestination } from "./core";
+import {
+  computeLocationClusters,
+  revealEnvelopes,
+  scoreRouteDescriptors,
+  submitDestination,
+} from "./core";
+import { geocodeAddress } from "./onemap";
+
+const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
 
 const app = express();
 const port = Number(process.env.MATCHER_PORT ?? 4001);
@@ -13,7 +21,48 @@ app.get("/health", (_request, response) => {
   response.json({ ok: true });
 });
 
-app.post("/matcher/submit-destination", (request, response) => {
+app.get("/matcher/search", async (request, response) => {
+  const query = String(request.query.q ?? "").trim();
+  if (query.length < 2) {
+    response.json({ results: [] });
+    return;
+  }
+
+  try {
+    const url = `${ONEMAP_SEARCH_URL}?searchVal=${encodeURIComponent(query)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+    const upstream = await fetch(url);
+    if (!upstream.ok) {
+      response.json({ results: [] });
+      return;
+    }
+
+    const data = (await upstream.json()) as {
+      found: number;
+      results: Array<{
+        SEARCHVAL: string;
+        LATITUDE: string;
+        LONGITUDE: string;
+        POSTAL: string;
+        BUILDING: string;
+        ADDRESS: string;
+      }>;
+    };
+
+    response.json({
+      results: (data.results ?? []).slice(0, 8).map((r) => ({
+        title: r.BUILDING && r.BUILDING !== "NIL" ? r.BUILDING : r.SEARCHVAL,
+        address: r.ADDRESS,
+        postal: r.POSTAL,
+        lat: r.LATITUDE,
+        lng: r.LONGITUDE,
+      })),
+    });
+  } catch {
+    response.json({ results: [] });
+  }
+});
+
+app.post("/matcher/submit-destination", async (request, response) => {
   const address = String(request.body?.address ?? "").trim();
 
   if (!address) {
@@ -21,17 +70,30 @@ app.post("/matcher/submit-destination", (request, response) => {
     return;
   }
 
-  response.json(submitDestination(address));
+  try {
+    const result = await submitDestination(address);
+    response.json(result);
+  } catch (err) {
+    response.status(400).json({
+      error: err instanceof Error ? err.message : "Could not process destination.",
+    });
+  }
 });
 
-app.post("/matcher/compatibility", (request, response) => {
+app.post("/matcher/compatibility", async (request, response) => {
   const routeDescriptorRefs = Array.isArray(request.body?.routeDescriptorRefs)
     ? request.body.routeDescriptorRefs.map(String)
     : [];
 
-  response.json({
-    edges: scoreRouteDescriptors(routeDescriptorRefs),
-  });
+  try {
+    const edges = await scoreRouteDescriptors(routeDescriptorRefs);
+    const geohashByRef = computeLocationClusters(routeDescriptorRefs);
+    response.json({ edges, geohashByRef });
+  } catch (err) {
+    response.status(500).json({
+      error: err instanceof Error ? err.message : "Compatibility scoring failed.",
+    });
+  }
 });
 
 app.post("/matcher/reveal-envelopes", (request, response) => {
