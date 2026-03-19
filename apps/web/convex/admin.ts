@@ -138,6 +138,9 @@ async function createQaBot(ctx: MutationCtx, index: number) {
     onboardingComplete: true,
     isAnonymous: true,
     emailVerificationTime: Date.now(),
+    successfulTrips: 0,
+    cancelledTrips: 0,
+    reportedCount: 0,
   });
 
   return {
