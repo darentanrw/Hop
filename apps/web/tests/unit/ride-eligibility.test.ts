@@ -33,7 +33,6 @@ describe("ACTIVE_GROUP_STATUSES", () => {
     "in_trip",
     "receipt_pending",
     "payment_pending",
-    "reported",
   ];
 
   for (const status of expected) {
@@ -227,6 +226,11 @@ describe("checkRideEligibility", () => {
       pair({ participationStatus: "removed_voluntary" }, { status: "depart_ready" }),
     ]);
     expect(result.blocked).toBe(false);
+    expect(result.hasActiveGroup).toBe(false);
+  });
+
+  it("reported group is not considered active", () => {
+    const result = checkRideEligibility([pair({}, { status: "reported" })]);
     expect(result.hasActiveGroup).toBe(false);
   });
 

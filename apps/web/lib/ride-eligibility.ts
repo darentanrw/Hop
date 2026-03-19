@@ -10,7 +10,6 @@ export const ACTIVE_GROUP_STATUSES = new Set([
   "in_trip",
   "receipt_pending",
   "payment_pending",
-  "reported",
 ]);
 
 const TERMINAL_STATUSES = new Set(["cancelled", "closed", "dissolved"]);
