@@ -282,8 +282,8 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
     // Here we only close the group when all payment members have paid.
     const paymentMembers = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
     const allPaid = paymentMembers.every((member) => member.paymentStatus === "verified");
-    const latestGroup = await ctx.db.get(group._id);
     if (allPaid) {
+      const latestGroup = await ctx.db.get(group._id);
       await ctx.db.patch(group._id, {
         status: "closed",
         closedAt: latestGroup?.closedAt ?? group.closedAt ?? nowIso(),
