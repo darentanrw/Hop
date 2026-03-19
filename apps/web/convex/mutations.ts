@@ -34,6 +34,7 @@ import {
 } from "../lib/matcher-stub";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
+import { checkRideEligibility } from "../lib/ride-eligibility";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
@@ -294,18 +295,18 @@ export const createAvailability = mutation({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .collect();
 
-    for (const member of existingMembers) {
-      if ((member.amountDueCents ?? 0) <= 0 || member.paymentVerifiedAt) continue;
-      const group = await ctx.db.get(member.groupId);
-      if (
-        !group ||
-        group.status === "cancelled" ||
-        group.status === "closed" ||
-        group.status === "dissolved"
-      ) {
-        continue;
-      }
+    const pairs = await Promise.all(
+      existingMembers.map(async (member) => ({
+        membership: member,
+        group: await ctx.db.get(member.groupId),
+      })),
+    );
+    const eligibility = checkRideEligibility(pairs);
 
+    if (eligibility.hasActiveGroup) {
+      throw new Error("You already have an active ride. Finish it before scheduling another.");
+    }
+    if (eligibility.unpaidCount > 0) {
       throw new Error("Clear your previous trip payment before scheduling another ride.");
     }
 
@@ -313,18 +314,10 @@ export const createAvailability = mutation({
       .query("availabilities")
       .withIndex("userId", (q) => q.eq("userId", userId))
       .filter((q) => q.eq(q.field("status"), "open"))
-      .collect();
+      .first();
 
-    const newStart = new Date(args.windowStart).getTime();
-    const newEnd = new Date(args.windowEnd).getTime();
-
-    for (const a of existing) {
-      const start = new Date(a.windowStart).getTime();
-      const end = new Date(a.windowEnd).getTime();
-      const overlap = newStart < end && newEnd > start;
-      if (overlap) {
-        await ctx.db.patch(a._id, { status: "cancelled" });
-      }
+    if (existing) {
+      throw new Error("You already have an open ride window. Cancel it before creating another.");
     }
 
     return await ctx.db.insert("availabilities", {

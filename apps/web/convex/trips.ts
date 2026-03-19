@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
+import { ACTIVE_GROUP_STATUSES, checkRideEligibility } from "../lib/ride-eligibility";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -9,21 +10,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { CHAT_ELIGIBLE_STATUSES } from "./chat";
 import { resolveQaActingUserId } from "./localQa";
-
-const ACTIVE_GROUP_STATUSES = new Set([
-  "tentative",
-  "semi_locked",
-  "locked",
-  "matched_pending_ack",
-  "group_confirmed",
-  "meetup_preparation",
-  "meetup_checkin",
-  "depart_ready",
-  "in_trip",
-  "receipt_pending",
-  "payment_pending",
-  "reported",
-]);
 
 type GroupDoc = Doc<"groups">;
 type GroupMemberDoc = Doc<"groupMembers">;
@@ -485,24 +471,25 @@ export const getRideEligibility = query({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .collect();
 
-    let blockedCount = 0;
-    for (const membership of memberships) {
-      if ((membership.amountDueCents ?? 0) <= 0 || membership.paymentVerifiedAt) continue;
-      const group = await ctx.db.get(membership.groupId);
-      if (
-        !group ||
-        group.status === "cancelled" ||
-        group.status === "closed" ||
-        group.status === "dissolved"
-      ) {
-        continue;
-      }
-      blockedCount += 1;
-    }
+    const pairs = await Promise.all(
+      memberships.map(async (membership) => ({
+        membership,
+        group: await ctx.db.get(membership.groupId),
+      })),
+    );
+
+    const result = checkRideEligibility(pairs);
+
+    const openAvailability = await ctx.db
+      .query("availabilities")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("status"), "open"))
+      .first();
 
     return {
-      blocked: blockedCount > 0,
-      blockedCount,
+      ...result,
+      hasOpenWindow: Boolean(openAvailability),
+      blocked: result.blocked || Boolean(openAvailability),
     };
   },
 });
