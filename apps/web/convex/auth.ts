@@ -2,7 +2,9 @@ import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
 import { convexAuth } from "@convex-dev/auth/server";
 import type { AuthProviderConfig } from "@convex-dev/auth/server";
 import { getEmailDomain } from "@hop/shared";
+import { resolveManagedVerificationFlags } from "../lib/auth-state";
 import { ResendOTP } from "./ResendOTP";
+import type { MutationCtx } from "./_generated/server";
 
 const localQaEnabled = process.env.ENABLE_LOCAL_QA === "true";
 
@@ -51,36 +53,54 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
       const emailDomain = email ? getEmailDomain(email) : undefined;
       const name = typeof profile.name === "string" ? profile.name.trim() : undefined;
       const isAnonymous = typeof profile.isAnonymous === "boolean" ? profile.isAnonymous : false;
-      const emailVerified =
-        typeof profile.emailVerified === "boolean" ? profile.emailVerified : false;
-      const onboardingComplete =
-        typeof profile.onboardingComplete === "boolean" ? profile.onboardingComplete : false;
+      let hasCompletedReplyVerification = false;
+      const appCtx = ctx as MutationCtx;
+      const existingUserId = args.existingUserId;
 
-      if (args.existingUserId) {
-        await ctx.db.patch(args.existingUserId, {
+      if (existingUserId && !isAnonymous) {
+        const [latestVerification] = await appCtx.db
+          .query("emailVerifications")
+          .withIndex("userId", (q) => q.eq("userId", existingUserId))
+          .order("desc")
+          .take(1);
+        hasCompletedReplyVerification = typeof latestVerification?.verifiedAt === "number";
+      }
+
+      const { emailVerified, onboardingComplete } = resolveManagedVerificationFlags({
+        isAnonymous,
+        providerEmailVerified:
+          typeof profile.emailVerified === "boolean" ? profile.emailVerified : undefined,
+        providerOnboardingComplete:
+          typeof profile.onboardingComplete === "boolean" ? profile.onboardingComplete : undefined,
+        hasCompletedReplyVerification,
+      });
+
+      if (existingUserId) {
+        await ctx.db.patch(existingUserId, {
           email,
           emailDomain,
           emailVerificationTime: Date.now(),
           ...(name ? { name } : {}),
           ...(typeof profile.isAnonymous === "boolean" ? { isAnonymous } : {}),
-          ...(typeof profile.emailVerified === "boolean" ? { emailVerified } : {}),
-          ...(typeof profile.onboardingComplete === "boolean" ? { onboardingComplete } : {}),
+          emailVerified,
+          ...(isAnonymous ? { onboardingComplete } : {}),
         });
 
         if (localQaEnabled && isAnonymous) {
-          const existingPreference = (await ctx.db.query("preferences").collect()).find(
-            (preference) => preference.userId === args.existingUserId,
-          );
+          const existingPreference = await appCtx.db
+            .query("preferences")
+            .withIndex("userId", (q) => q.eq("userId", existingUserId))
+            .first();
 
           if (!existingPreference) {
             await ctx.db.insert("preferences", {
-              userId: args.existingUserId,
+              userId: existingUserId,
               ...defaultPreferences,
             });
           }
         }
 
-        return args.existingUserId;
+        return existingUserId;
       }
 
       const userId = await ctx.db.insert("users", {

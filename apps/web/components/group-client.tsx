@@ -34,6 +34,7 @@ type ActiveTripPayload = {
   currentUserId: string;
   currentUserMember: {
     userId: string;
+    displayName: string;
     emoji: string;
     destinationLockedAt: string | null;
     qrToken: string | null;
@@ -42,6 +43,7 @@ type ActiveTripPayload = {
   } | null;
   members: Array<{
     userId: string;
+    displayName: string;
     emoji: string;
     acknowledgementStatus: string;
     participationStatus: string;
@@ -166,9 +168,29 @@ async function uploadFile(
   return payload.storageId;
 }
 
-export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload | null }) {
-  const liveGroup = useQuery(api.trips.getActiveTrip);
-  const group = liveGroup === undefined ? initialGroup : liveGroup;
+export function GroupClient({
+  initialGroup,
+  qaActingUserId,
+}: {
+  initialGroup: ActiveTripPayload | null;
+  qaActingUserId?: string;
+}) {
+  const qaArgs = useMemo(
+    () =>
+      qaActingUserId
+        ? {
+            actingUserId: qaActingUserId as Id<"users">,
+          }
+        : {},
+    [qaActingUserId],
+  );
+  const liveGroup = useQuery(api.trips.getActiveTrip, qaArgs);
+  const qaViewPending = Boolean(qaActingUserId) && liveGroup === undefined;
+  const group = qaActingUserId
+    ? (liveGroup ?? null)
+    : liveGroup === undefined
+      ? initialGroup
+      : liveGroup;
 
   const syncLifecycle = useMutation(api.trips.advanceCurrentGroupLifecycle);
   const updateAcknowledgement = useMutation(api.mutations.updateAcknowledgement);
@@ -187,6 +209,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
   const [qrCode, setQrCode] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerState, setScannerState] = useState<"idle" | "starting" | "live">("idle");
+  const [scannerStatus, setScannerStatus] = useState<StatusMessage>(null);
+  const [scannerBusy, setScannerBusy] = useState(false);
+  const [scannerFlashKey, setScannerFlashKey] = useState(0);
+  const [scannerFlashActive, setScannerFlashActive] = useState(false);
   const [receiptTotal, setReceiptTotal] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
@@ -198,14 +224,17 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
   const scannerBusyRef = useRef(false);
   const lastScannedTokenRef = useRef<string | null>(null);
   const lastScannedAtRef = useRef(0);
+  const groupRef = useRef(group);
+  const qaArgsRef = useRef(qaArgs);
+  const scannerFlashTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    void syncLifecycle({});
+    void syncLifecycle(qaArgs);
     const interval = window.setInterval(() => {
-      void syncLifecycle({});
+      void syncLifecycle(qaArgs);
     }, 15_000);
     return () => window.clearInterval(interval);
-  }, [syncLifecycle]);
+  }, [qaArgs, syncLifecycle]);
 
   useEffect(() => {
     if (!group?.actions.canShowQr || !group.currentUserMember?.qrToken) {
@@ -223,12 +252,42 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
     }).then(setQrCode);
   }, [group]);
 
+  useEffect(() => {
+    groupRef.current = group;
+  }, [group]);
+
+  useEffect(() => {
+    qaArgsRef.current = qaArgs;
+  }, [qaArgs]);
+
   const activeMembers = useMemo(
     () => group?.members.filter((member) => member.participationStatus === "active") ?? [],
     [group],
   );
 
+  const resetScannerFlash = useCallback(() => {
+    if (scannerFlashTimeoutRef.current !== null) {
+      window.clearTimeout(scannerFlashTimeoutRef.current);
+      scannerFlashTimeoutRef.current = null;
+    }
+    setScannerFlashActive(false);
+  }, []);
+
+  const triggerScannerSuccessFlash = useCallback(() => {
+    if (scannerFlashTimeoutRef.current !== null) {
+      window.clearTimeout(scannerFlashTimeoutRef.current);
+    }
+
+    setScannerFlashKey((current) => current + 1);
+    setScannerFlashActive(true);
+    scannerFlashTimeoutRef.current = window.setTimeout(() => {
+      setScannerFlashActive(false);
+      scannerFlashTimeoutRef.current = null;
+    }, 720);
+  }, []);
+
   const stopLiveScanner = useCallback(() => {
+    resetScannerFlash();
     scannerRef.current?.destroy();
     scannerRef.current = null;
     if (videoRef.current) {
@@ -236,9 +295,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
       videoRef.current.srcObject = null;
     }
     scannerBusyRef.current = false;
+    setScannerBusy(false);
     setScannerOpen(false);
     setScannerState("idle");
-  }, []);
+  }, [resetScannerFlash]);
 
   async function runAction(task: () => Promise<void>) {
     setBusy(true);
@@ -246,7 +306,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
 
     try {
       await task();
-      await syncLifecycle({});
+      await syncLifecycle(qaArgs);
     } catch (error) {
       setStatus({
         type: "error",
@@ -265,16 +325,22 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
 
   useEffect(() => {
     return () => {
+      if (scannerFlashTimeoutRef.current !== null) {
+        window.clearTimeout(scannerFlashTimeoutRef.current);
+      }
       scannerRef.current?.destroy();
     };
   }, []);
 
   const submitScannedQrToken = useCallback(
     async (rawValue: string) => {
-      if (!group) return;
+      const currentGroup = groupRef.current;
+      if (!currentGroup) return false;
+
+      const currentQaArgs = qaArgsRef.current;
 
       const trimmedValue = rawValue.trim();
-      if (!trimmedValue) return;
+      if (!trimmedValue) return false;
 
       const now = Date.now();
       if (
@@ -282,40 +348,53 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         (lastScannedTokenRef.current === trimmedValue &&
           now - lastScannedAtRef.current < SCAN_DEBOUNCE_MS)
       ) {
-        return;
+        return false;
       }
 
       scannerBusyRef.current = true;
+      setScannerBusy(true);
       lastScannedTokenRef.current = trimmedValue;
       lastScannedAtRef.current = now;
       setScanToken(trimmedValue);
-      setStatus({ type: "info", text: "QR detected. Verifying…" });
+      setScannerStatus({ type: "info", text: "QR detected. Verifying…" });
 
       try {
         await scanGroupQrToken({
-          groupId: group.group.id as Id<"groups">,
+          groupId: currentGroup.group.id as Id<"groups">,
           qrToken: trimmedValue,
+          ...currentQaArgs,
         });
-        await syncLifecycle({});
-        setStatus({ type: "success", text: "Rider checked in." });
+        await syncLifecycle(currentQaArgs);
+        setScannerStatus({ type: "success", text: "Checked in successfully." });
+        triggerScannerSuccessFlash();
+        return true;
       } catch (error) {
-        setStatus({
+        setScannerStatus({
           type: "error",
           text: error instanceof Error ? error.message : "Could not verify that rider.",
         });
+        return false;
       } finally {
         scannerBusyRef.current = false;
+        setScannerBusy(false);
       }
     },
-    [group, scanGroupQrToken, syncLifecycle],
+    [scanGroupQrToken, syncLifecycle, triggerScannerSuccessFlash],
   );
+
+  const submitScannedQrTokenRef = useRef(submitScannedQrToken);
+
+  useEffect(() => {
+    submitScannedQrTokenRef.current = submitScannedQrToken;
+  }, [submitScannedQrToken]);
 
   const startLiveScanner = useCallback(() => {
     if (scannerOpen) return;
-    setStatus(null);
+    resetScannerFlash();
+    setScannerStatus(null);
     setScannerOpen(true);
     setScannerState("starting");
-  }, [scannerOpen]);
+  }, [resetScannerFlash, scannerOpen]);
 
   useEffect(() => {
     if (!scannerOpen || !group?.actions.canScanQr || !videoRef.current) {
@@ -326,7 +405,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
     const scanner = new QrScanner(
       videoRef.current,
       (result) => {
-        void submitScannedQrToken(result.data);
+        void submitScannedQrTokenRef.current(result.data);
       },
       {
         preferredCamera: "environment",
@@ -344,7 +423,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
           return;
         }
         setScannerState("live");
-        setStatus({
+        setScannerStatus({
           type: "info",
           text: "Scanner is on. Point at each rider's QR code.",
         });
@@ -359,7 +438,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         }
         setScannerOpen(false);
         setScannerState("idle");
-        setStatus({
+        setScannerStatus({
           type: "error",
           text:
             error instanceof Error
@@ -375,9 +454,19 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
       }
       scanner.destroy();
     };
-  }, [group?.actions.canScanQr, scannerOpen, submitScannedQrToken]);
+  }, [group?.actions.canScanQr, scannerOpen]);
 
   if (!group) {
+    if (qaViewPending) {
+      return (
+        <div className="empty-state" style={{ animation: "fadeUp 0.5s var(--ease-out-expo) both" }}>
+          <div className="empty-state-icon">🪪</div>
+          <h3>Switching QA view</h3>
+          <p className="text-muted">Loading this group as the selected rider.</p>
+        </div>
+      );
+    }
+
     return (
       <div className="empty-state" style={{ animation: "fadeUp 0.5s var(--ease-out-expo) both" }}>
         <div className="empty-state-icon">🚕</div>
@@ -397,6 +486,13 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
 
   return (
     <div className="stack stagger">
+      {qaActingUserId ? (
+        <div className="notice notice-info qa-view-banner">
+          Viewing this QA group as {group.currentUserMember?.emoji ?? "🙂"}{" "}
+          {group.currentUserMember?.displayName ?? "this rider"}.
+        </div>
+      ) : null}
+
       {/* ── Hero Card ── */}
       <div
         className="card group-hero-card"
@@ -495,6 +591,21 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         ) : null}
       </div>
 
+      {/* ── Rider QR code ── */}
+      {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
+        <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
+          <h3>Your check-in QR</h3>
+          <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
+          {qrCode ? (
+            <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
+          ) : null}
+          <div className="notice notice-info backup-code-notice" style={{ width: "100%" }}>
+            Backup code:{" "}
+            <code className="inline-token-code">{group.currentUserMember.qrToken}</code>
+          </div>
+        </div>
+      ) : null}
+
       {/* ── Riders Card ── */}
       <div className="card">
         <div className="row-between" style={{ marginBottom: 12 }}>
@@ -512,7 +623,11 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
                 <div className="member-info">
                   <div className="member-name">
-                    {member.isBooker ? "Booker" : "Rider"}
+                    {member.displayName}
+                    <span className="text-muted" style={{ fontWeight: 500 }}>
+                      {" "}
+                      · {member.isBooker ? "Booker" : "Rider"}
+                    </span>
                     {isMe ? " · You" : ""}
                   </div>
                 </div>
@@ -536,6 +651,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 await updateAcknowledgement({
                   groupId: group.group.id as Id<"groups">,
                   accepted: true,
+                  ...qaArgs,
                 });
                 setStatus({ type: "success", text: "You're confirmed for this ride." });
               })
@@ -553,6 +669,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 await updateAcknowledgement({
                   groupId: group.group.id as Id<"groups">,
                   accepted: false,
+                  ...qaArgs,
                 });
                 setStatus({ type: "info", text: "You've declined this ride." });
               })
@@ -594,27 +711,16 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             disabled={busy}
             onClick={() =>
               runAction(async () => {
-                await startMeetupCheckIn({ groupId: group.group.id as Id<"groups"> });
+                await startMeetupCheckIn({
+                  groupId: group.group.id as Id<"groups">,
+                  ...qaArgs,
+                });
                 setStatus({ type: "success", text: "Check-in is open." });
               })
             }
           >
             Start check-in
           </button>
-        </div>
-      ) : null}
-
-      {/* ── Rider QR code ── */}
-      {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
-        <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
-          <h3>Your check-in QR</h3>
-          <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
-          {qrCode ? (
-            <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
-          ) : null}
-          <div className="notice notice-info" style={{ width: "100%" }}>
-            Backup code: <code>{group.currentUserMember.qrToken}</code>
-          </div>
         </div>
       ) : null}
 
@@ -630,7 +736,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
               type="button"
               className="btn btn-primary"
               style={{ flex: 1 }}
-              disabled={busy || scannerState === "starting"}
+              disabled={busy || scannerBusy || scannerState === "starting"}
               onClick={startLiveScanner}
             >
               {scannerState === "live"
@@ -648,9 +754,28 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
           {scannerOpen ? (
             <div className="scanner-shell">
               <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
-              <div className="scanner-overlay" aria-hidden="true">
-                <div className="scanner-frame" />
+              <div
+                key={scannerFlashKey}
+                className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
+                aria-hidden="true"
+              >
+                <div
+                  className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
+                />
               </div>
+            </div>
+          ) : null}
+          {scannerStatus ? (
+            <div
+              className={`notice ${
+                scannerStatus.type === "error"
+                  ? "notice-error"
+                  : scannerStatus.type === "success"
+                    ? "notice-success"
+                    : "notice-info"
+              }`}
+            >
+              {scannerStatus.text}
             </div>
           ) : null}
           <input
@@ -662,13 +787,13 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
           <button
             type="button"
             className="btn btn-secondary btn-block"
-            disabled={busy || scanToken.trim().length < 6}
-            onClick={() =>
-              runAction(async () => {
-                await submitScannedQrToken(scanToken);
+            disabled={busy || scannerBusy || scanToken.trim().length < 6}
+            onClick={async () => {
+              const checkedIn = await submitScannedQrToken(scanToken);
+              if (checkedIn) {
                 setScanToken("");
-              })
-            }
+              }
+            }}
           >
             Check in rider
           </button>
@@ -694,7 +819,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             disabled={busy || !group.actions.canDepart}
             onClick={() =>
               runAction(async () => {
-                await departGroup({ groupId: group.group.id as Id<"groups"> });
+                await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
                 setStatus({ type: "success", text: "Departed. Safe travels!" });
               })
             }
@@ -738,6 +863,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                   groupId: group.group.id as Id<"groups">,
                   totalCostCents: Math.round(Number(receiptTotal) * 100),
                   storageId,
+                  ...qaArgs,
                 });
                 setReceiptFile(null);
                 setReceiptTotal("");
@@ -776,6 +902,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 await submitPaymentProof({
                   groupId: group.group.id as Id<"groups">,
                   storageId,
+                  ...qaArgs,
                 });
                 setPaymentFile(null);
                 setStatus({
@@ -821,6 +948,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                           await verifyPayment({
                             groupId: group.group.id as Id<"groups">,
                             memberUserId: member.userId,
+                            ...qaArgs,
                           });
                           setStatus({ type: "success", text: "Payment confirmed." });
                         })
@@ -895,6 +1023,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                     | "misconduct"
                     | "other",
                   description: reportDescription.trim(),
+                  ...qaArgs,
                 });
                 setReportDescription("");
                 setReportedUserId("");
