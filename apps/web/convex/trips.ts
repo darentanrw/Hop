@@ -879,10 +879,6 @@ export const reportBookerAbsent = mutation({
       throw new Error("Cannot report booker absent in the current group status.");
     }
 
-    if (group.bookerRedelegatedAt) {
-      throw new Error("Booker has already been reassigned.");
-    }
-
     const meetingTime = group.meetingTime ?? group.windowStart;
     const bufferElapsed = new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
     if (!bufferElapsed) {
@@ -932,7 +928,7 @@ export const reportBookerAbsent = mutation({
     // removed_no_show and increment cancelledTrips if they never check in.
     await ctx.db.patch(groupId, {
       bookerUserId: newBookerUserId as Id<"users">,
-      bookerRedelegatedAt: nowIso(),
+      bookerRedelegatedAt: nowIso(), // audit trail only; does not block repeat reassignment
     });
 
     return { ok: true };
