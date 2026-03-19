@@ -26,7 +26,7 @@ type StatusState =
       meetTime: string;
       meetLocation: string;
       groupStatus: string;
-      actionHint: string | null;
+      actionLabel: string | null;
     };
 
 function resolveStatus(
@@ -55,12 +55,12 @@ function resolveStatus(
     meetTime: group.group.meetingTime,
     meetLocation: group.group.meetingLocationLabel,
     groupStatus: status,
-    actionHint:
+    actionLabel:
       status === "meetup_checkin"
         ? group.actions.canShowQr
-          ? "Go to the last page, Group, to show your QR code to the booker."
+          ? "Show QR for check-in"
           : group.actions.canScanQr
-            ? "Go to the last page, Group, to scan each rider's QR code."
+            ? "Scan QR for check-in"
             : null
         : null,
   };
@@ -211,27 +211,28 @@ function StatusCard({ state }: { state: StatusState }) {
             ? "Waiting for the receipt"
             : "You're all set";
 
-  return (
-    <Link href="/group" style={{ textDecoration: "none", display: "block" }}>
-      <div
-        className="card"
-        style={{
-          border: `1px solid ${state.groupColor}44`,
-          boxShadow: `0 8px 28px ${state.groupColor}22`,
-          cursor: "pointer",
-        }}
-      >
-        <div className="row-between" style={{ marginBottom: 14 }}>
-          <span
-            className="pill pill-sm"
-            style={{
-              background: `${state.groupColor}22`,
-              color: state.groupColor,
-              border: `1px solid ${state.groupColor}44`,
-            }}
-          >
-            {state.groupName}
-          </span>
+  const showActionButton = Boolean(state.actionLabel);
+  const card = (
+    <div
+      className="card"
+      style={{
+        border: `1px solid ${state.groupColor}44`,
+        boxShadow: `0 8px 28px ${state.groupColor}22`,
+        cursor: showActionButton ? "default" : "pointer",
+      }}
+    >
+      <div className="row-between" style={{ marginBottom: 14 }}>
+        <span
+          className="pill pill-sm"
+          style={{
+            background: `${state.groupColor}22`,
+            color: state.groupColor,
+            border: `1px solid ${state.groupColor}44`,
+          }}
+        >
+          {state.groupName}
+        </span>
+        {!showActionButton ? (
           <svg
             aria-hidden="true"
             width="16"
@@ -245,31 +246,38 @@ function StatusCard({ state }: { state: StatusState }) {
           >
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          <span style={{ fontSize: 24 }}>{phaseEmoji}</span>
-          <div
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: 18,
-            }}
-          >
-            {phaseLabel}
-          </div>
-        </div>
-        <p className="text-sm text-muted">
-          Meet at {state.meetLocation} · {formatMeetTime(state.meetTime)}
-        </p>
-        {state.actionHint ? (
-          <div className="notice notice-info" style={{ marginTop: 14 }}>
-            <div>
-              <strong style={{ display: "block", marginBottom: 4 }}>Next step</strong>
-              <span>{state.actionHint}</span>
-            </div>
-          </div>
         ) : null}
       </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 24 }}>{phaseEmoji}</span>
+        <div
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: 18,
+          }}
+        >
+          {phaseLabel}
+        </div>
+      </div>
+      <p className="text-sm text-muted">
+        Meet at {state.meetLocation} · {formatMeetTime(state.meetTime)}
+      </p>
+      {state.actionLabel ? (
+        <Link href="/group" className="btn btn-primary btn-block" style={{ marginTop: 16 }}>
+          {state.actionLabel}
+        </Link>
+      ) : null}
+    </div>
+  );
+
+  if (showActionButton) {
+    return card;
+  }
+
+  return (
+    <Link href="/group" style={{ textDecoration: "none", display: "block" }}>
+      {card}
     </Link>
   );
 }
