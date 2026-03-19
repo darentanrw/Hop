@@ -96,12 +96,13 @@ async function encryptPayload(publicKeyBase64: string, payload: Record<string, s
   return bytesToBase64(new Uint8Array(ciphertext));
 }
 
-export function createStubMatcherSubmission(seed: string) {
+export function createStubMatcherSubmission(seed: string, userDestination?: string) {
   const destination = getDestinationForSeed(seed);
   const seedHash = hashString(seed);
+  const addressToEncode = userDestination?.trim() || destination.address;
 
   return {
-    sealedDestinationRef: `stub:destination:${encodeAddress(destination.address)}`,
+    sealedDestinationRef: `stub:destination:${encodeAddress(addressToEncode)}`,
     routeDescriptorRef: `stub:route:${destination.cluster}:${seedHash % 1000}`,
   };
 }

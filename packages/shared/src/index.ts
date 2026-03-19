@@ -17,6 +17,28 @@ export const LOCK_HOURS_BEFORE = 3;
 export const HARD_LOCK_MINUTES_BEFORE = 30;
 export const GEOHASH_PRECISION = 6;
 
+/**
+ * Calculate user credibility score (0.5–1.0) based on trip history.
+ * Factors: 70% success rate, 30% report impact
+ * Each report reduces score by 10%, new users start at 0.75
+ */
+export function calculateCredibilityScore(user: {
+  successfulTrips: number;
+  cancelledTrips: number;
+  reportedCount: number;
+}): number {
+  const totalTrips = user.successfulTrips + user.cancelledTrips;
+  if (totalTrips === 0) {
+    return 0.75; // New user baseline
+  }
+
+  const successRate = user.successfulTrips / totalTrips;
+  const reportFactor = Math.max(0, 1 - user.reportedCount * 0.1);
+  const credibility = 0.7 * successRate + 0.3 * reportFactor;
+
+  return Math.max(0.5, Math.min(1.0, credibility));
+}
+
 export type SelfDeclaredGender = "woman" | "man" | "nonbinary" | "prefer_not_to_say";
 
 export type GroupStatus =
@@ -40,10 +62,14 @@ export type GroupStatus =
 export interface RiderProfile {
   userId: string;
   name?: string;
+  email?: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
   minGroupSize: number;
   maxGroupSize: number;
+  successfulTrips?: number;
+  cancelledTrips?: number;
+  reportedCount?: number;
 }
 
 export interface AvailabilityEntry {

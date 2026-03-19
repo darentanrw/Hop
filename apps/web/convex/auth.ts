@@ -111,6 +111,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         ...(typeof profile.isAnonymous === "boolean" ? { isAnonymous } : {}),
         emailVerified,
         onboardingComplete,
+        successfulTrips: 0,
+        cancelledTrips: 0,
+        reportedCount: 0,
       });
 
       if (localQaEnabled && isAnonymous) {

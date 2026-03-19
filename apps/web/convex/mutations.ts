@@ -8,12 +8,17 @@ import {
   MIN_TIME_OVERLAP_MINUTES,
   PICKUP_ORIGIN_ID,
   PICKUP_ORIGIN_LABEL,
+  SMALL_GROUP_RELEASE_HOURS,
+  arePreferencesCompatible,
+  calculateCredibilityScore,
+  overlapMinutes,
 } from "@hop/shared";
 import { v } from "convex/values";
 import { buildLockedGroupDestinations } from "../lib/group-destinations";
 import {
   MEETING_LOCATION_LABEL,
   deriveMeetingTime,
+  generateQrPassphrase,
   getEmojiForMember,
   getGroupTheme,
   selectBookerUserId,
@@ -324,6 +329,13 @@ export const cancelAvailability = mutation({
     if (!availability || availability.userId !== userId) {
       throw new Error("Availability not found.");
     }
+
+    // Prevent deletion of already-matched availabilities
+    // (these belong to active groups and should be managed via group cancellation instead)
+    if (availability.status === "matched") {
+      throw new Error("Cannot delete an availability that is part of an active group.");
+    }
+
     await ctx.db.patch(availabilityId, { status: "cancelled" });
     return { ok: true };
   },
@@ -360,6 +372,62 @@ export const updateAcknowledgement = mutation({
     });
 
     return { ok: true };
+  },
+});
+
+export const cancelTripParticipation = mutation({
+  args: {
+    groupId: v.id("groups"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
+    if (!userId) throw new Error("Not authenticated");
+
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+
+    // Can only cancel after match, before trip is closed
+    const CANCELLABLE_STATUSES = new Set([
+      "matched_pending_ack",
+      "tentative",
+      "meetup_preparation",
+      "meetup_ready",
+      "in_trip",
+      "depart_ready",
+      "payment_pending",
+    ]);
+    if (!CANCELLABLE_STATUSES.has(group.status)) {
+      throw new Error("Cannot cancel trip in current status");
+    }
+
+    const userIdStr = userId;
+    const members = await ctx.db
+      .query("groupMembers")
+      .withIndex("groupId", (q) => q.eq("groupId", groupId))
+      .collect();
+    const member = members.find((m) => m.userId === userIdStr);
+    if (!member) throw new Error("Not a member of this group");
+
+    // Mark user as cancelled and increment their cancelledTrips
+    await ctx.db.patch(member._id, {
+      participationStatus: "cancelled_by_user",
+    });
+
+    // Cancel the availability to prevent reuse and enforce the consequence
+    const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+    if (availability?.status === "matched") {
+      await ctx.db.patch(availability._id, { status: "cancelled" });
+    }
+
+    const user = await ctx.db.get(userId);
+    if (user) {
+      await ctx.db.patch(userId, {
+        cancelledTrips: (user.cancelledTrips ?? 0) + 1,
+      });
+    }
+
+    return { ok: true, message: "You have cancelled your participation in this trip" };
   },
 });
 
@@ -521,8 +589,26 @@ export const createTentativeGroup = internalMutation({
     );
 
     const theme = getGroupTheme(args.memberUserIds.join(":"));
-    const bookerUserId = selectBookerUserId(args.memberUserIds);
     const meetingTime = deriveMeetingTime(args.windowStart);
+
+    // Fetch user credibility scores for booker selection
+    const userDocs = await Promise.all(
+      args.memberUserIds.map((userId) => ctx.db.get(userId as Id<"users">)),
+    );
+    const credibilityScores = new Map<string, number>();
+    for (const [index, userId] of args.memberUserIds.entries()) {
+      const user = userDocs[index];
+      if (user) {
+        const score = calculateCredibilityScore({
+          successfulTrips: user.successfulTrips ?? 0,
+          cancelledTrips: user.cancelledTrips ?? 0,
+          reportedCount: user.reportedCount ?? 0,
+        });
+        credibilityScores.set(userId, score);
+      }
+    }
+
+    const bookerUserId = selectBookerUserId(args.memberUserIds, credibilityScores);
 
     const groupId = await ctx.db.insert("groups", {
       status: "tentative",
@@ -569,7 +655,7 @@ export const createTentativeGroup = internalMutation({
         destinationAddress: lockedDestination?.destinationAddress,
         destinationSubmittedAt: lockedDestination?.destinationSubmittedAt,
         destinationLockedAt: lockedDestination?.destinationLockedAt,
-        qrToken: `${groupId}:${member.userId}:${index}`,
+        qrToken: generateQrPassphrase(`${groupId}:${member.userId}:${index}`),
         dropoffOrder: lockedDestination?.dropoffOrder,
         paymentStatus: "none",
       });
