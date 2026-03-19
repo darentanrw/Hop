@@ -24,9 +24,11 @@ export default async function AdminPage() {
             <span className="pill pill-muted">Admin</span>
           </div>
           <h1>System overview</h1>
-          <p style={{ marginTop: 4 }}>No address data is accessible from this panel.</p>
+          <p style={{ marginTop: 4 }}>
+            No address data is accessible from this panel. Local QA tools only appear when enabled
+            in dev.
+          </p>
         </div>
-
         <div className="card">
           <h2 style={{ marginBottom: 16 }}>Live metrics</h2>
           <div className="admin-stat-row">

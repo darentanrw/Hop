@@ -6,16 +6,22 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 
 const RESEND_COOLDOWN_SEC = 60;
+const localQaRequested = process.env.NEXT_PUBLIC_ENABLE_LOCAL_QA === "true";
 
 export default function VerifyEmailPage() {
   const router = useRouter();
   const status = useQuery(api.queries.getVerificationStatus);
+  const localQaConfig = useQuery(api.admin.localQaConfig);
   const sendVerificationEmail = useAction(api.verification.sendVerificationEmail);
   const confirmAlias = useMutation(api.mutations.confirmAliasAndVerify);
   const rejectAlias = useMutation(api.mutations.rejectAlias);
+  const bootstrapLocalQaUser = useMutation(api.admin.bootstrapLocalQaUser);
   const sentRef = useRef(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [aliasBusy, setAliasBusy] = useState(false);
+  const [qaBusy, setQaBusy] = useState(false);
+  const [qaStatus, setQaStatus] = useState<string | null>(null);
+  const localQaEnabled = localQaRequested && localQaConfig?.enabled === true;
 
   useEffect(() => {
     if (status === undefined) return;
@@ -86,6 +92,21 @@ export default function VerifyEmailPage() {
       console.error(err);
     } finally {
       setAliasBusy(false);
+    }
+  }
+
+  async function handleSkipForLocalQa() {
+    if (qaBusy) return;
+    setQaBusy(true);
+    setQaStatus(null);
+
+    try {
+      await bootstrapLocalQaUser({});
+      router.replace("/dashboard");
+    } catch (err) {
+      setQaStatus(err instanceof Error ? err.message : "Could not prepare the local QA account.");
+    } finally {
+      setQaBusy(false);
     }
   }
 
@@ -166,6 +187,33 @@ export default function VerifyEmailPage() {
             {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : "Resend verification email"}
           </button>
         </div>
+
+        {localQaEnabled ? (
+          <div className="card stack" style={{ borderStyle: "dashed" }}>
+            <div className="stack-xs">
+              <div className="row" style={{ gap: 8 }}>
+                <span className="pill pill-accent">Local QA</span>
+                <span className="pill pill-muted">Dev only</span>
+              </div>
+              <p className="text-sm text-muted">
+                Skip email verification and mark this account ready for local manual QA.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleSkipForLocalQa}
+              disabled={qaBusy}
+            >
+              {qaBusy ? "Preparing QA account..." : "Prepare QA account and continue"}
+            </button>
+            {qaStatus ? (
+              <p className="text-sm" style={{ color: "var(--danger)" }}>
+                {qaStatus}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

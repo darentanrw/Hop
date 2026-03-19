@@ -131,6 +131,12 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         const acceptedUserIds = acceptedMembers.map((member) => member.userId);
         const acceptedAvailabilityIds = acceptedMembers.map((member) => member.availabilityId);
         const removedMembers = members.filter((member) => !acceptedIds.has(member._id));
+        const orderedAcceptedMembers = [...acceptedMembers].sort(
+          (left, right) =>
+            (left.dropoffOrder ?? Number.MAX_SAFE_INTEGER) -
+              (right.dropoffOrder ?? Number.MAX_SAFE_INTEGER) ||
+            left.userId.localeCompare(right.userId),
+        );
 
         for (const member of removedMembers) {
           await ctx.db.patch(member._id, {
@@ -143,15 +149,21 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           await reopenAvailability(ctx, member.availabilityId);
         }
 
+        for (const [index, member] of orderedAcceptedMembers.entries()) {
+          await ctx.db.patch(member._id, {
+            dropoffOrder: index + 1,
+          });
+        }
+
         await ctx.db.patch(group._id, {
-          status: "group_confirmed",
+          status: "meetup_preparation",
           memberUserIds: acceptedUserIds,
           availabilityIds: acceptedAvailabilityIds,
           groupSize: acceptedMembers.length,
           bookerUserId: acceptedUserIds.includes(group.bookerUserId ?? "")
             ? group.bookerUserId
             : acceptedUserIds[0],
-          suggestedDropoffOrder: acceptedUserIds,
+          suggestedDropoffOrder: orderedAcceptedMembers.map((member) => member.userId),
         });
 
         await scheduleLifecycleNotifications(ctx, [
@@ -161,11 +173,11 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             kind: "group_confirmed",
             eventKey: `${group._id}:group_confirmed:${member.userId}`,
             title: `${group.groupName ?? "Hop Group"} is confirmed`,
-            body: `Lock your destination and get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
+            body: `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
             emailSubject: `${group.groupName ?? "Hop Group"} is confirmed`,
             emailHtml: buildNotificationEmail(
               `${group.groupName ?? "Hop Group"} is confirmed`,
-              `Lock your destination and get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
+              `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
             ),
           })),
           ...removedMembers.map((member) => ({
@@ -256,11 +268,7 @@ function buildActions(
       currentStatus === "matched_pending_ack" &&
       currentUserMember?.participationStatus !== "removed_no_ack" &&
       currentUserMember?.acknowledgementStatus !== "accepted",
-    canSubmitDestination:
-      (currentStatus === "group_confirmed" || currentStatus === "meetup_preparation") &&
-      Boolean(currentUserMember) &&
-      !currentUserMember?.destinationLockedAt &&
-      (currentUserMember?.participationStatus ?? "active") === "active",
+    canSubmitDestination: false,
     canShowQr:
       (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") &&
       !isBooker &&
@@ -450,8 +458,8 @@ export const submitGroupDestination = mutation({
 
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
-    if (group.status !== "group_confirmed" && group.status !== "meetup_preparation") {
-      throw new Error("Destination collection is closed for this group.");
+    if (group.status === "cancelled" || group.status === "closed" || group.status === "dissolved") {
+      throw new Error("This group is no longer active.");
     }
 
     const member = await ctx.db
@@ -461,38 +469,11 @@ export const submitGroupDestination = mutation({
     if (!member || (member.participationStatus ?? "active") !== "active") {
       throw new Error("You are no longer part of this group.");
     }
-    if (member.destinationLockedAt) {
-      throw new Error("Your destination is already locked for this group.");
-    }
 
-    const submittedAt = nowIso();
-    await ctx.db.patch(member._id, {
-      destinationAddress: address.trim(),
-      destinationSubmittedAt: submittedAt,
-      destinationLockedAt: submittedAt,
-    });
-
-    const members = await listGroupMembers(ctx, groupId);
-    const activeMembers = getActiveMembers(members).filter((entry) =>
-      Boolean(entry.destinationAddress),
+    void address;
+    throw new Error(
+      "Your destination was locked with this booking window. Leave the group and create a new booking window if you need to change it.",
     );
-    const ordered = [...activeMembers].sort((left, right) =>
-      (left.destinationAddress ?? "").localeCompare(right.destinationAddress ?? ""),
-    );
-
-    for (const [index, activeMember] of ordered.entries()) {
-      await ctx.db.patch(activeMember._id, {
-        dropoffOrder: index + 1,
-      });
-    }
-
-    await ctx.db.patch(groupId, {
-      suggestedDropoffOrder: ordered.map((entry) => entry.userId),
-      status:
-        ordered.length === getActiveMembers(members).length ? "meetup_preparation" : group.status,
-    });
-
-    return { ok: true };
   },
 });
 
@@ -512,7 +493,9 @@ export const startMeetupCheckIn = mutation({
     const members = await listGroupMembers(ctx, groupId);
     const activeMembers = getActiveMembers(members);
     if (!activeMembers.every((member) => Boolean(member.destinationLockedAt))) {
-      throw new Error("Every rider must lock a destination before meetup check-in.");
+      throw new Error(
+        "Every rider must have a confirmed booking destination before meetup check-in.",
+      );
     }
 
     const bookerMember = activeMembers.find((member) => member.userId === userId);

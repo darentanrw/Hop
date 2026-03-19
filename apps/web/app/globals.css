@@ -961,6 +961,47 @@ label span {
   color: var(--text-muted);
 }
 
+/* --- Live Scanner --- */
+.scanner-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(circle at top, rgba(68, 212, 200, 0.16), transparent 48%),
+    linear-gradient(180deg, rgba(8, 12, 24, 0.72), rgba(8, 12, 24, 0.9));
+  border: 1px solid rgba(68, 212, 200, 0.2);
+  min-height: 260px;
+}
+
+.scanner-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+}
+
+.scanner-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 12, 24, 0.18),
+    rgba(8, 12, 24, 0.02) 30%,
+    rgba(8, 12, 24, 0.16)
+  );
+}
+
+.scanner-frame {
+  width: min(72%, 260px);
+  aspect-ratio: 1;
+  border-radius: 28px;
+  border: 2px solid rgba(68, 212, 200, 0.95);
+  box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.38);
+}
+
 /* --- Status Notice --- */
 .notice {
   display: flex;
@@ -1620,6 +1661,113 @@ label span {
   color: var(--text);
 }
 
+.qa-fab {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  color: var(--text);
+  box-shadow: var(--shadow-elevated), 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.qa-fab:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  transform: translateY(-50%) translateX(-2px);
+}
+
+.qa-fab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  color: #201306;
+  font-family: var(--font-display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.qa-fab-label {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.qa-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+}
+
+.qa-screen-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 16, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.qa-screen-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: min(440px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 26px;
+  background: radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      transparent 36%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 96%, transparent),
+      color-mix(in srgb, var(--bg) 98%, transparent)
+    );
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-elevated);
+  animation: scaleIn 0.24s var(--ease-out-expo) both;
+}
+
+.qa-screen-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.qa-screen-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.qa-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* --- Utilities --- */
 .text-accent {
   color: var(--accent);
@@ -1862,6 +2010,37 @@ label span {
   }
   .tagline-heading {
     font-size: 40px;
+  }
+}
+
+@media (max-width: 640px) {
+  .qa-fab {
+    top: auto;
+    right: 12px;
+    bottom: calc(var(--nav-height) + var(--safe-bottom) + 16px);
+    transform: none;
+    padding: 10px;
+  }
+
+  .qa-fab:hover {
+    transform: translateY(-2px);
+  }
+
+  .qa-fab-label {
+    display: none;
+  }
+
+  .qa-screen-panel {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    border-radius: 0;
+    padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px) 16px;
+  }
+
+  .qa-grid {
+    grid-template-columns: 1fr;
   }
 }
 

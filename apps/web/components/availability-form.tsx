@@ -83,7 +83,8 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             Destination stays private
           </strong>
           <p className="text-sm" style={{ marginTop: 4, color: "var(--text-secondary)" }}>
-            We&apos;ll collect your final home destination once your group is ready to book.
+            Hop matches on the destination tied to this booking window. Once a group forms, you will
+            need a new booking window to change it.
           </p>
         </div>
       </div>
