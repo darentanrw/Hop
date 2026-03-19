@@ -122,10 +122,7 @@ function StatusCard({ state }: { state: StatusState }) {
             >
               Looking for a ride
             </div>
-            <p className="text-sm text-muted">
-              Searching across {state.count} window{state.count !== 1 ? "s" : ""}. You&apos;ll get
-              an alert when a group forms.
-            </p>
+            <p className="text-sm text-muted">You&apos;ll get an alert when a group forms.</p>
           </div>
         </div>
       </div>
@@ -280,7 +277,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="stack-lg stagger">
-      {eligibility?.blocked ? (
+      {eligibility?.hasActiveGroup ? (
+        <div className="notice notice-error">
+          You already have an active ride. Finish it before scheduling another.
+        </div>
+      ) : eligibility?.unpaidCount ? (
         <div className="notice notice-error">
           You have an outstanding payment from a previous ride. Settle up before scheduling another.
         </div>
