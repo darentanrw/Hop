@@ -12,7 +12,9 @@ function isStandaloneMode() {
 
 export function PwaStatusCard() {
   const [installed, setInstalled] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationPermission | "unsupported">("default");
+  const [notifications, setNotifications] = useState<NotificationPermission | "unsupported">(
+    "default",
+  );
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {

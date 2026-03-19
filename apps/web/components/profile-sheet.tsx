@@ -1,6 +1,6 @@
 "use client";
 
-import { calculateCredibilityScore } from "@hop/shared";
+import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
 import type { RiderProfile } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import { type FormEvent, useState } from "react";
@@ -26,14 +26,13 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
   const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [form, setForm] = useState(profile);
 
-  const credibilityScore =
-    currentUser
-      ? calculateCredibilityScore({
-          successfulTrips: currentUser.successfulTrips ?? 0,
-          cancelledTrips: currentUser.cancelledTrips ?? 0,
-          reportedCount: currentUser.reportedCount ?? 0,
-        })
-      : undefined;
+  const credibilityScore = currentUser
+    ? calculateCredibilityScore({
+        successfulTrips: currentUser.successfulTrips ?? 0,
+        cancelledTrips: currentUser.cancelledTrips ?? 0,
+        reportedCount: currentUser.reportedCount ?? 0,
+      })
+    : undefined;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,6 +67,11 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
       <div
         className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onClose();
+        }}
+        role="button"
+        tabIndex={0}
         style={{
           animation: "fadeIn 0.2s ease",
         }}
@@ -165,7 +169,7 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                 id="profile-gender"
                 value={form.selfDeclaredGender}
                 onChange={(e) => {
-                  const val = e.target.value as any;
+                  const val = e.target.value as SelfDeclaredGender;
                   setForm((c) => ({
                     ...c,
                     selfDeclaredGender: val,
@@ -202,9 +206,14 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
               </label>
             )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+            <div
+              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}
+            >
               <div>
-                <label htmlFor="profile-min" style={{ display: "block", marginBottom: 6, fontSize: 12 }}>
+                <label
+                  htmlFor="profile-min"
+                  style={{ display: "block", marginBottom: 6, fontSize: 12 }}
+                >
                   Min Group
                 </label>
                 <input
@@ -217,7 +226,10 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                 />
               </div>
               <div>
-                <label htmlFor="profile-max" style={{ display: "block", marginBottom: 6, fontSize: 12 }}>
+                <label
+                  htmlFor="profile-max"
+                  style={{ display: "block", marginBottom: 6, fontSize: 12 }}
+                >
                   Max Group
                 </label>
                 <input
@@ -231,7 +243,12 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
               </div>
             </div>
 
-            <button type="submit" className="btn btn-primary btn-block" disabled={busy} style={{ marginTop: 16 }}>
+            <button
+              type="submit"
+              className="btn btn-primary btn-block"
+              disabled={busy}
+              style={{ marginTop: 16 }}
+            >
               {busy ? "Saving..." : "Save Changes"}
             </button>
 
