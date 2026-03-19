@@ -1,10 +1,9 @@
-import { isNusAliasFormat } from "@hop/shared";
 import { Resend } from "resend";
 import {
   buildInboundBodyText,
   extractEmailFromFromField,
   extractNameFromFromField,
-  extractPassphraseFromBody,
+  resolveInboundVerificationDecision,
 } from "../lib/inbound-email";
 import { api, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -34,7 +33,6 @@ export const handleInboundEmail = httpAction(async (ctx, request) => {
   }
 
   const bodyText = buildInboundBodyText(email);
-  const passphrase = extractPassphraseFromBody(bodyText);
   const fromForName =
     (email as { headers?: { from?: string } }).headers?.from ??
     (email as { from?: string }).from ??
@@ -51,53 +49,47 @@ export const handleInboundEmail = httpAction(async (ctx, request) => {
     email: senderEmail,
   });
 
-  if (verification) {
-    if (!passphrase || passphrase.toLowerCase() !== verification.passphrase.toLowerCase()) {
-      console.log(`[inbound] Passphrase mismatch for ${senderEmail}`);
-      return new Response("OK", { status: 200 });
-    }
+  const verificationByBody = verification
+    ? null
+    : await ctx.runQuery(internal.inboundMutations.getPendingVerificationByBody, {
+        bodyText,
+      });
+
+  const decision = resolveInboundVerificationDecision({
+    senderEmail,
+    bodyText,
+    verificationByEmail: verification,
+    verificationByBody,
+  });
+
+  if (decision.kind === "verify") {
     await ctx.runMutation(internal.inboundMutations.verifyEmailReply, {
-      verificationId: verification.id,
+      verificationId: decision.verificationId,
       name: name || undefined,
     });
     console.log(`[inbound] Email verified for ${senderEmail}${name ? `, name: ${name}` : ""}`);
     return new Response("OK", { status: 200 });
   }
 
-  if (!passphrase) {
-    console.log(`[inbound] No pending verification for ${senderEmail}, no passphrase in reply`);
-    return new Response("OK", { status: 200 });
-  }
-
-  const byPassphrase = await ctx.runQuery(
-    internal.inboundMutations.getPendingVerificationByPassphrase,
-    { passphrase },
-  );
-  if (!byPassphrase) {
-    console.log(`[inbound] No verification with matching passphrase from ${senderEmail}`);
-    return new Response("OK", { status: 200 });
-  }
-
-  if (byPassphrase.email.toLowerCase() === senderEmail) {
-    await ctx.runMutation(internal.inboundMutations.verifyEmailReply, {
-      verificationId: byPassphrase.id,
-      name: name || undefined,
-    });
-    console.log(`[inbound] Email verified for ${senderEmail}`);
-    return new Response("OK", { status: 200 });
-  }
-
-  if (isNusAliasFormat(byPassphrase.email)) {
+  if (decision.kind === "pending_alias") {
     await ctx.runMutation(internal.inboundMutations.storePendingAlias, {
-      verificationId: byPassphrase.id,
+      verificationId: decision.verificationId,
       aliasFrom: senderEmail,
       aliasName: name || undefined,
     });
-    console.log(`[inbound] Pending alias: ${senderEmail} for signup ${byPassphrase.email}`);
-  } else {
-    console.log(
-      `[inbound] Reply from ${senderEmail} does not match signup ${byPassphrase.email} (exact match required)`,
-    );
+    console.log(`[inbound] Pending alias: ${senderEmail} for signup ${decision.signupEmail}`);
+    return new Response("OK", { status: 200 });
   }
+
+  if (decision.reason === "passphrase_mismatch") {
+    console.log(`[inbound] Passphrase mismatch for ${senderEmail}`);
+  } else if (decision.reason === "exact_match_required") {
+    console.log(
+      `[inbound] Reply from ${senderEmail} does not match signup ${verificationByBody?.email} (exact match required)`,
+    );
+  } else {
+    console.log(`[inbound] No verification with matching passphrase from ${senderEmail}`);
+  }
+
   return new Response("OK", { status: 200 });
 });
