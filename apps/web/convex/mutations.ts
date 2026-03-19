@@ -1005,6 +1005,7 @@ export const hardLockGroups = internalMutation({
     );
 
     let hardLockedCount = 0;
+    let dissolvedCount = 0;
 
     for (const group of semiLockedGroups) {
       const members = await ctx.db
@@ -1013,6 +1014,19 @@ export const hardLockGroups = internalMutation({
         .collect();
 
       const activeMembers = members.filter((m) => m.participationStatus === "active");
+
+      if (activeMembers.length < MIN_GROUP_SIZE) {
+        await ctx.db.patch(group._id, { status: "dissolved" });
+        for (const member of members) {
+          const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+          if (availability?.status === "matched") {
+            await ctx.db.patch(availability._id, { status: "open" });
+          }
+        }
+        dissolvedCount += 1;
+        continue;
+      }
+
       const memberUserIds = activeMembers.map((m) => m.userId);
       const bookerUserId = selectBookerUserId(memberUserIds);
 
@@ -1041,7 +1055,7 @@ export const hardLockGroups = internalMutation({
       );
     }
 
-    return { hardLockedCount };
+    return { hardLockedCount, dissolvedCount };
   },
 });
 
