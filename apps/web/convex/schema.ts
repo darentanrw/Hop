@@ -61,6 +61,8 @@ const reportCategory = v.union(
   v.literal("misconduct"),
   v.literal("other"),
 );
+const notificationChannel = v.union(v.literal("push"), v.literal("email"));
+const notificationStatus = v.union(v.literal("sent"), v.literal("skipped"), v.literal("failed"));
 
 const schema = defineSchema({
   ...authTables,
@@ -209,6 +211,18 @@ const schema = defineSchema({
     description: v.string(),
     createdAt: v.string(),
   }).index("groupId", ["groupId"]),
+  notificationEvents: defineTable({
+    userId: v.id("users"),
+    groupId: v.optional(v.id("groups")),
+    eventKey: v.string(),
+    kind: v.string(),
+    channel: notificationChannel,
+    status: notificationStatus,
+    detail: v.optional(v.string()),
+    createdAt: v.string(),
+  })
+    .index("eventKey", ["eventKey"])
+    .index("userId", ["userId"]),
 });
 
 export default schema;
