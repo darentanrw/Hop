@@ -83,28 +83,6 @@ export function PreferencesForm({ profile }: { profile: RiderProfile }) {
           onSubmit={handleSubmit}
           style={{ marginTop: 16, animation: "fadeUp 0.3s var(--ease-out-expo) both" }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label htmlFor="pref-gender">Gender identity</label>
-            <select
-              id="pref-gender"
-              value={form.selfDeclaredGender}
-              onChange={(e) => {
-                const val = e.target.value as SelfDeclaredGender;
-                setForm((c) => ({
-                  ...c,
-                  selfDeclaredGender: val,
-                  sameGenderOnly: val === "prefer_not_to_say" ? false : c.sameGenderOnly,
-                }));
-              }}
-            >
-              {genderOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <div
             aria-hidden={!showSameGenderToggle}
             style={{

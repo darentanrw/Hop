@@ -17,10 +17,14 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
   return {
     userId: userId,
     name: user.name,
+    email: user.email,
     selfDeclaredGender: preference.selfDeclaredGender,
     sameGenderOnly: preference.sameGenderOnly,
     minGroupSize: preference.minGroupSize,
     maxGroupSize: preference.maxGroupSize,
+    successfulTrips: user.successfulTrips ?? 0,
+    cancelledTrips: user.cancelledTrips ?? 0,
+    reportedCount: user.reportedCount ?? 0,
   };
 }
 

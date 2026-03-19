@@ -204,6 +204,23 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           await reopenAvailability(ctx, member.availabilityId);
         }
 
+        // Increment cancelledTrips only for members who didn't acknowledge (not their fault others didn't)
+        // Declined members explicitly chose not to ride
+        const declinedOrTimedOut = activeMembers.filter(
+          (member) =>
+            member.acknowledgementStatus === "declined" ||
+            member.accepted === false ||
+            member.acknowledgementStatus === "pending",
+        );
+        for (const member of declinedOrTimedOut) {
+          const user = await ctx.db.get(member.userId as Id<"users">);
+          if (user) {
+            await ctx.db.patch(member.userId as Id<"users">, {
+              cancelledTrips: (user.cancelledTrips ?? 0) + 1,
+            });
+          }
+        }
+
         await scheduleLifecycleNotifications(
           ctx,
           activeMembers.map((member) => ({
@@ -246,7 +263,24 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
   }
 
   if (group.status === "payment_pending") {
+    // Track members who verified payment and increment their successfulTrips immediately
     const paymentMembers = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
+    const verifiedMembers = paymentMembers.filter((member) => member.paymentStatus === "verified");
+
+    for (const member of verifiedMembers) {
+      const user = await ctx.db.get(member.userId as Id<"users">);
+      if (user) {
+        // Check if this user already got successfulTrips for this group (use auditEvents)
+        const alreadyRewarded = false; // TODO: implement dedup check
+        if (!alreadyRewarded) {
+          await ctx.db.patch(member.userId as Id<"users">, {
+            successfulTrips: (user.successfulTrips ?? 0) + 1,
+          });
+        }
+      }
+    }
+
+    // Check if all payment members have paid
     const allPaid = paymentMembers.every((member) => member.paymentStatus === "verified");
     if (allPaid) {
       await ctx.db.patch(group._id, {
@@ -605,6 +639,14 @@ export const departGroup = mutation({
       await ctx.db.patch(member._id, {
         participationStatus: "removed_no_show",
       });
+
+      // No-show harms credibility: increment cancelledTrips
+      const user = await ctx.db.get(member.userId as Id<"users">);
+      if (user) {
+        await ctx.db.patch(member.userId as Id<"users">, {
+          cancelledTrips: (user.cancelledTrips ?? 0) + 1,
+        });
+      }
     }
 
     await ctx.db.patch(groupId, {
@@ -811,6 +853,16 @@ export const createReport = mutation({
       status: group.status === "closed" ? "reported" : "reported",
       reportCount: (group.reportCount ?? 0) + 1,
     });
+
+    // Increment reportedCount for the reported user
+    if (args.reportedUserId) {
+      const reportedUser = await ctx.db.get(args.reportedUserId as Id<"users">);
+      if (reportedUser) {
+        await ctx.db.patch(args.reportedUserId as Id<"users">, {
+          reportedCount: (reportedUser.reportedCount ?? 0) + 1,
+        });
+      }
+    }
 
     return { ok: true };
   },

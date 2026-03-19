@@ -160,6 +160,11 @@ export function slotsToIsoRange(dateInput: string, startSlot: number, endSlot: n
 }
 
 export function formatRangeSummary(dateInput: string, startSlot: number, endSlot: number) {
+  const { dateLabel, timeLabel } = formatRangeSummaryParts(dateInput, startSlot, endSlot);
+  return `${dateLabel}, ${timeLabel}`;
+}
+
+export function formatRangeSummaryParts(dateInput: string, startSlot: number, endSlot: number) {
   const [year, month, day] = dateInput.split("-").map(Number);
   const start = slotToClockParts(startSlot);
   const end = slotToClockParts(endSlot);
@@ -170,7 +175,10 @@ export function formatRangeSummary(dateInput: string, startSlot: number, endSlot
   const startLabel = timeFormatter.format(baseDate);
   const endLabel = timeFormatter.format(endDate);
 
-  return `${dateLabel}, ${startLabel} - ${endLabel}`;
+  return {
+    dateLabel,
+    timeLabel: `${startLabel} - ${endLabel}`,
+  };
 }
 
 export function formatStoredWindow(windowStart: string, windowEnd: string) {
