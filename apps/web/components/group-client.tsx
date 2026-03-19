@@ -211,6 +211,8 @@ export function GroupClient({
   const [scannerState, setScannerState] = useState<"idle" | "starting" | "live">("idle");
   const [scannerStatus, setScannerStatus] = useState<StatusMessage>(null);
   const [scannerBusy, setScannerBusy] = useState(false);
+  const [scannerFlashKey, setScannerFlashKey] = useState(0);
+  const [scannerFlashActive, setScannerFlashActive] = useState(false);
   const [receiptTotal, setReceiptTotal] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
@@ -224,6 +226,7 @@ export function GroupClient({
   const lastScannedAtRef = useRef(0);
   const groupRef = useRef(group);
   const qaArgsRef = useRef(qaArgs);
+  const scannerFlashTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     void syncLifecycle(qaArgs);
@@ -262,7 +265,29 @@ export function GroupClient({
     [group],
   );
 
+  const resetScannerFlash = useCallback(() => {
+    if (scannerFlashTimeoutRef.current !== null) {
+      window.clearTimeout(scannerFlashTimeoutRef.current);
+      scannerFlashTimeoutRef.current = null;
+    }
+    setScannerFlashActive(false);
+  }, []);
+
+  const triggerScannerSuccessFlash = useCallback(() => {
+    if (scannerFlashTimeoutRef.current !== null) {
+      window.clearTimeout(scannerFlashTimeoutRef.current);
+    }
+
+    setScannerFlashKey((current) => current + 1);
+    setScannerFlashActive(true);
+    scannerFlashTimeoutRef.current = window.setTimeout(() => {
+      setScannerFlashActive(false);
+      scannerFlashTimeoutRef.current = null;
+    }, 720);
+  }, []);
+
   const stopLiveScanner = useCallback(() => {
+    resetScannerFlash();
     scannerRef.current?.destroy();
     scannerRef.current = null;
     if (videoRef.current) {
@@ -273,7 +298,7 @@ export function GroupClient({
     setScannerBusy(false);
     setScannerOpen(false);
     setScannerState("idle");
-  }, []);
+  }, [resetScannerFlash]);
 
   async function runAction(task: () => Promise<void>) {
     setBusy(true);
@@ -300,6 +325,9 @@ export function GroupClient({
 
   useEffect(() => {
     return () => {
+      if (scannerFlashTimeoutRef.current !== null) {
+        window.clearTimeout(scannerFlashTimeoutRef.current);
+      }
       scannerRef.current?.destroy();
     };
   }, []);
@@ -338,6 +366,7 @@ export function GroupClient({
         });
         await syncLifecycle(currentQaArgs);
         setScannerStatus({ type: "success", text: "Checked in successfully." });
+        triggerScannerSuccessFlash();
         return true;
       } catch (error) {
         setScannerStatus({
@@ -350,7 +379,7 @@ export function GroupClient({
         setScannerBusy(false);
       }
     },
-    [scanGroupQrToken, syncLifecycle],
+    [scanGroupQrToken, syncLifecycle, triggerScannerSuccessFlash],
   );
 
   const submitScannedQrTokenRef = useRef(submitScannedQrToken);
@@ -361,10 +390,11 @@ export function GroupClient({
 
   const startLiveScanner = useCallback(() => {
     if (scannerOpen) return;
+    resetScannerFlash();
     setScannerStatus(null);
     setScannerOpen(true);
     setScannerState("starting");
-  }, [scannerOpen]);
+  }, [resetScannerFlash, scannerOpen]);
 
   useEffect(() => {
     if (!scannerOpen || !group?.actions.canScanQr || !videoRef.current) {
@@ -724,8 +754,14 @@ export function GroupClient({
           {scannerOpen ? (
             <div className="scanner-shell">
               <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
-              <div className="scanner-overlay" aria-hidden="true">
-                <div className="scanner-frame" />
+              <div
+                key={scannerFlashKey}
+                className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
+                aria-hidden="true"
+              >
+                <div
+                  className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
+                />
               </div>
             </div>
           ) : null}
