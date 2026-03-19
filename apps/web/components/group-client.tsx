@@ -185,7 +185,12 @@ export function GroupClient({
     [qaActingUserId],
   );
   const liveGroup = useQuery(api.trips.getActiveTrip, qaArgs);
-  const group = liveGroup === undefined ? initialGroup : liveGroup;
+  const qaViewPending = Boolean(qaActingUserId) && liveGroup === undefined;
+  const group = qaActingUserId
+    ? (liveGroup ?? null)
+    : liveGroup === undefined
+      ? initialGroup
+      : liveGroup;
 
   const syncLifecycle = useMutation(api.trips.advanceCurrentGroupLifecycle);
   const updateAcknowledgement = useMutation(api.mutations.updateAcknowledgement);
@@ -396,6 +401,16 @@ export function GroupClient({
   }, [group?.actions.canScanQr, scannerOpen, submitScannedQrToken]);
 
   if (!group) {
+    if (qaViewPending) {
+      return (
+        <div className="empty-state" style={{ animation: "fadeUp 0.5s var(--ease-out-expo) both" }}>
+          <div className="empty-state-icon">🪪</div>
+          <h3>Switching QA view</h3>
+          <p className="text-muted">Loading this group as the selected rider.</p>
+        </div>
+      );
+    }
+
     return (
       <div className="empty-state" style={{ animation: "fadeUp 0.5s var(--ease-out-expo) both" }}>
         <div className="empty-state-icon">🚕</div>
