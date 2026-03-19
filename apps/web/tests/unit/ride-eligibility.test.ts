@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   ACTIVE_GROUP_STATUSES,
+  type FullEligibility,
   type GroupLike,
   type MembershipLike,
   checkRideEligibility,
+  getEligibilityError,
 } from "../../lib/ride-eligibility";
 
 function pair(membership: Partial<MembershipLike>, group: Partial<GroupLike> | null) {
@@ -226,5 +228,134 @@ describe("checkRideEligibility", () => {
     ]);
     expect(result.blocked).toBe(false);
     expect(result.hasActiveGroup).toBe(false);
+  });
+
+  it("unpaid balance in reported group still counts as unpaid", () => {
+    const result = checkRideEligibility([
+      pair(
+        { participationStatus: "removed_no_show", amountDueCents: 800, paymentVerifiedAt: null },
+        { status: "reported" },
+      ),
+    ]);
+    expect(result.unpaidCount).toBe(1);
+    expect(result.blocked).toBe(true);
+  });
+
+  it("negative amountDueCents is not counted as unpaid", () => {
+    const result = checkRideEligibility([
+      pair({ amountDueCents: -100, paymentVerifiedAt: null }, { status: "payment_pending" }),
+    ]);
+    expect(result.unpaidCount).toBe(0);
+  });
+});
+
+describe("getEligibilityError", () => {
+  function elig(overrides: Partial<FullEligibility> = {}): FullEligibility {
+    return {
+      blocked: false,
+      hasActiveGroup: false,
+      hasOpenWindow: false,
+      unpaidCount: 0,
+      ...overrides,
+    };
+  }
+
+  it("returns null when user is fully eligible", () => {
+    expect(getEligibilityError(elig())).toBeNull();
+  });
+
+  it("returns active group error when hasActiveGroup is true", () => {
+    const error = getEligibilityError(elig({ blocked: true, hasActiveGroup: true }));
+    expect(error).toMatch(/active ride/i);
+  });
+
+  it("returns open window error when hasOpenWindow is true", () => {
+    const error = getEligibilityError(elig({ blocked: true, hasOpenWindow: true }));
+    expect(error).toMatch(/open ride window/i);
+  });
+
+  it("returns unpaid error when unpaidCount > 0", () => {
+    const error = getEligibilityError(elig({ blocked: true, unpaidCount: 2 }));
+    expect(error).toMatch(/payment/i);
+  });
+
+  it("active group takes priority over open window", () => {
+    const error = getEligibilityError(
+      elig({ blocked: true, hasActiveGroup: true, hasOpenWindow: true }),
+    );
+    expect(error).toMatch(/active ride/i);
+    expect(error).not.toMatch(/open ride window/i);
+  });
+
+  it("active group takes priority over unpaid", () => {
+    const error = getEligibilityError(
+      elig({ blocked: true, hasActiveGroup: true, unpaidCount: 1 }),
+    );
+    expect(error).toMatch(/active ride/i);
+    expect(error).not.toMatch(/payment/i);
+  });
+
+  it("open window takes priority over unpaid", () => {
+    const error = getEligibilityError(elig({ blocked: true, hasOpenWindow: true, unpaidCount: 1 }));
+    expect(error).toMatch(/open ride window/i);
+    expect(error).not.toMatch(/payment/i);
+  });
+
+  it("all three conditions: active group wins", () => {
+    const error = getEligibilityError(
+      elig({ blocked: true, hasActiveGroup: true, hasOpenWindow: true, unpaidCount: 3 }),
+    );
+    expect(error).toMatch(/active ride/i);
+  });
+
+  it("returns null when blocked is true but all flags are false/zero", () => {
+    const error = getEligibilityError(elig({ blocked: true }));
+    expect(error).toBeNull();
+  });
+
+  it("returns null when unpaidCount is exactly 0", () => {
+    const error = getEligibilityError(elig({ unpaidCount: 0 }));
+    expect(error).toBeNull();
+  });
+});
+
+describe("createAvailability error selection", () => {
+  it("checkRideEligibility + open window produces correct error sequence", () => {
+    const noGroups = checkRideEligibility([]);
+    expect(noGroups.blocked).toBe(false);
+    const errorWhenClear = getEligibilityError({ ...noGroups, hasOpenWindow: false });
+    expect(errorWhenClear).toBeNull();
+
+    const errorWhenOpenWindow = getEligibilityError({ ...noGroups, hasOpenWindow: true });
+    expect(errorWhenOpenWindow).toMatch(/open ride window/i);
+  });
+
+  it("active group supersedes open window in combined flow", () => {
+    const withActive = checkRideEligibility([pair({}, { status: "in_trip" })]);
+    expect(withActive.hasActiveGroup).toBe(true);
+    const error = getEligibilityError({ ...withActive, hasOpenWindow: true });
+    expect(error).toMatch(/active ride/i);
+  });
+
+  it("unpaid only shows when no active group and no open window", () => {
+    const withUnpaid = checkRideEligibility([
+      pair(
+        { participationStatus: "removed_no_show", amountDueCents: 500, paymentVerifiedAt: null },
+        { status: "payment_pending" },
+      ),
+    ]);
+    expect(withUnpaid.hasActiveGroup).toBe(false);
+    expect(withUnpaid.unpaidCount).toBe(1);
+    const error = getEligibilityError({ ...withUnpaid, hasOpenWindow: false });
+    expect(error).toMatch(/payment/i);
+  });
+
+  it("clean history with no open window = null", () => {
+    const clean = checkRideEligibility([
+      pair({}, { status: "closed" }),
+      pair({}, { status: "cancelled" }),
+    ]);
+    const error = getEligibilityError({ ...clean, hasOpenWindow: false });
+    expect(error).toBeNull();
   });
 });

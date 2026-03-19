@@ -4,6 +4,7 @@ import type { RiderProfile } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
+import { getEligibilityError } from "../lib/ride-eligibility";
 import {
   clampRange,
   getDefaultDateInput,
@@ -84,26 +85,15 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (eligibility?.hasActiveGroup) {
-      setStatus({
-        type: "error",
-        text: "You already have an active ride. Finish it before scheduling another.",
+    if (eligibility) {
+      const error = getEligibilityError({
+        ...eligibility,
+        hasOpenWindow: eligibility.hasOpenWindow ?? false,
       });
-      return;
-    }
-    if (eligibility?.hasOpenWindow) {
-      setStatus({
-        type: "error",
-        text: "You already have an open ride window. Cancel it before creating another.",
-      });
-      return;
-    }
-    if (eligibility?.unpaidCount) {
-      setStatus({
-        type: "error",
-        text: "Clear your previous trip payment before scheduling another ride.",
-      });
-      return;
+      if (error) {
+        setStatus({ type: "error", text: error });
+        return;
+      }
     }
 
     const trimmedDestinationAddress = (destinationAddress || addressQuery).trim();

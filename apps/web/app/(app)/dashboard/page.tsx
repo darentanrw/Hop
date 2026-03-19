@@ -123,8 +123,7 @@ function StatusCard({ state }: { state: StatusState }) {
               Looking for a ride
             </div>
             <p className="text-sm text-muted">
-              Searching across {state.count} window{state.count !== 1 ? "s" : ""}. You&apos;ll get
-              an alert when a group forms.
+              You&apos;ll get an alert when a group forms.
             </p>
           </div>
         </div>

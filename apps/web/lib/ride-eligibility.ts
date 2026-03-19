@@ -31,6 +31,27 @@ export interface RideEligibility {
   unpaidCount: number;
 }
 
+export interface FullEligibility extends RideEligibility {
+  hasOpenWindow: boolean;
+}
+
+/**
+ * Returns the user-facing error message for the highest-priority blocking
+ * condition, or null if the user is eligible to create a new ride window.
+ */
+export function getEligibilityError(eligibility: FullEligibility): string | null {
+  if (eligibility.hasActiveGroup) {
+    return "You already have an active ride. Finish it before scheduling another.";
+  }
+  if (eligibility.hasOpenWindow) {
+    return "You already have an open ride window. Cancel it before creating another.";
+  }
+  if (eligibility.unpaidCount > 0) {
+    return "Clear your previous trip payment before scheduling another ride.";
+  }
+  return null;
+}
+
 /**
  * Pure function: given a list of (membership, group) pairs for a user,
  * returns whether the user is eligible to create a new ride window.
