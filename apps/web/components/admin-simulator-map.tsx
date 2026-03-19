@@ -93,6 +93,8 @@ export function AdminSimulatorMap({
     const map = mapRef.current;
     const layerGroup = layerGroupRef.current;
     if (!L || !map || !layerGroup) return;
+    const leaflet = L;
+    const markerLayer = layerGroup;
 
     layerGroup.clearLayers();
 
@@ -104,19 +106,20 @@ export function AdminSimulatorMap({
     }
 
     function addOriginMarker() {
-      const originIcon = L.divIcon({
+      const originIcon = leaflet.divIcon({
         className: "",
         html: createOriginMarkup(),
         iconSize: [100, 60],
         iconAnchor: [50, 30],
       });
 
-      L.marker([PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG], {
-        icon: originIcon,
-        pane: "originPane",
-      })
+      leaflet
+        .marker([PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG], {
+          icon: originIcon,
+          pane: "originPane",
+        })
         .bindPopup(PICKUP_ORIGIN_LABEL)
-        .addTo(layerGroup);
+        .addTo(markerLayer);
     }
 
     if (!result) {

@@ -24,7 +24,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="stack-lg stagger">
-      {eligibility?.blocked ? (
+      {eligibility?.hasActiveGroup ? (
+        <div className="notice notice-error">
+          You already have an active ride. Finish it before scheduling another.
+        </div>
+      ) : eligibility?.unpaidCount ? (
         <div className="notice notice-error">
           You have an outstanding payment from a previous ride. Settle up before scheduling another.
         </div>

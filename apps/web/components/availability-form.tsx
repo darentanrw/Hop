@@ -1,10 +1,11 @@
 "use client";
 
 import type { RiderProfile } from "@hop/shared";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import { persistDestinationLabel } from "../lib/destination-storage";
+import { getEligibilityError } from "../lib/ride-eligibility";
 import {
   clampRange,
   getDefaultDateInput,
@@ -28,6 +29,7 @@ type AvailabilityFormProps = {
 
 export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const createAvailability = useMutation(api.mutations.createAvailability);
+  const eligibility = useQuery(api.trips.getRideEligibility, {});
   const initialDate = getDefaultDateInput();
   const defaultRange = getDefaultRange(initialDate);
   const [dateInput, setDateInput] = useState(initialDate);
@@ -97,6 +99,17 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (eligibility) {
+      const error = getEligibilityError({
+        ...eligibility,
+        hasOpenWindow: eligibility.hasOpenWindow ?? false,
+      });
+      if (error) {
+        setStatus({ type: "error", text: error });
+        return;
+      }
+    }
 
     const trimmedDestinationAddress = (destinationAddress || addressQuery).trim();
     if (!trimmedDestinationAddress) {
@@ -339,6 +352,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
 
       {status && (
         <div
+          ref={(el) => el?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
           className={`notice ${status.type === "error" ? "notice-error" : status.type === "success" ? "notice-success" : "notice-info"}`}
         >
           {status.text}

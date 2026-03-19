@@ -3,6 +3,8 @@ import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
+import { ACTIVE_GROUP_STATUSES, checkRideEligibility } from "../lib/ride-eligibility";
+import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -10,24 +12,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { CHAT_ELIGIBLE_STATUSES } from "./chat";
 import { resolveQaActingUserId } from "./localQa";
-
-const ACTIVE_GROUP_STATUSES = new Set([
-  "tentative",
-  "semi_locked",
-  "locked",
-  "matched_pending_ack",
-  "group_confirmed",
-  "meetup_preparation",
-  "meetup_checkin",
-  "depart_ready",
-  "in_trip",
-  "receipt_pending",
-  "payment_pending",
-  "reported",
-]);
-
-const REDELEGATE_STATUSES = new Set(["group_confirmed", "meetup_preparation", "meetup_checkin"]);
-const BOOKER_ABSENT_BUFFER_MS = 5 * 60_000;
 
 type GroupDoc = Doc<"groups">;
 type GroupMemberDoc = Doc<"groupMembers">;
@@ -292,59 +276,6 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
   return await ctx.db.get(group._id);
 }
 
-function buildActions(
-  group: GroupDoc,
-  currentUserId: string,
-  currentUserMember: GroupMemberDoc | null,
-  options?: {
-    everyoneCheckedIn: boolean;
-    graceExpired: boolean;
-    bookerAbsentWindowPassed: boolean;
-  },
-) {
-  const currentStatus = group.status;
-  const isBooker = group.bookerUserId === currentUserId;
-  const currentMemberIsActive = (currentUserMember?.participationStatus ?? "active") === "active";
-  const canDepartNow =
-    currentStatus === "depart_ready" ||
-    (currentStatus === "meetup_checkin" &&
-      Boolean(options?.everyoneCheckedIn || options?.graceExpired));
-
-  return {
-    canAcknowledge:
-      currentStatus === "matched_pending_ack" &&
-      currentUserMember?.participationStatus !== "removed_no_ack" &&
-      currentUserMember?.acknowledgementStatus !== "accepted",
-    canCancelTrip:
-      (currentStatus === "semi_locked" || currentStatus === "locked") && currentMemberIsActive,
-    canSubmitDestination: false,
-    canShowQr:
-      (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") &&
-      !isBooker &&
-      Boolean(currentUserMember?.destinationLockedAt) &&
-      currentMemberIsActive,
-    canScanQr: (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") && isBooker,
-    canStartCheckIn:
-      (currentStatus === "group_confirmed" || currentStatus === "meetup_preparation") && isBooker,
-    canDepart: canDepartNow && isBooker,
-    canUploadReceipt:
-      (currentStatus === "in_trip" || currentStatus === "receipt_pending") && isBooker,
-    canSubmitPaymentProof:
-      currentStatus === "payment_pending" &&
-      !isBooker &&
-      (currentUserMember?.amountDueCents ?? 0) > 0 &&
-      currentUserMember?.paymentStatus !== "verified",
-    canVerifyPayments: currentStatus === "payment_pending" && isBooker,
-    canRedelegateBooker: isBooker && REDELEGATE_STATUSES.has(currentStatus),
-    canReportBookerAbsent:
-      !isBooker &&
-      currentStatus === "meetup_checkin" &&
-      Boolean(options?.bookerAbsentWindowPassed) &&
-      currentMemberIsActive,
-    canReport: currentStatus !== "matched_pending_ack" && Boolean(currentUserMember),
-  };
-}
-
 async function buildTripPayload(
   ctx: QueryCtx | MutationCtx,
   group: GroupDoc,
@@ -498,24 +429,25 @@ export const getRideEligibility = query({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .collect();
 
-    let blockedCount = 0;
-    for (const membership of memberships) {
-      if ((membership.amountDueCents ?? 0) <= 0 || membership.paymentVerifiedAt) continue;
-      const group = await ctx.db.get(membership.groupId);
-      if (
-        !group ||
-        group.status === "cancelled" ||
-        group.status === "closed" ||
-        group.status === "dissolved"
-      ) {
-        continue;
-      }
-      blockedCount += 1;
-    }
+    const pairs = await Promise.all(
+      memberships.map(async (membership) => ({
+        membership,
+        group: await ctx.db.get(membership.groupId),
+      })),
+    );
+
+    const result = checkRideEligibility(pairs);
+
+    const openAvailability = await ctx.db
+      .query("availabilities")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .filter((q) => q.eq(q.field("status"), "open"))
+      .first();
 
     return {
-      blocked: blockedCount > 0,
-      blockedCount,
+      ...result,
+      hasOpenWindow: Boolean(openAvailability),
+      blocked: result.blocked || Boolean(openAvailability),
     };
   },
 });

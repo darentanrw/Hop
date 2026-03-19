@@ -28,7 +28,7 @@ export default function LandingPage() {
       <div
         style={{
           position: "absolute",
-          top: 20,
+          top: "calc(var(--safe-top) + 20px)",
           right: 20,
           zIndex: 10,
           transition: "opacity 0.5s",
