@@ -526,9 +526,26 @@ export const cancelTripParticipation = mutation({
       groupPatch.memberUserIds = updatedMemberUserIds;
       groupPatch.groupSize = updatedMemberUserIds.length;
 
-      if (updatedMemberUserIds.length === 0) {
+      if (updatedMemberUserIds.length < 2) {
+        // Fewer than 2 riders left — group can't proceed. Cancel it immediately and
+        // reopen the remaining riders' availabilities so they return to the matching pool.
         groupPatch.bookerUserId = undefined;
         groupPatch.status = "cancelled";
+
+        const survivingMembers = members.filter(
+          (m) => m.userId !== userIdStr && (m.participationStatus ?? "active") === "active",
+        );
+        for (const survivor of survivingMembers) {
+          await ctx.db.patch(survivor._id, {
+            participationStatus: "removed_no_ack",
+          });
+          const survivorAvailability = await ctx.db.get(
+            survivor.availabilityId as Id<"availabilities">,
+          );
+          if (survivorAvailability?.status === "matched") {
+            await ctx.db.patch(survivorAvailability._id, { status: "open" });
+          }
+        }
       } else {
         // If the cancelling user is the booker, reassign to highest-credibility active member.
         if (group.bookerUserId === userIdStr) {
