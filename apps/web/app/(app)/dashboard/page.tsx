@@ -149,9 +149,7 @@ export default async function DashboardPage() {
                     <div className="avail-time">
                       {formatStoredWindow(a.windowStart, a.windowEnd)}
                     </div>
-                    <div className="avail-meta">
-                      {a.estimatedFareBand} · {config.label}
-                    </div>
+                    <div className="avail-meta">{config.label}</div>
                   </div>
                 </div>
               );
