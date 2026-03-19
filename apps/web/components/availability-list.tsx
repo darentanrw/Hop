@@ -3,8 +3,8 @@
 import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "../convex/_generated/api";
-import { formatStoredWindow } from "../lib/time-range";
 import type { Doc } from "../convex/_generated/dataModel";
+import { formatStoredWindow } from "../lib/time-range";
 
 interface AvailabilityListProps {
   availabilities: Doc<"availabilities">[];
@@ -34,7 +34,7 @@ export function AvailabilityList({ availabilities }: AvailabilityListProps) {
     setError(null);
 
     try {
-      await cancelAvailability({ availabilityId: availabilityId as any });
+      await cancelAvailability({ availabilityId });
       setDeletedIds((prev) => new Set([...prev, availabilityId]));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete availability.");
@@ -118,9 +118,24 @@ export function AvailabilityList({ availabilities }: AvailabilityListProps) {
               }}
             >
               {isDeleting ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  aria-label="Loading"
+                >
+                  <title>Loading</title>
                   <circle cx="12" cy="12" r="10" opacity="0.3" />
-                  <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  />
                 </svg>
               ) : (
                 <svg
@@ -132,7 +147,9 @@ export function AvailabilityList({ availabilities }: AvailabilityListProps) {
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-label="Delete"
                 >
+                  <title>Delete</title>
                   <polyline points="3 6 5 6 21 6" />
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                   <line x1="10" y1="11" x2="10" y2="17" />

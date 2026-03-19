@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import { calculateCredibilityScore } from "@hop/shared";
+import { describe, expect, it } from "vitest";
 
 describe("calculateCredibilityScore", () => {
   it("new users start at 0.75", () => {

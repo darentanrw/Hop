@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import { calculateCredibilityScore } from "@hop/shared";
+import { describe, expect, it } from "vitest";
 
 describe("Credibility Score System - All Changes", () => {
   describe("Score Calculation Formula", () => {
@@ -85,7 +85,7 @@ describe("Credibility Score System - All Changes", () => {
     it("rider who acknowledges should NOT get cancelledTrips++", () => {
       // Simulating: Group has 3 members, 2 acknowledge, 1 declines
       // Group splits into confirmed (2) and removed (1)
-      
+
       const acknowledger = calculateCredibilityScore({
         successfulTrips: 0,
         cancelledTrips: 0, // ✅ No penalty because they acknowledged
@@ -141,13 +141,13 @@ describe("Credibility Score System - All Changes", () => {
         cancelledTrips: 0,
         reportedCount: 0,
       });
-      
+
       const afterPayment2 = calculateCredibilityScore({
         successfulTrips: 2,
         cancelledTrips: 0,
         reportedCount: 0,
       });
-      
+
       // Both should be 1.0 (perfect), but score itself doesn't change
       // The difference is in the counter
       expect(afterPayment1).toBe(1.0);
@@ -227,7 +227,9 @@ describe("Credibility Score System - All Changes", () => {
         cancelledTrips: 1,
         reportedCount: 2,
       });
-      expect(score).toBeCloseTo(0.707, 2);
+      // Real-world score: 0.7 * (2/3) + 0.3 * 0.8 = 0.467 + 0.24 = 0.707
+      const expectedScore = 0.7 * (2 / 3) + 0.3 * 0.8;
+      expect(score).toBeCloseTo(expectedScore, 2);
     });
 
     it("rider improves over time: starts bad, ends good", () => {
@@ -236,14 +238,14 @@ describe("Credibility Score System - All Changes", () => {
         cancelledTrips: 9,
         reportedCount: 3,
       });
-      
+
       // After 10 more successful trips and 1 more report
       const improvedState = calculateCredibilityScore({
         successfulTrips: 11,
         cancelledTrips: 9,
         reportedCount: 4,
       });
-      
+
       // Initial: 0.7 * 0.1 + 0.3 * 0.7 = 0.07 + 0.21 = 0.28 → 0.5 (clamped)
       // Improved: 0.7 * (11/20) + 0.3 * 0.6 = 0.385 + 0.18 = 0.565
       expect(initialState).toBe(0.5);

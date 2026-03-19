@@ -1,6 +1,6 @@
 "use client";
 
-import { calculateCredibilityScore, type SelfDeclaredGender } from "@hop/shared";
+import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useState } from "react";
@@ -9,11 +9,16 @@ import { api } from "../../../convex/_generated/api";
 export default function ProfilePage() {
   const riderProfile = useQuery(api.queries.getRiderProfile);
   const savePreferences = useMutation(api.mutations.savePreferences);
-  
-  const [selectedGender, setSelectedGender] = useState<SelfDeclaredGender>(riderProfile?.selfDeclaredGender ?? "prefer_not_to_say");
+
+  const [selectedGender, setSelectedGender] = useState<SelfDeclaredGender>(
+    riderProfile?.selfDeclaredGender ?? "prefer_not_to_say",
+  );
   const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  
+  const [saveStatus, setSaveStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+
   if (!riderProfile) {
     return (
       <div style={{ textAlign: "center", padding: "40px 20px" }}>
@@ -29,7 +34,8 @@ export default function ProfilePage() {
   });
 
   const totalTrips = (riderProfile.successfulTrips ?? 0) + (riderProfile.cancelledTrips ?? 0);
-  const successRate = totalTrips > 0 ? ((riderProfile.successfulTrips ?? 0) / totalTrips * 100).toFixed(0) : 0;
+  const successRate =
+    totalTrips > 0 ? (((riderProfile.successfulTrips ?? 0) / totalTrips) * 100).toFixed(0) : 0;
 
   async function handleSaveGender() {
     if (!riderProfile) return;
@@ -70,7 +76,9 @@ export default function ProfilePage() {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-label="Back to dashboard"
           >
+            <title>Back</title>
             <path d="M15 19l-7-7 7-7" />
           </svg>
           Back to home
@@ -88,14 +96,19 @@ export default function ProfilePage() {
       {/* Credibility score card */}
       <div className="card" style={{ background: "var(--surface-hover)" }}>
         <div style={{ marginBottom: 16 }}>
-          <p className="text-muted text-sm" style={{ marginBottom: 4 }}>Credibility Score</p>
+          <p className="text-muted text-sm" style={{ marginBottom: 4 }}>
+            Credibility Score
+          </p>
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-display)" }}>
             {(credibilityScore * 100).toFixed(0)}
           </div>
         </div>
 
         {/* Score breakdown */}
-        <div className="stack-sm" style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+        <div
+          className="stack-sm"
+          style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}
+        >
           <div className="row-between">
             <span className="text-muted">Success rate</span>
             <strong>{successRate}%</strong>
@@ -116,7 +129,9 @@ export default function ProfilePage() {
 
         {/* Score explanation */}
         <p className="text-muted text-xs" style={{ marginTop: 16, lineHeight: 1.5 }}>
-          Your credibility score is calculated from your trip history. Completing trips improves your score, while cancellations and reports reduce it. A higher score helps you become a booker.
+          Your credibility score is calculated from your trip history. Completing trips improves
+          your score, while cancellations and reports reduce it. A higher score helps you become a
+          booker.
         </p>
       </div>
 
@@ -154,6 +169,7 @@ export default function ProfilePage() {
 
         {genderChanged && (
           <button
+            type="button"
             onClick={handleSaveGender}
             disabled={saving}
             style={{

@@ -637,7 +637,7 @@ export const departGroup = mutation({
       await ctx.db.patch(member._id, {
         participationStatus: "removed_no_show",
       });
-      
+
       // No-show harms credibility: increment cancelledTrips
       const user = await ctx.db.get(member.userId as Id<"users">);
       if (user) {
