@@ -32,7 +32,6 @@ type ActiveTripPayload = {
     receiptSubmittedAt: string | null;
     paymentDueAt: string | null;
     reportCount: number;
-    bookerCheckedIn: boolean;
   };
   currentUserId: string;
   currentUserMember: {
@@ -83,8 +82,6 @@ type ActiveTripPayload = {
     canUploadReceipt: boolean;
     canSubmitPaymentProof: boolean;
     canVerifyPayments: boolean;
-    canRedelegateBooker: boolean;
-    canReportBookerAbsent: boolean;
     canReport: boolean;
     canChat: boolean;
   };
@@ -225,8 +222,6 @@ export function GroupClient({
   const submitReceipt = useMutation(api.trips.submitReceipt);
   const submitPaymentProof = useMutation(api.trips.submitPaymentProof);
   const verifyPayment = useMutation(api.trips.verifyPayment);
-  const redelegateBooker = useMutation(api.trips.redelegateBooker);
-  const reportBookerAbsent = useMutation(api.trips.reportBookerAbsent);
   const createReport = useMutation(api.trips.createReport);
   const sendChatMessage = useMutation(api.chat.sendMessage);
 
@@ -246,7 +241,6 @@ export function GroupClient({
   const [reportCategory, setReportCategory] = useState("non_payment");
   const [reportDescription, setReportDescription] = useState("");
   const [reportedUserId, setReportedUserId] = useState("");
-  const [redelegateTarget, setRedelegateTarget] = useState("");
   const [justCheckedIn, setJustCheckedIn] = useState<{ emoji: string; name: string } | null>(null);
   const [tab, setTab] = useState<"ride" | "chat" | "report">("ride");
   const [chatDraft, setChatDraft] = useState("");
@@ -1096,75 +1090,6 @@ export function GroupClient({
                 }
               >
                 Decline
-              </button>
-            </div>
-          ) : null}
-
-          {/* ── Hand off booker (booker voluntary redelegation) ── */}
-          {group.actions.canRedelegateBooker ? (
-            <div className="card stack-sm">
-              <h3>Hand off booker</h3>
-              <p className="text-sm text-muted">
-                Transfer the booker role to another rider (e.g. if they can get a cheaper fare).
-              </p>
-              <select
-                value={redelegateTarget}
-                onChange={(e) => setRedelegateTarget(e.target.value)}
-              >
-                <option value="">Select a rider</option>
-                {activeMembers
-                  .filter((m) => m.userId !== group.currentUserId)
-                  .map((m) => (
-                    <option key={`redelegate-${m.userId}`} value={m.userId}>
-                      {m.emoji} {emojiName(m.emoji)}
-                    </option>
-                  ))}
-              </select>
-              <button
-                type="button"
-                className="btn btn-secondary btn-block"
-                disabled={busy || !redelegateTarget}
-                onClick={() =>
-                  runAction(async () => {
-                    await redelegateBooker({
-                      groupId: group.group.id as Id<"groups">,
-                      newBookerUserId: redelegateTarget as Id<"users">,
-                      ...qaArgs,
-                    });
-                    setRedelegateTarget("");
-                    setStatus({ type: "success", text: "Booker role handed off." });
-                  })
-                }
-              >
-                Hand off
-              </button>
-            </div>
-          ) : null}
-
-          {/* ── Booker not here? (non-booker absent report) ── */}
-          {group.actions.canReportBookerAbsent && !group.group.bookerCheckedIn ? (
-            <div className="card stack-sm">
-              <h3>Booker not here?</h3>
-              <p className="text-sm text-muted">
-                It&apos;s past the meeting time and the booker hasn&apos;t checked in. Tap to
-                reassign the booker role to the next eligible rider.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                disabled={busy}
-                onClick={() => {
-                  if (!window.confirm("Reassign the booker role? This cannot be undone.")) return;
-                  runAction(async () => {
-                    await reportBookerAbsent({
-                      groupId: group.group.id as Id<"groups">,
-                      ...qaArgs,
-                    });
-                    setStatus({ type: "success", text: "Booker reassigned." });
-                  });
-                }}
-              >
-                Reassign booker
               </button>
             </div>
           ) : null}
