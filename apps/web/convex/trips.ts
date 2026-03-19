@@ -349,6 +349,7 @@ async function buildTripPayload(
     .collect();
 
   const currentUserMember = members.find((member) => member.userId === currentUserId) ?? null;
+  const isCurrentGroupMember = Boolean(currentUserMember);
   const activeMembers = getActiveMembers(members);
   const checkedInMembers = activeMembers.filter((member) => Boolean(member.checkedInAt));
   const outstandingPayments = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
@@ -363,6 +364,26 @@ async function buildTripPayload(
       (left.dropoffOrder ?? Number.MAX_SAFE_INTEGER) -
       (right.dropoffOrder ?? Number.MAX_SAFE_INTEGER),
   );
+  const receiptImageUrl =
+    group.receiptStorageId && canViewGroupReceipt({ isCurrentGroupMember })
+      ? await ctx.storage.getUrl(group.receiptStorageId)
+      : null;
+  const membersWithPaymentProof = await Promise.all(
+    members.map(async (member) => ({
+      member,
+      paymentProofImageUrl:
+        member.paymentProofStorageId &&
+        canViewPaymentProof({
+          viewerUserId: currentUserId,
+          bookerUserId: group.bookerUserId ?? null,
+          memberUserId: member.userId,
+        })
+          ? await ctx.storage.getUrl(member.paymentProofStorageId)
+          : null,
+    })),
+  );
+  const currentUserMemberWithPaymentProof =
+    membersWithPaymentProof.find(({ member }) => member.userId === currentUserId) ?? null;
 
   return {
     group: {
@@ -383,23 +404,25 @@ async function buildTripPayload(
       bookerUserId: group.bookerUserId ?? activeMembers[0]?.userId ?? null,
       suggestedDropoffOrder: group.suggestedDropoffOrder ?? [],
       finalCostCents: group.finalCostCents ?? null,
+      receiptImageUrl,
       receiptSubmittedAt: group.receiptSubmittedAt ?? null,
       paymentDueAt: group.paymentDueAt ?? null,
       reportCount: reports.length,
     },
     currentUserId,
-    currentUserMember: currentUserMember
+    currentUserMember: currentUserMemberWithPaymentProof
       ? {
-          userId: currentUserMember.userId,
-          displayName: currentUserMember.displayName,
-          emoji: currentUserMember.emoji ?? "🙂",
-          destinationLockedAt: currentUserMember.destinationLockedAt ?? null,
-          qrToken: currentUserMember.qrToken ?? null,
-          amountDueCents: currentUserMember.amountDueCents ?? 0,
-          paymentStatus: currentUserMember.paymentStatus ?? "none",
+          userId: currentUserMemberWithPaymentProof.member.userId,
+          displayName: currentUserMemberWithPaymentProof.member.displayName,
+          emoji: currentUserMemberWithPaymentProof.member.emoji ?? "🙂",
+          destinationLockedAt: currentUserMemberWithPaymentProof.member.destinationLockedAt ?? null,
+          qrToken: currentUserMemberWithPaymentProof.member.qrToken ?? null,
+          amountDueCents: currentUserMemberWithPaymentProof.member.amountDueCents ?? 0,
+          paymentStatus: currentUserMemberWithPaymentProof.member.paymentStatus ?? "none",
+          paymentProofImageUrl: currentUserMemberWithPaymentProof.paymentProofImageUrl,
         }
       : null,
-    members: members.map((member) => ({
+    members: membersWithPaymentProof.map(({ member, paymentProofImageUrl }) => ({
       userId: member.userId,
       displayName: member.displayName,
       emoji: member.emoji ?? "🙂",
@@ -417,6 +440,7 @@ async function buildTripPayload(
       dropoffOrder: member.dropoffOrder ?? null,
       amountDueCents: member.amountDueCents ?? 0,
       paymentStatus: member.paymentStatus ?? "none",
+      paymentProofImageUrl,
       paymentSubmittedAt: member.paymentSubmittedAt ?? null,
       paymentVerifiedAt: member.paymentVerifiedAt ?? null,
       isBooker: member.userId === group.bookerUserId,
