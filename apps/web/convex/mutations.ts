@@ -402,6 +402,71 @@ export const registerClientKey = mutation({
   },
 });
 
+export const upsertPushSubscription = mutation({
+  args: {
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    userAgent: v.optional(v.string()),
+  },
+  handler: async (ctx, { endpoint, p256dh, auth, userAgent }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const existing = await ctx.db
+      .query("pushSubscriptions")
+      .withIndex("endpoint", (q) => q.eq("endpoint", endpoint))
+      .first();
+
+    const now = Date.now();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        userId,
+        p256dh,
+        auth,
+        userAgent,
+        updatedAt: now,
+        disabledAt: undefined,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("pushSubscriptions", {
+      userId,
+      endpoint,
+      p256dh,
+      auth,
+      userAgent,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const disablePushSubscription = mutation({
+  args: { endpoint: v.string() },
+  handler: async (ctx, { endpoint }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const existing = await ctx.db
+      .query("pushSubscriptions")
+      .withIndex("endpoint", (q) => q.eq("endpoint", endpoint))
+      .first();
+
+    if (!existing || existing.userId !== userId) {
+      return { ok: true };
+    }
+
+    await ctx.db.patch(existing._id, {
+      disabledAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
 export const createTentativeGroup = internalMutation({
   args: {
     windowStart: v.string(),
