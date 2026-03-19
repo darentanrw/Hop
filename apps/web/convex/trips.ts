@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { PAYMENT_WINDOW_HOURS } from "@hop/shared";
+import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
-import { computeSplitAmounts } from "../lib/group-lifecycle";
+import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -156,14 +156,31 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           });
         }
 
+        // Select the highest-credibility booker among accepted riders.
+        const userDocs = await Promise.all(
+          acceptedUserIds.map((userId) => ctx.db.get(userId as Id<"users">)),
+        );
+        const credibilityScores = new Map<string, number>();
+        for (const [index, acceptedUserId] of acceptedUserIds.entries()) {
+          const user = userDocs[index];
+          if (user) {
+            const score = calculateCredibilityScore({
+              successfulTrips: user.successfulTrips ?? 0,
+              cancelledTrips: user.cancelledTrips ?? 0,
+              reportedCount: user.reportedCount ?? 0,
+            });
+            credibilityScores.set(acceptedUserId, score);
+          }
+        }
+        const nextBookerUserId =
+          selectBookerUserId(acceptedUserIds, credibilityScores) ?? acceptedUserIds[0];
+
         await ctx.db.patch(group._id, {
           status: "meetup_preparation",
           memberUserIds: acceptedUserIds,
           availabilityIds: acceptedAvailabilityIds,
           groupSize: acceptedMembers.length,
-          bookerUserId: acceptedUserIds.includes(group.bookerUserId ?? "")
-            ? group.bookerUserId
-            : acceptedUserIds[0],
+          bookerUserId: nextBookerUserId,
           suggestedDropoffOrder: orderedAcceptedMembers.map((member) => member.userId),
         });
 
