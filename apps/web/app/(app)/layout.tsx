@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BottomNav } from "../../components/bottom-nav";
 import { ClientKeyRegistrar } from "../../components/client-key-registrar";
 import { LogoutButton } from "../../components/logout-button";
+import { PwaCoachmark } from "../../components/pwa-coachmark";
 import { api } from "../../convex/_generated/api";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <LogoutButton />
         </div>
         <ClientKeyRegistrar />
+        <PwaCoachmark />
         {children}
       </div>
       <BottomNav />

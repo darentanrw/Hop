@@ -1429,6 +1429,33 @@ label span {
   color: var(--text);
 }
 
+.pwa-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pwa-status-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.pwa-status-row:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.pwa-status-label {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* --- Reveal Animation --- */
 .reveal-container {
   animation: scaleIn 0.5s var(--ease-spring) both;
