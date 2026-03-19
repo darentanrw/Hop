@@ -62,7 +62,8 @@ function mockNearbyRoutes() {
   mockRoute
     .mockResolvedValueOnce({ distanceMeters: 8000, timeSeconds: 720 }) // NUS → Clementi1
     .mockResolvedValueOnce({ distanceMeters: 8200, timeSeconds: 740 }) // NUS → Clementi2
-    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60 }); // Clementi1 → Clementi2
+    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60 }) // Clementi1 → Clementi2
+    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 65 }); // Clementi2 → Clementi1
 }
 
 beforeEach(() => {

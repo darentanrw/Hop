@@ -58,7 +58,8 @@ export function getEarliestSlotForDate(dateInput: string) {
 
   const nowSgt = new Date(Date.now() + SINGAPORE_OFFSET_HOURS * 3_600_000);
   const minutesSinceMidnight = nowSgt.getUTCHours() * 60 + nowSgt.getUTCMinutes();
-  return Math.ceil((minutesSinceMidnight + MIN_ADVANCE_MINUTES) / SLOT_MINUTES);
+  const raw = Math.ceil((minutesSinceMidnight + MIN_ADVANCE_MINUTES) / SLOT_MINUTES);
+  return Math.min(raw, SLOTS_PER_DAY - MIN_DURATION_SLOTS);
 }
 
 export function getDefaultRange(dateInput?: string) {
