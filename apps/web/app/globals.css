@@ -2540,10 +2540,11 @@ code {
   gap: 8px;
 }
 
-/* --- PWA standalone: guarantee minimum top inset --- */
+/* --- PWA standalone: top needs explicit inset; bottom is handled by iOS --- */
 @media (display-mode: standalone) {
   :root {
     --safe-top: env(safe-area-inset-top, 44px);
+    --safe-bottom: 0px;
   }
 }
 
