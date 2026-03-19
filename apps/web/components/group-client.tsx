@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import QrScanner from "qr-scanner";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { Countdown } from "./countdown";
@@ -291,47 +291,45 @@ export function GroupClient({
     };
   }, []);
 
-  const submitScannedQrToken = useCallback(
-    async (rawValue: string) => {
-      if (!group) return;
+  const submitScannedQrToken = useEffectEvent(async (rawValue: string) => {
+    if (!group) return;
 
-      const trimmedValue = rawValue.trim();
-      if (!trimmedValue) return;
+    const trimmedValue = rawValue.trim();
+    if (!trimmedValue) return;
 
-      const now = Date.now();
-      if (
-        scannerBusyRef.current ||
-        (lastScannedTokenRef.current === trimmedValue &&
-          now - lastScannedAtRef.current < SCAN_DEBOUNCE_MS)
-      ) {
-        return;
-      }
+    const now = Date.now();
+    if (
+      scannerBusyRef.current ||
+      (lastScannedTokenRef.current === trimmedValue &&
+        now - lastScannedAtRef.current < SCAN_DEBOUNCE_MS)
+    ) {
+      return;
+    }
 
-      scannerBusyRef.current = true;
-      lastScannedTokenRef.current = trimmedValue;
-      lastScannedAtRef.current = now;
-      setScanToken(trimmedValue);
-      setStatus({ type: "info", text: "QR detected. Verifying…" });
+    scannerBusyRef.current = true;
+    lastScannedTokenRef.current = trimmedValue;
+    lastScannedAtRef.current = now;
+    setScanToken(trimmedValue);
+    setStatus({ type: "info", text: "QR detected. Verifying…" });
 
-      try {
-        await scanGroupQrToken({
-          groupId: group.group.id as Id<"groups">,
-          qrToken: trimmedValue,
-          ...qaArgs,
-        });
-        await syncLifecycle(qaArgs);
-        setStatus({ type: "success", text: "Rider checked in." });
-      } catch (error) {
-        setStatus({
-          type: "error",
-          text: error instanceof Error ? error.message : "Could not verify that rider.",
-        });
-      } finally {
-        scannerBusyRef.current = false;
-      }
-    },
-    [group, qaArgs, scanGroupQrToken, syncLifecycle],
-  );
+    try {
+      await scanGroupQrToken({
+        groupId: group.group.id as Id<"groups">,
+        qrToken: trimmedValue,
+        ...qaArgs,
+      });
+      await syncLifecycle(qaArgs);
+      setStatus({ type: "success", text: "Checked in successfully." });
+      await scannerRef.current?.start();
+    } catch (error) {
+      setStatus({
+        type: "error",
+        text: error instanceof Error ? error.message : "Could not verify that rider.",
+      });
+    } finally {
+      scannerBusyRef.current = false;
+    }
+  });
 
   const startLiveScanner = useCallback(() => {
     if (scannerOpen) return;
