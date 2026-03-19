@@ -467,15 +467,7 @@ export const cancelTripParticipation = mutation({
     if (!group) throw new Error("Group not found");
 
     // Can only cancel after match, before trip is closed
-    const CANCELLABLE_STATUSES = new Set([
-      "matched_pending_ack",
-      "group_confirmed",
-      "meetup_preparation",
-      "meetup_checkin",
-      "in_trip",
-      "depart_ready",
-      "payment_pending",
-    ]);
+    const CANCELLABLE_STATUSES = new Set(["matched_pending_ack"]);
     if (!CANCELLABLE_STATUSES.has(group.status)) {
       throw new Error("Cannot cancel trip in current status");
     }
@@ -511,29 +503,69 @@ export const cancelTripParticipation = mutation({
         cancelledTrips: (user.cancelledTrips ?? 0) + 1,
       });
     }
-    // Keep the parent group document in sync so active-trip lookup is correct.
-    // Remove the cancelling user and their availability from the group's arrays.
-    const updatedMemberUserIds = group.memberUserIds.filter((id) => id !== userIdStr);
-    const updatedAvailabilityIds = group.availabilityIds.filter(
-      (id) => id !== (member.availabilityId as unknown as string),
-    );
+    // Keep the parent group document in sync.
+    // P1 FIX: In payment_pending status, preserve memberUserIds so riders can still access payment UI.
+    // In other statuses, remove the rider to clean up the group.
+    const shouldPreserveMembership = group.status === "payment_pending";
 
     const groupPatch: Partial<{
       memberUserIds: typeof group.memberUserIds;
       availabilityIds: typeof group.availabilityIds;
       groupSize: number;
+      bookerUserId: string | undefined;
     }> = {};
 
-    if (updatedMemberUserIds.length !== group.memberUserIds.length) {
-      groupPatch.memberUserIds = updatedMemberUserIds;
-      if (updatedMemberUserIds.length > 0) {
-        groupPatch.groupSize = Math.max(2, updatedMemberUserIds.length);
-      }
-    }
-
+    // Remove availability regardless of status
+    const updatedAvailabilityIds = group.availabilityIds.filter(
+      (id) => id !== (member.availabilityId as unknown as string),
+    );
     if (updatedAvailabilityIds.length !== group.availabilityIds.length) {
       groupPatch.availabilityIds = updatedAvailabilityIds;
     }
+
+    // Only remove from memberUserIds if NOT in payment_pending
+    if (!shouldPreserveMembership) {
+      const updatedMemberUserIds = group.memberUserIds.filter((id) => id !== userIdStr);
+      if (updatedMemberUserIds.length !== group.memberUserIds.length) {
+        groupPatch.memberUserIds = updatedMemberUserIds;
+        if (updatedMemberUserIds.length > 0) {
+          groupPatch.groupSize = Math.max(2, updatedMemberUserIds.length);
+        }
+
+        // P1 FIX: If the cancelling user is the booker, reassign to next active member by credibility
+        if (group.bookerUserId === userIdStr && updatedMemberUserIds.length > 0) {
+          const remainingMembers = members.filter(
+            (m) => updatedMemberUserIds.includes(m.userId) && m.participationStatus === "active",
+          );
+          if (remainingMembers.length > 0) {
+            const remainingUserIds = remainingMembers.map((m) => m.userId);
+
+            // Pick the highest-credibility active member as the next booker.
+            const userDocs = await Promise.all(
+              remainingUserIds.map((userId) => ctx.db.get(userId as Id<"users">)),
+            );
+            const credibilityScores = new Map<string, number>();
+            for (const [index, remainingUserId] of remainingUserIds.entries()) {
+              const user = userDocs[index];
+              if (user) {
+                const score = calculateCredibilityScore({
+                  successfulTrips: user.successfulTrips ?? 0,
+                  cancelledTrips: user.cancelledTrips ?? 0,
+                  reportedCount: user.reportedCount ?? 0,
+                });
+                credibilityScores.set(remainingUserId, score);
+              }
+            }
+
+            const nextBookerUserId = selectBookerUserId(remainingUserIds, credibilityScores);
+            if (nextBookerUserId) {
+              groupPatch.bookerUserId = nextBookerUserId;
+            }
+          }
+        }
+      }
+    }
+
     // Only patch the group if there is something to update.
     if (Object.keys(groupPatch).length > 0) {
       await ctx.db.patch(groupId, groupPatch);
