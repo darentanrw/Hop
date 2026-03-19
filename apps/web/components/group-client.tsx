@@ -102,8 +102,18 @@ function formatDateTime(value: string) {
   });
 }
 
-function statusLabel(status: string) {
-  return status.replaceAll("_", " ");
+function friendlyStatus(status: string): string {
+  const map: Record<string, string> = {
+    matched_pending_ack: "Confirming",
+    acknowledged: "Confirmed",
+    meetup_checkin: "Meeting up",
+    depart_ready: "Ready to go",
+    in_transit: "En route",
+    payment_pending: "Settling up",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  };
+  return map[status] ?? status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function memberBadge(member: ActiveTripPayload["members"][number]) {
@@ -279,7 +289,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
       lastScannedTokenRef.current = trimmedValue;
       lastScannedAtRef.current = now;
       setScanToken(trimmedValue);
-      setStatus({ type: "info", text: "QR detected. Verifying rider attendance..." });
+      setStatus({ type: "info", text: "QR detected. Verifying…" });
 
       try {
         await scanGroupQrToken({
@@ -287,7 +297,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
           qrToken: trimmedValue,
         });
         await syncLifecycle({});
-        setStatus({ type: "success", text: "Rider checked in successfully." });
+        setStatus({ type: "success", text: "Rider checked in." });
       } catch (error) {
         setStatus({
           type: "error",
@@ -336,7 +346,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         setScannerState("live");
         setStatus({
           type: "info",
-          text: "Live scanner is on. Point the camera at each rider's QR code.",
+          text: "Scanner is on. Point at each rider's QR code.",
         });
       })
       .catch((error) => {
@@ -371,11 +381,8 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
     return (
       <div className="empty-state" style={{ animation: "fadeUp 0.5s var(--ease-out-expo) both" }}>
         <div className="empty-state-icon">🚕</div>
-        <h3>No active ride group</h3>
-        <p className="text-muted">
-          Submit your availability first. Hop will build a dummy matched group while the live
-          matcher is offline.
-        </p>
+        <h3>No active ride yet</h3>
+        <p className="text-muted">Set your availability and Hop will match you with a group.</p>
       </div>
     );
   }
@@ -385,16 +392,21 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
     currentUserIsBooker &&
     (group.group.status === "meetup_checkin" || group.group.status === "depart_ready");
 
+  const bookerEmoji =
+    group.members.find((m) => m.userId === group.group.bookerUserId)?.emoji ?? "🙂";
+
   return (
     <div className="stack stagger">
+      {/* ── Hero Card ── */}
       <div
-        className="card"
+        className="card group-hero-card"
         style={{
           border: `1px solid ${group.group.groupColor}33`,
-          boxShadow: `0 10px 36px ${group.group.groupColor}1f`,
+          boxShadow: `0 10px 36px ${group.group.groupColor}1a`,
         }}
       >
-        <div className="row-between" style={{ marginBottom: 16 }}>
+        {/* Group name + status */}
+        <div className="row-between" style={{ marginBottom: 20 }}>
           <span
             className="pill pill-sm"
             style={{
@@ -405,64 +417,85 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
           >
             {group.group.groupName}
           </span>
-          <span className="pill pill-accent pill-sm">{statusLabel(group.group.status)}</span>
+          <span className="pill pill-muted pill-sm">{friendlyStatus(group.group.status)}</span>
         </div>
 
-        <div className="group-info-grid">
-          <div className="group-info-cell">
-            <div className="cell-label">Meet</div>
-            <div className="cell-value" style={{ fontSize: 14 }}>
-              {group.group.meetingLocationLabel}
+        {/* My identity */}
+        <div className="group-identity-row">
+          <div className="group-my-emoji">{group.currentUserMember?.emoji ?? "🙂"}</div>
+          <div className="group-identity-labels">
+            <span className="group-identity-you">You</span>
+            <span className="group-identity-role">{currentUserIsBooker ? "Booker" : "Rider"}</span>
+          </div>
+          {!currentUserIsBooker && (
+            <div className="group-booker-hint">
+              <span className="group-booker-label">Booker</span>
+              <span className="group-booker-emoji">{bookerEmoji}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="divider" style={{ margin: "16px 0" }} />
+
+        {/* Logistics */}
+        <div className="group-logistics">
+          <div className="group-logistics-row">
+            <span className="group-logistics-icon">📍</span>
+            <div>
+              <div className="group-logistics-label">Meet at</div>
+              <div className="group-logistics-value">{group.group.meetingLocationLabel}</div>
             </div>
           </div>
-          <div className="group-info-cell">
-            <div className="cell-label">Time</div>
-            <div className="cell-value" style={{ fontSize: 14 }}>
-              {formatDateTime(group.group.meetingTime)}
+          <div className="group-logistics-row">
+            <span className="group-logistics-icon">🕐</span>
+            <div>
+              <div className="group-logistics-label">Time</div>
+              <div className="group-logistics-value">{formatDateTime(group.group.meetingTime)}</div>
             </div>
           </div>
-          <div className="group-info-cell">
-            <div className="cell-label">Booker</div>
-            <div className="cell-value">
-              {group.members.find((member) => member.userId === group.group.bookerUserId)?.emoji ??
-                "🙂"}
+          <div className="group-logistics-row">
+            <span className="group-logistics-icon">🏁</span>
+            <div>
+              <div className="group-logistics-label">Destination</div>
+              <div className="group-logistics-value">{group.group.pickupLabel}</div>
             </div>
           </div>
-          <div className="group-info-cell">
-            <div className="cell-label">Fare</div>
-            <div className="cell-value" style={{ fontSize: 14 }}>
-              {group.group.finalCostCents !== null
-                ? formatCurrency(group.group.finalCostCents)
-                : group.group.estimatedFareBand}
+          <div className="group-logistics-row">
+            <span className="group-logistics-icon">💰</span>
+            <div>
+              <div className="group-logistics-label">Fare</div>
+              <div className="group-logistics-value">
+                {group.group.finalCostCents !== null
+                  ? formatCurrency(group.group.finalCostCents)
+                  : group.group.estimatedFareBand}
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="stack-sm" style={{ marginTop: 16 }}>
-          {group.group.status === "matched_pending_ack" ? (
-            <div className="row-between">
-              <span className="text-sm text-muted">Acknowledge before the group locks.</span>
-              <Countdown deadline={group.group.confirmationDeadline} />
-            </div>
-          ) : null}
-          {(group.group.status === "meetup_checkin" || group.group.status === "depart_ready") &&
-          group.group.graceDeadline ? (
-            <div className="row-between">
-              <span className="text-sm text-muted">Grace period before the booker can depart.</span>
-              <Countdown deadline={group.group.graceDeadline} />
-            </div>
-          ) : null}
-          {group.group.status === "payment_pending" && group.group.paymentDueAt ? (
-            <div className="row-between">
-              <span className="text-sm text-muted">
-                Payment proofs due within one day of the trip.
-              </span>
-              <Countdown deadline={group.group.paymentDueAt} />
-            </div>
-          ) : null}
-        </div>
+        {/* Countdown rows */}
+        {group.group.status === "matched_pending_ack" ? (
+          <div className="group-countdown-row">
+            <span className="text-sm text-muted">Confirm by</span>
+            <Countdown deadline={group.group.confirmationDeadline} />
+          </div>
+        ) : null}
+        {(group.group.status === "meetup_checkin" || group.group.status === "depart_ready") &&
+        group.group.graceDeadline ? (
+          <div className="group-countdown-row">
+            <span className="text-sm text-muted">Departs in</span>
+            <Countdown deadline={group.group.graceDeadline} />
+          </div>
+        ) : null}
+        {group.group.status === "payment_pending" && group.group.paymentDueAt ? (
+          <div className="group-countdown-row">
+            <span className="text-sm text-muted">Pay by</span>
+            <Countdown deadline={group.group.paymentDueAt} />
+          </div>
+        ) : null}
       </div>
 
+      {/* ── Riders Card ── */}
       <div className="card">
         <div className="row-between" style={{ marginBottom: 12 }}>
           <h3>Riders</h3>
@@ -471,19 +504,16 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
           </span>
         </div>
         <div className="stack-sm">
-          {group.members.map((member) => {
+          {group.members.map((member, index) => {
             const badge = memberBadge(member);
+            const isMe = member.userId === group.currentUserId;
             return (
               <div className="member-item" key={member.userId}>
-                <div className="rider-avatar rider-avatar-0">{member.emoji}</div>
+                <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
                 <div className="member-info">
                   <div className="member-name">
-                    {member.emoji} {member.isBooker ? "Booker" : "Rider"}
-                  </div>
-                  <div className="text-xs text-muted">
-                    {member.dropoffOrder
-                      ? `Drop-off #${member.dropoffOrder}`
-                      : "Awaiting route order"}
+                    {member.isBooker ? "Booker" : "Rider"}
+                    {isMe ? " · You" : ""}
                   </div>
                 </div>
                 <span className={`pill pill-sm ${badge.pillClass}`}>{badge.label}</span>
@@ -493,6 +523,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       </div>
 
+      {/* ── Confirm / Decline ── */}
       {group.actions.canAcknowledge ? (
         <div className="row" style={{ gap: 10 }}>
           <button
@@ -506,10 +537,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                   groupId: group.group.id as Id<"groups">,
                   accepted: true,
                 });
-                setStatus({
-                  type: "success",
-                  text: "You acknowledged the group. Hop will lock the riders when the window resolves.",
-                });
+                setStatus({ type: "success", text: "You're confirmed for this ride." });
               })
             }
           >
@@ -526,10 +554,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                   groupId: group.group.id as Id<"groups">,
                   accepted: false,
                 });
-                setStatus({
-                  type: "info",
-                  text: "You declined this group. Hop will remove you from the ride.",
-                });
+                setStatus({ type: "info", text: "You've declined this ride." });
               })
             }
           >
@@ -538,26 +563,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
-      {!group.actions.canAcknowledge && group.currentUserMember?.destinationLockedAt ? (
-        <div className="card stack-sm">
-          <h3>Destination locked</h3>
-          <p className="text-sm text-muted">
-            Your destination was confirmed before this group formed, so riders cannot change it from
-            inside the group.
-          </p>
-          <div className="notice notice-info">
-            Need a different destination? Leave this group and create a new booking window.
-          </div>
-        </div>
-      ) : null}
-
+      {/* ── Drop-off order preview ── */}
       {group.dropoffPreview.length > 0 ? (
         <div className="card stack-sm">
-          <h3>Suggested drop-off order</h3>
-          <p className="text-sm text-muted">
-            This is a matcher-stubbed suggestion for tonight, based on the destinations already
-            locked in.
-          </p>
+          <h3>Drop-off order</h3>
           <div className="stack-sm">
             {group.dropoffPreview.map((member) => (
               <div className="row-between" key={member.userId}>
@@ -571,12 +580,13 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Start check-in (booker) ── */}
       {group.actions.canStartCheckIn ? (
         <div className="card stack-sm">
-          <h3>Meetup check-in</h3>
+          <h3>Start check-in</h3>
           <p className="text-sm text-muted">
-            When everyone reaches {group.group.meetingLocationLabel}, the booker starts check-in and
-            scans each rider&apos;s QR code.
+            Once everyone is at {group.group.meetingLocationLabel}, tap below to open check-in and
+            scan each rider.
           </p>
           <button
             type="button"
@@ -585,10 +595,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             onClick={() =>
               runAction(async () => {
                 await startMeetupCheckIn({ groupId: group.group.id as Id<"groups"> });
-                setStatus({
-                  type: "success",
-                  text: "Check-in is open. The booker is now marked present.",
-                });
+                setStatus({ type: "success", text: "Check-in is open." });
               })
             }
           >
@@ -597,27 +604,26 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Rider QR code ── */}
       {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
         <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
-          <h3>Your meetup QR</h3>
-          <p className="text-sm text-muted">
-            Show this screen to the booker so they can mark you present at the meeting point.
-          </p>
+          <h3>Your check-in QR</h3>
+          <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
           {qrCode ? (
-            <img src={qrCode} alt="Your Hop check-in QR code" width={220} height={220} />
+            <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
           ) : null}
           <div className="notice notice-info" style={{ width: "100%" }}>
-            Backup token: <code>{group.currentUserMember.qrToken}</code>
+            Backup code: <code>{group.currentUserMember.qrToken}</code>
           </div>
         </div>
       ) : null}
 
+      {/* ── Scan rider QR (booker) ── */}
       {group.actions.canScanQr ? (
         <div className="card stack-sm">
-          <h3>Scan rider QR</h3>
+          <h3>Scan riders</h3>
           <p className="text-sm text-muted">
-            Open the live scanner on the booker&apos;s phone, then point it at each rider&apos;s QR
-            code. Paste the rider token if the camera is unavailable.
+            Point your camera at each rider's QR, or paste their code below.
           </p>
           <div className="row" style={{ gap: 10 }}>
             <button
@@ -628,10 +634,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
               onClick={startLiveScanner}
             >
               {scannerState === "live"
-                ? "Scanner running"
+                ? "Scanner on"
                 : scannerState === "starting"
-                  ? "Opening camera..."
-                  : "Open live scanner"}
+                  ? "Opening camera…"
+                  : "Open camera"}
             </button>
             {scannerState === "live" ? (
               <button type="button" className="btn btn-secondary" onClick={() => stopLiveScanner()}>
@@ -651,7 +657,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             type="text"
             value={scanToken}
             onChange={(event) => setScanToken(event.target.value)}
-            placeholder="Paste rider token"
+            placeholder="Paste rider code"
           />
           <button
             type="button"
@@ -669,17 +675,17 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Depart (booker) ── */}
       {showDepartCard ? (
         <div className="card stack-sm">
-          <h3>Depart the group</h3>
+          <h3>Depart</h3>
           <p className="text-sm text-muted">
-            Once everyone is checked in, or the 5-minute grace period has expired, the booker can
-            depart and late riders are removed automatically.
+            Once the grace period ends or everyone is checked in, you can depart. Riders who haven't
+            checked in will be removed.
           </p>
           {!group.actions.canDepart ? (
             <div className="text-sm text-muted">
-              Depart becomes available only after all riders are checked in or the 5-minute grace
-              window ends.
+              Waiting for all riders or the grace window to end.
             </div>
           ) : null}
           <button
@@ -689,10 +695,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             onClick={() =>
               runAction(async () => {
                 await departGroup({ groupId: group.group.id as Id<"groups"> });
-                setStatus({
-                  type: "success",
-                  text: "Trip departed. Any riders who missed the meetup have been removed from the group.",
-                });
+                setStatus({ type: "success", text: "Departed. Safe travels!" });
               })
             }
           >
@@ -701,12 +704,12 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Upload receipt (booker) ── */}
       {group.actions.canUploadReceipt ? (
         <div className="card stack-sm">
-          <h3>Upload the taxi receipt</h3>
+          <h3>Upload receipt</h3>
           <p className="text-sm text-muted">
-            The booker records the final fare once the trip is done. Hop will calculate each
-            rider&apos;s share automatically.
+            Enter the final fare and attach a photo of the receipt. Hop will split it automatically.
           </p>
           <input
             type="number"
@@ -714,7 +717,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             step="0.01"
             value={receiptTotal}
             onChange={(event) => setReceiptTotal(event.target.value)}
-            placeholder="24.80"
+            placeholder="Total fare (e.g. 24.80)"
           />
           <input
             type="file"
@@ -728,7 +731,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
             onClick={() =>
               runAction(async () => {
                 if (!receiptFile) {
-                  throw new Error("Attach the taxi receipt image first.");
+                  throw new Error("Attach the receipt photo first.");
                 }
                 const storageId = await uploadFile(receiptFile, generateUploadUrl);
                 await submitReceipt({
@@ -738,10 +741,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 });
                 setReceiptFile(null);
                 setReceiptTotal("");
-                setStatus({
-                  type: "success",
-                  text: "Receipt uploaded. Payment shares are now ready.",
-                });
+                setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
               })
             }
           >
@@ -750,12 +750,13 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Submit payment proof (rider) ── */}
       {group.actions.canSubmitPaymentProof ? (
         <div className="card stack-sm">
-          <h3>Submit your payment proof</h3>
+          <h3>Pay your share</h3>
           <p className="text-sm text-muted">
-            You owe {formatCurrency(group.currentUserMember?.amountDueCents ?? 0)} for this ride.
-            Upload your transfer screenshot so the booker can verify it.
+            You owe {formatCurrency(group.currentUserMember?.amountDueCents ?? 0)}. Transfer to the
+            booker and upload a screenshot.
           </p>
           <input
             type="file"
@@ -779,7 +780,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 setPaymentFile(null);
                 setStatus({
                   type: "success",
-                  text: "Payment proof submitted for the booker to verify.",
+                  text: "Payment submitted. Waiting for confirmation.",
                 });
               })
             }
@@ -789,9 +790,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Verify payments (booker) ── */}
       {group.actions.canVerifyPayments ? (
         <div className="card stack-sm">
-          <h3>Verify rider payments</h3>
+          <h3>Verify payments</h3>
           <div className="stack-sm">
             {activeMembers
               .filter((member) => !member.isBooker && member.amountDueCents > 0)
@@ -803,10 +805,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                     </div>
                     <div className="text-xs text-muted">
                       {member.paymentStatus === "submitted"
-                        ? "Proof uploaded and waiting for verification."
+                        ? "Proof uploaded — tap to confirm."
                         : member.paymentStatus === "verified"
-                          ? "Payment verified."
-                          : "Still waiting on rider proof."}
+                          ? "Payment confirmed."
+                          : "Waiting for payment."}
                     </div>
                   </div>
                   {member.paymentStatus === "submitted" ? (
@@ -820,17 +822,17 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                             groupId: group.group.id as Id<"groups">,
                             memberUserId: member.userId,
                           });
-                          setStatus({ type: "success", text: "Payment verified." });
+                          setStatus({ type: "success", text: "Payment confirmed." });
                         })
                       }
                     >
-                      Verify
+                      Confirm
                     </button>
                   ) : (
                     <span
                       className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : "pill-muted"}`}
                     >
-                      {member.paymentStatus}
+                      {member.paymentStatus === "verified" ? "Paid" : "Waiting"}
                     </span>
                   )}
                 </div>
@@ -839,12 +841,12 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Report ── */}
       {group.actions.canReport ? (
         <div className="card stack-sm">
-          <h3>Report a rider or incident</h3>
+          <h3>Report an issue</h3>
           <p className="text-sm text-muted">
-            Use this for no-shows, non-payment, unsafe behaviour, harassment, or anything the team
-            should review later.
+            Report a no-show, non-payment, unsafe behaviour, or other concern.
           </p>
           <select
             value={reportCategory}
@@ -896,7 +898,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
                 });
                 setReportDescription("");
                 setReportedUserId("");
-                setStatus({ type: "success", text: "Report saved for follow-up." });
+                setStatus({ type: "success", text: "Report submitted." });
               })
             }
           >
@@ -905,6 +907,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
+      {/* ── Status notice ── */}
       {status ? (
         <div
           className={`notice ${
