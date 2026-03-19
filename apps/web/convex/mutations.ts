@@ -467,7 +467,7 @@ export const cancelTripParticipation = mutation({
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
 
-    // Can only cancel after match, before trip is closed
+    // Can only cancel while match is pending acknowledgement
     const CANCELLABLE_STATUSES = new Set(["matched_pending_ack"]);
     if (!CANCELLABLE_STATUSES.has(group.status)) {
       throw new Error("Cannot cancel trip in current status");
