@@ -3,6 +3,7 @@ import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
 import { BottomNav } from "../../components/bottom-nav";
 import { ClientKeyRegistrar } from "../../components/client-key-registrar";
+import { LocalQaPanel } from "../../components/local-qa-panel";
 import { LogoutButton } from "../../components/logout-button";
 import { PwaCoachmark } from "../../components/pwa-coachmark";
 import { api } from "../../convex/_generated/api";
@@ -34,6 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
         <ClientKeyRegistrar />
         <PwaCoachmark />
+        <LocalQaPanel />
         {children}
       </div>
       <BottomNav />

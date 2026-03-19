@@ -10,6 +10,7 @@ import {
   overlapMinutes,
 } from "@hop/shared";
 import { v } from "convex/values";
+import { buildLockedGroupDestinations } from "../lib/group-destinations";
 import {
   MEETING_LOCATION_LABEL,
   deriveMeetingTime,
@@ -298,9 +299,6 @@ export const completeOnboarding = mutation({
     if (!userId) throw new Error("Not authenticated");
     const user = await ctx.db.get(userId);
     if (!user) throw new Error("User not found");
-    if (user.onboardingComplete) {
-      return { userId };
-    }
     const { name: userName, ...prefArgs } = args;
 
     const existingPref = await ctx.db
@@ -565,12 +563,36 @@ export const createTentativeGroup = internalMutation({
       return null;
     }
 
+    const availabilityById = new Map<
+      string,
+      {
+        createdAt?: string;
+        sealedDestinationRef: string;
+      }
+    >();
+
     for (const availabilityId of args.availabilityIds) {
       const availability = await ctx.db.get(availabilityId as Id<"availabilities">);
       if (!availability || availability.status !== "open") {
         return null;
       }
+
+      availabilityById.set(availabilityId, {
+        createdAt: availability.createdAt,
+        sealedDestinationRef: availability.sealedDestinationRef,
+      });
     }
+
+    const lockedDestinations = buildLockedGroupDestinations(
+      args.members.map((member) => ({
+        availabilityId: member.availabilityId,
+        userId: member.userId,
+      })),
+      availabilityById,
+    );
+    const destinationByUserId = new Map(
+      lockedDestinations.map((destination) => [destination.userId, destination]),
+    );
 
     const theme = getGroupTheme(args.memberUserIds.join(":"));
     const bookerUserId = selectBookerUserId(args.memberUserIds);
@@ -599,7 +621,7 @@ export const createTentativeGroup = internalMutation({
       groupName: theme.name,
       groupColor: theme.color,
       bookerUserId: bookerUserId ?? undefined,
-      suggestedDropoffOrder: args.memberUserIds,
+      suggestedDropoffOrder: lockedDestinations.map((destination) => destination.userId),
       reportCount: 0,
     });
 
@@ -608,6 +630,7 @@ export const createTentativeGroup = internalMutation({
     }
 
     for (const [index, member] of args.members.entries()) {
+      const lockedDestination = destinationByUserId.get(member.userId);
       await ctx.db.insert("groupMembers", {
         groupId,
         userId: member.userId,
@@ -618,7 +641,11 @@ export const createTentativeGroup = internalMutation({
         acknowledgementStatus: "pending",
         acknowledgedAt: null,
         participationStatus: "active",
+        destinationAddress: lockedDestination?.destinationAddress,
+        destinationSubmittedAt: lockedDestination?.destinationSubmittedAt,
+        destinationLockedAt: lockedDestination?.destinationLockedAt,
         qrToken: `${groupId}:${member.userId}:${index}`,
+        dropoffOrder: lockedDestination?.dropoffOrder,
         paymentStatus: "none",
       });
     }
