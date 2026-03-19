@@ -24,13 +24,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <>
       <div className="page-container">
         <div className="top-bar">
-          <div className="top-bar-brand">
-            <div className="hop-logo">H</div>
-            <div className="top-bar-info">
-              <span className="pseudonym">{riderProfile.name?.trim() || "Hop member"}</span>
-              <span className="campus">NUS</span>
-            </div>
-          </div>
+          <div className="hop-logo">H</div>
           <LogoutButton />
         </div>
         <ClientKeyRegistrar />
