@@ -277,36 +277,15 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
   }
 
   if (group.status === "payment_pending") {
-    // Track members who verified payment and increment their successfulTrips immediately
+    // Credit for verified payments is done in verifyPayment (single writer) for durable idempotency.
+    // Here we only close the group when all payment members have paid.
     const paymentMembers = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
-    const verifiedMembers = paymentMembers.filter((member) => member.paymentStatus === "verified");
-    const rewardedUserIds = [...((group.rewardedUserIds as Id<"users">[] | undefined) ?? [])];
-
-    for (const member of verifiedMembers) {
-      const userId = member.userId as Id<"users">;
-      const alreadyRewarded = rewardedUserIds.some((id) => id === userId);
-      if (alreadyRewarded) continue;
-
-      const user = await ctx.db.get(userId);
-      if (!user) continue;
-
-      await ctx.db.patch(userId, {
-        successfulTrips: (user.successfulTrips ?? 0) + 1,
-      });
-
-      // Persist that this user has been rewarded for this group
-      rewardedUserIds.push(userId);
-      await ctx.db.patch(group._id, {
-        rewardedUserIds,
-      });
-    }
-
-    // Check if all payment members have paid
     const allPaid = paymentMembers.every((member) => member.paymentStatus === "verified");
+    const latestGroup = await ctx.db.get(group._id);
     if (allPaid) {
       await ctx.db.patch(group._id, {
         status: "closed",
-        closedAt: group.closedAt ?? nowIso(),
+        closedAt: latestGroup?.closedAt ?? group.closedAt ?? nowIso(),
       });
     }
   }
@@ -835,7 +814,22 @@ export const verifyPayment = mutation({
       paymentVerifiedByUserId: userId,
     });
 
-    await syncLifecycleForGroup(ctx, group);
+    // Credit successfulTrips once per verified member (single writer = durable idempotency).
+    const latestGroup = await ctx.db.get(groupId);
+    const rewarded = (latestGroup?.rewardedUserIds ?? []) as string[];
+    if (!rewarded.includes(memberUserId)) {
+      const rewardUser = await ctx.db.get(memberUserId as Id<"users">);
+      if (rewardUser) {
+        await ctx.db.patch(memberUserId as Id<"users">, {
+          successfulTrips: (rewardUser.successfulTrips ?? 0) + 1,
+        });
+      }
+      await ctx.db.patch(groupId, {
+        rewardedUserIds: [...rewarded, memberUserId],
+      });
+    }
+
+    await syncLifecycleForGroup(ctx, (await ctx.db.get(groupId)) ?? group);
     return { ok: true };
   },
 });

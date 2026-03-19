@@ -503,16 +503,13 @@ export const cancelTripParticipation = mutation({
         cancelledTrips: (user.cancelledTrips ?? 0) + 1,
       });
     }
-    // Keep the parent group document in sync.
-    // P1 FIX: In payment_pending status, preserve memberUserIds so riders can still access payment UI.
-    // In other statuses, remove the rider to clean up the group.
-    const shouldPreserveMembership = group.status === "payment_pending";
-
+    // Keep the parent group document in sync (cancellation only allowed in matched_pending_ack).
     const groupPatch: Partial<{
       memberUserIds: typeof group.memberUserIds;
       availabilityIds: typeof group.availabilityIds;
       groupSize: number;
       bookerUserId: string | undefined;
+      status: typeof group.status;
     }> = {};
 
     // Remove availability regardless of status
@@ -523,29 +520,24 @@ export const cancelTripParticipation = mutation({
       groupPatch.availabilityIds = updatedAvailabilityIds;
     }
 
-    // Only remove from memberUserIds if NOT in payment_pending
-    if (!shouldPreserveMembership) {
-      const updatedMemberUserIds = group.memberUserIds.filter((id) => id !== userIdStr);
-      if (updatedMemberUserIds.length !== group.memberUserIds.length) {
-        groupPatch.memberUserIds = updatedMemberUserIds;
-        if (updatedMemberUserIds.length > 0) {
-          // Keep group.groupSize consistent with the number of remaining memberUserIds.
-          // If only one rider remains, groupSize should become 1 (and downstream lifecycle can
-          // decide whether to cancel the group).
-          groupPatch.groupSize = updatedMemberUserIds.length;
-        }
+    const updatedMemberUserIds = group.memberUserIds.filter((id) => id !== userIdStr);
+    if (updatedMemberUserIds.length !== group.memberUserIds.length) {
+      groupPatch.memberUserIds = updatedMemberUserIds;
+      groupPatch.groupSize = updatedMemberUserIds.length;
 
-        // P1 FIX: If the cancelling user is the booker, reassign to next active member by credibility
-        if (group.bookerUserId === userIdStr && updatedMemberUserIds.length > 0) {
+      if (updatedMemberUserIds.length === 0) {
+        groupPatch.bookerUserId = undefined;
+        groupPatch.status = "cancelled";
+      } else {
+        // If the cancelling user is the booker, reassign to highest-credibility active member.
+        if (group.bookerUserId === userIdStr) {
           const remainingMembers = members.filter(
             (m) => updatedMemberUserIds.includes(m.userId) && m.participationStatus === "active",
           );
           if (remainingMembers.length > 0) {
             const remainingUserIds = remainingMembers.map((m) => m.userId);
-
-            // Pick the highest-credibility active member as the next booker.
             const userDocs = await Promise.all(
-              remainingUserIds.map((userId) => ctx.db.get(userId as Id<"users">)),
+              remainingUserIds.map((uid) => ctx.db.get(uid as Id<"users">)),
             );
             const credibilityScores = new Map<string, number>();
             for (const [index, remainingUserId] of remainingUserIds.entries()) {
@@ -559,7 +551,6 @@ export const cancelTripParticipation = mutation({
                 credibilityScores.set(remainingUserId, score);
               }
             }
-
             const nextBookerUserId = selectBookerUserId(remainingUserIds, credibilityScores);
             if (nextBookerUserId) {
               groupPatch.bookerUserId = nextBookerUserId;
