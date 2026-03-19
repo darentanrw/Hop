@@ -23,7 +23,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { action, internalMutation, mutation } from "./_generated/server";
-import { resolveQaActingUserId } from "./local-qa";
+import { resolveQaActingUserId } from "./localQa";
 
 type MatchingCandidate = {
   availabilityId: Id<"availabilities">;
