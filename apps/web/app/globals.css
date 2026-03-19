@@ -1008,6 +1008,17 @@ label span {
   border: 1px solid rgba(239, 107, 107, 0.15);
 }
 
+.backup-code-notice {
+  overflow-wrap: anywhere;
+}
+
+.inline-token-code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 /* --- Dev code --- */
 .dev-code {
   font-family: var(--font-mono);
