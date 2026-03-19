@@ -83,7 +83,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const trimmedDestinationAddress = destinationAddress.trim();
+    const trimmedDestinationAddress = (destinationAddress || addressQuery).trim();
     if (!trimmedDestinationAddress) {
       setStatus({ type: "error", text: "Enter the address you are heading to." });
       return;
@@ -295,7 +295,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
       <button
         type="submit"
         className="btn btn-primary btn-block"
-        disabled={busy || !destinationAddress.trim()}
+        disabled={busy || !(destinationAddress || addressQuery).trim()}
       >
         {busy ? (
           <>

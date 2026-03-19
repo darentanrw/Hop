@@ -1,7 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import { revealEnvelopes, scoreRouteDescriptors, submitDestination } from "./core";
+import { getDescriptor, revealEnvelopes, scoreRouteDescriptors, submitDestination } from "./core";
 import { geocodeAddress } from "./onemap";
 
 const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
@@ -82,7 +82,12 @@ app.post("/matcher/compatibility", async (request, response) => {
 
   try {
     const edges = await scoreRouteDescriptors(routeDescriptorRefs);
-    response.json({ edges });
+    const geohashByRef: Record<string, string> = {};
+    for (const ref of routeDescriptorRefs) {
+      const descriptor = getDescriptor(ref);
+      if (descriptor) geohashByRef[ref] = descriptor.geohash6;
+    }
+    response.json({ edges, geohashByRef });
   } catch (err) {
     response.status(500).json({
       error: err instanceof Error ? err.message : "Compatibility scoring failed.",

@@ -23,7 +23,11 @@ import {
   getGroupTheme,
   selectBookerUserId,
 } from "../lib/group-lifecycle";
-import { createStubCompatibility, createStubRevealEnvelopes } from "../lib/matcher-stub";
+import {
+  createStubCompatibility,
+  createStubGeohashMap,
+  createStubRevealEnvelopes,
+} from "../lib/matcher-stub";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
 import { internal } from "./_generated/api";
@@ -90,7 +94,10 @@ async function scheduleLifecycleNotifications(
 
 async function fetchCompatibility(routeDescriptorRefs: string[]) {
   if ((process.env.MATCHER_MODE ?? "stub") !== "live") {
-    return createStubCompatibility(routeDescriptorRefs);
+    return {
+      edges: createStubCompatibility(routeDescriptorRefs),
+      geohashByRef: createStubGeohashMap(routeDescriptorRefs),
+    };
   }
 
   const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
@@ -105,8 +112,14 @@ async function fetchCompatibility(routeDescriptorRefs: string[]) {
     throw new Error("Unable to fetch matcher compatibility.");
   }
 
-  const payload = (await response.json()) as { edges: CompatibilityEdge[] };
-  return payload.edges;
+  const payload = (await response.json()) as {
+    edges: CompatibilityEdge[];
+    geohashByRef?: Record<string, string>;
+  };
+  return {
+    edges: payload.edges,
+    geohashByRef: new Map(Object.entries(payload.geohashByRef ?? {})),
+  };
 }
 
 async function fetchRevealEnvelopes(
@@ -787,8 +800,10 @@ export const runMatching = action({
       return { created: 0 };
     }
 
-    const edges = await fetchCompatibility(candidates.map((entry) => entry.routeDescriptorRef));
-    const selectedGroups = formGroups(candidates, edges);
+    const { edges, geohashByRef } = await fetchCompatibility(
+      candidates.map((entry) => entry.routeDescriptorRef),
+    );
+    const selectedGroups = formGroups(candidates, edges, geohashByRef);
     const created = await createGroupsFromSelection(ctx, selectedGroups);
     return { created };
   },
@@ -805,8 +820,10 @@ export const runMatchingCron = internalAction({
       return { created: 0 };
     }
 
-    const edges = await fetchCompatibility(candidates.map((entry) => entry.routeDescriptorRef));
-    const selectedGroups = formGroups(candidates, edges);
+    const { edges, geohashByRef } = await fetchCompatibility(
+      candidates.map((entry) => entry.routeDescriptorRef),
+    );
+    const selectedGroups = formGroups(candidates, edges, geohashByRef);
     const created = await createGroupsFromSelection(ctx, selectedGroups);
     return { created };
   },
@@ -1057,6 +1074,8 @@ export const lateJoinGroup = action({
       windowEnd: availability.windowEnd,
       routeDescriptorRef: availability.routeDescriptorRef,
       sealedDestinationRef: availability.sealedDestinationRef,
+      selfDeclaredGender: availability.selfDeclaredGender,
+      sameGenderOnly: availability.sameGenderOnly,
     })) as { joined: boolean; reason?: string; groupId?: string };
   },
 });
@@ -1069,38 +1088,72 @@ export const attemptLateJoin = internalMutation({
     windowEnd: v.string(),
     routeDescriptorRef: v.string(),
     sealedDestinationRef: v.string(),
+    selfDeclaredGender: v.union(
+      v.literal("woman"),
+      v.literal("man"),
+      v.literal("nonbinary"),
+      v.literal("prefer_not_to_say"),
+    ),
+    sameGenderOnly: v.boolean(),
   },
   handler: async (ctx, args) => {
     const groups = await ctx.db.query("groups").collect();
-    const semiLockedGroups = groups.filter((g) => {
+    const candidateGroups = groups.filter((g) => {
       if (g.status !== "semi_locked") return false;
       if (g.groupSize >= MAX_GROUP_SIZE) return false;
-      const overlapStart = Math.max(
-        new Date(g.windowStart).getTime(),
-        new Date(args.windowStart).getTime(),
-      );
-      const overlapEnd = Math.min(
-        new Date(g.windowEnd).getTime(),
-        new Date(args.windowEnd).getTime(),
-      );
-      return overlapEnd - overlapStart > MIN_TIME_OVERLAP_MINUTES * 60_000;
+      const overlapMs =
+        Math.min(new Date(g.windowEnd).getTime(), new Date(args.windowEnd).getTime()) -
+        Math.max(new Date(g.windowStart).getTime(), new Date(args.windowStart).getTime());
+      return overlapMs > MIN_TIME_OVERLAP_MINUTES * 60_000;
     });
 
-    if (semiLockedGroups.length === 0) {
-      return { joined: false, reason: "No compatible semi-locked groups found." };
+    let targetGroup = null;
+    for (const group of candidateGroups) {
+      const memberAvailabilities = await Promise.all(
+        group.availabilityIds.map((id) => ctx.db.get(id as Id<"availabilities">)),
+      );
+      const allCompatible = memberAvailabilities.every((avail) => {
+        if (!avail) return true;
+        return arePreferencesCompatible(
+          { selfDeclaredGender: args.selfDeclaredGender, sameGenderOnly: args.sameGenderOnly },
+          { selfDeclaredGender: avail.selfDeclaredGender, sameGenderOnly: avail.sameGenderOnly },
+        );
+      });
+      if (allCompatible) {
+        targetGroup = group;
+        break;
+      }
     }
 
-    const targetGroup = semiLockedGroups[0];
+    if (!targetGroup) {
+      return { joined: false, reason: "No compatible semi-locked groups found." };
+    }
     const user = await ctx.db.get(args.userId);
     const displayName = user?.name?.trim() || "Hop member";
 
     const newMemberUserIds = [...targetGroup.memberUserIds, args.userId];
     const newAvailabilityIds = [...targetGroup.availabilityIds, args.availabilityId as string];
 
+    const availability = await ctx.db.get(args.availabilityId);
+    const availabilityById = new Map([
+      [
+        args.availabilityId as string,
+        {
+          createdAt: availability?.createdAt,
+          sealedDestinationRef: args.sealedDestinationRef,
+        },
+      ],
+    ]);
+    const [lockedDestination] = buildLockedGroupDestinations(
+      [{ availabilityId: args.availabilityId as string, userId: args.userId }],
+      availabilityById,
+    );
+
     await ctx.db.patch(targetGroup._id, {
       groupSize: newMemberUserIds.length,
       memberUserIds: newMemberUserIds,
       availabilityIds: newAvailabilityIds,
+      suggestedDropoffOrder: [...(targetGroup.suggestedDropoffOrder ?? []), args.userId],
     });
 
     await ctx.db.patch(args.availabilityId, { status: "matched" });
@@ -1115,7 +1168,13 @@ export const attemptLateJoin = internalMutation({
       acknowledgementStatus: "accepted",
       acknowledgedAt: new Date().toISOString(),
       participationStatus: "active",
-      qrToken: `${targetGroup._id}:${args.userId}:${newMemberUserIds.length - 1}`,
+      destinationAddress: lockedDestination.destinationAddress,
+      destinationSubmittedAt: lockedDestination.destinationSubmittedAt,
+      destinationLockedAt: lockedDestination.destinationLockedAt,
+      dropoffOrder: lockedDestination.dropoffOrder,
+      qrToken: generateQrPassphrase(
+        `${targetGroup._id}:${args.userId}:${newMemberUserIds.length - 1}`,
+      ),
       paymentStatus: "none",
     });
 

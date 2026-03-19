@@ -153,6 +153,15 @@ export function createStubCompatibility(routeDescriptorRefs: string[]): Compatib
   return edges;
 }
 
+export function createStubGeohashMap(routeDescriptorRefs: string[]): Map<string, string> {
+  const geohashByRef = new Map<string, string>();
+  for (const ref of routeDescriptorRefs) {
+    const cluster = getCluster(ref);
+    geohashByRef.set(ref, `stubgh${cluster}`);
+  }
+  return geohashByRef;
+}
+
 export function decodeStubDestinationRef(sealedDestinationRef: string) {
   const encoded = sealedDestinationRef.split(":").slice(2).join(":");
   return decodeAddress(encoded);

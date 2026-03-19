@@ -258,6 +258,58 @@ describe("group formation — location-based scenarios", () => {
   });
 });
 
+describe("formGroups — small group release gate uses shared window", () => {
+  test("pair with offset windows uses consensus start (latest windowStart) for release gate", () => {
+    const now = Date.now();
+    // Rider A: 3h–5h from now, Rider B: 4h–5.5h from now
+    // Overlap is 4h–5h (60 min), consensus start = 4h away
+    const riderA = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_a",
+      windowStart: new Date(now + 3 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 5 * 3_600_000).toISOString(),
+    });
+    const riderB = makeCandidate({
+      userId: "bob",
+      routeDescriptorRef: "route_b",
+      windowStart: new Date(now + 4 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 5.5 * 3_600_000).toISOString(),
+    });
+
+    const edges = [makeEdge("route_a", "route_b")];
+
+    // Consensus start is 4h away (< SMALL_GROUP_RELEASE_HOURS=5), so this forms.
+    const groups = formGroups([riderA, riderB], edges);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toHaveLength(2);
+  });
+
+  test("pair is blocked when consensus start exceeds SMALL_GROUP_RELEASE_HOURS", () => {
+    const now = Date.now();
+    // Rider A: 4h from now, Rider B: 6h from now
+    // Shared window starts at 6h → exceeds SMALL_GROUP_RELEASE_HOURS (5)
+    const riderA = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_a",
+      windowStart: new Date(now + 4 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 7 * 3_600_000).toISOString(),
+    });
+    const riderB = makeCandidate({
+      userId: "bob",
+      routeDescriptorRef: "route_b",
+      windowStart: new Date(now + 6 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 8 * 3_600_000).toISOString(),
+    });
+
+    const edges = [makeEdge("route_a", "route_b")];
+    const groups = formGroups([riderA, riderB], edges);
+
+    // Without the fix, rider A's 4h start would pass the gate.
+    // With the fix, the consensus 6h start correctly blocks the group.
+    expect(groups).toHaveLength(0);
+  });
+});
+
 describe("evaluateGroup — constraint validation", () => {
   test("returns null when no compatibility edge exists between a pair", () => {
     const members = [
