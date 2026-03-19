@@ -2539,10 +2539,11 @@ code {
   gap: 8px;
 }
 
-/* --- PWA standalone: guarantee minimum top inset --- */
+/* --- PWA standalone: safe-area fallbacks --- */
 @media (display-mode: standalone) {
   :root {
     --safe-top: env(safe-area-inset-top, 44px);
+    --safe-bottom: env(safe-area-inset-bottom, 20px);
   }
 }
 
