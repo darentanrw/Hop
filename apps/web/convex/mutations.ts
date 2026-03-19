@@ -18,13 +18,9 @@ import {
   getGroupTheme,
   selectBookerUserId,
 } from "../lib/group-lifecycle";
-import type {
-  CompatibilityEdge,
-  MatchingCandidate,
-  SelectedGroup,
-} from "../lib/matching";
-import { formGroups } from "../lib/matching";
 import { createStubCompatibility, createStubRevealEnvelopes } from "../lib/matcher-stub";
+import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
+import { formGroups } from "../lib/matching";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
@@ -667,10 +663,7 @@ function computeGroupWindow(members: MatchingCandidate[]) {
   };
 }
 
-async function createGroupsFromSelection(
-  ctx: ActionCtx,
-  selectedGroups: SelectedGroup[],
-) {
+async function createGroupsFromSelection(ctx: ActionCtx, selectedGroups: SelectedGroup[]) {
   let created = 0;
   for (const selected of selectedGroups) {
     const { windowStart, windowEnd } = computeGroupWindow(selected.members);

@@ -598,68 +598,70 @@ export function GroupClient({
       </div>
 
       {/* ── Forming banner (tentative — rolling matching) ── */}
-      {group.group.status === "tentative" ? (() => {
-        const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
-        return (
-          <div
-            className="card"
-            style={{
-              background: `${group.group.groupColor}0d`,
-              border: `1px solid ${group.group.groupColor}33`,
-              textAlign: "center",
-              padding: "20px 16px",
-            }}
-          >
-            <div style={{ fontSize: 28, marginBottom: 8 }}>
-              {Array.from({ length: group.stats.activeMemberCount }, (_, i) =>
-                group.members[i]?.emoji ?? "🙂",
-              ).join(" ")}
-              {spotsLeft > 0
-                ? ` ${"⬜ ".repeat(spotsLeft).trim()}`
-                : ""}
-            </div>
-            <h3 style={{ marginBottom: 4 }}>
-              {group.stats.activeMemberCount} rider{group.stats.activeMemberCount > 1 ? "s" : ""} matched
-            </h3>
-            <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-              {spotsLeft > 0
-                ? `Looking for up to ${spotsLeft} more rider${spotsLeft > 1 ? "s" : ""} with nearby destinations. The group locks 3 h before departure.`
-                : "Group is full and will lock in soon."}
-            </p>
-          </div>
-        );
-      })() : null}
+      {group.group.status === "tentative"
+        ? (() => {
+            const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
+            return (
+              <div
+                className="card"
+                style={{
+                  background: `${group.group.groupColor}0d`,
+                  border: `1px solid ${group.group.groupColor}33`,
+                  textAlign: "center",
+                  padding: "20px 16px",
+                }}
+              >
+                <div style={{ fontSize: 28, marginBottom: 8 }}>
+                  {Array.from(
+                    { length: group.stats.activeMemberCount },
+                    (_, i) => group.members[i]?.emoji ?? "🙂",
+                  ).join(" ")}
+                  {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
+                </div>
+                <h3 style={{ marginBottom: 4 }}>
+                  {group.stats.activeMemberCount} rider
+                  {group.stats.activeMemberCount > 1 ? "s" : ""} matched
+                </h3>
+                <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
+                  {spotsLeft > 0
+                    ? `Looking for up to ${spotsLeft} more rider${spotsLeft > 1 ? "s" : ""} with nearby destinations. The group locks 3 h before departure.`
+                    : "Group is full and will lock in soon."}
+                </p>
+              </div>
+            );
+          })()
+        : null}
 
       {/* ── Semi-locked banner (T-3h lock — open to late joiners) ── */}
-      {group.group.status === "semi_locked" ? (() => {
-        const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
-        return (
-          <div
-            className="card"
-            style={{
-              background: `${group.group.groupColor}0d`,
-              border: `1px solid ${group.group.groupColor}33`,
-              textAlign: "center",
-              padding: "20px 16px",
-            }}
-          >
-            <div style={{ fontSize: 28, marginBottom: 8 }}>
-              {Array.from({ length: group.stats.activeMemberCount }, (_, i) =>
-                group.members[i]?.emoji ?? "🙂",
-              ).join(" ")}
-              {spotsLeft > 0
-                ? ` ${"⬜ ".repeat(spotsLeft).trim()}`
-                : ""}
-            </div>
-            <h3 style={{ marginBottom: 4 }}>
-              Open to +{spotsLeft}
-            </h3>
-            <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-              {group.stats.activeMemberCount} riders matched. New riders can join until 30 min before departure.
-            </p>
-          </div>
-        );
-      })() : null}
+      {group.group.status === "semi_locked"
+        ? (() => {
+            const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
+            return (
+              <div
+                className="card"
+                style={{
+                  background: `${group.group.groupColor}0d`,
+                  border: `1px solid ${group.group.groupColor}33`,
+                  textAlign: "center",
+                  padding: "20px 16px",
+                }}
+              >
+                <div style={{ fontSize: 28, marginBottom: 8 }}>
+                  {Array.from(
+                    { length: group.stats.activeMemberCount },
+                    (_, i) => group.members[i]?.emoji ?? "🙂",
+                  ).join(" ")}
+                  {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
+                </div>
+                <h3 style={{ marginBottom: 4 }}>Open to +{spotsLeft}</h3>
+                <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
+                  {group.stats.activeMemberCount} riders matched. New riders can join until 30 min
+                  before departure.
+                </p>
+              </div>
+            );
+          })()
+        : null}
 
       {/* ── Locked banner (legacy fallback) ── */}
       {group.group.status === "locked" ? (

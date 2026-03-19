@@ -1,10 +1,10 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { MAX_GROUP_SIZE } from "@hop/shared";
 import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import Link from "next/link";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { PwaStatusCard } from "../../../components/pwa-status-card";
 import { api } from "../../../convex/_generated/api";
-import { MAX_GROUP_SIZE } from "@hop/shared";
 import { formatStoredWindow } from "../../../lib/time-range";
 
 function getGreeting() {

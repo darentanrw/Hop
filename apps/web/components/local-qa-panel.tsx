@@ -123,18 +123,18 @@ function AddressInput({
     <div style={{ position: "relative" }}>
       <label className="text-xs text-muted" style={{ marginBottom: 2, display: "block" }}>
         Rider {index + 1} destination
+        <input
+          type="text"
+          className="input"
+          placeholder="Search Singapore address..."
+          value={query}
+          onChange={(e) => handleInput(e.target.value)}
+          onFocus={() => results.length > 0 && setShowDropdown(true)}
+          onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+          disabled={disabled}
+          style={{ width: "100%", fontSize: 13 }}
+        />
       </label>
-      <input
-        type="text"
-        className="input"
-        placeholder="Search Singapore address..."
-        value={query}
-        onChange={(e) => handleInput(e.target.value)}
-        onFocus={() => results.length > 0 && setShowDropdown(true)}
-        onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-        disabled={disabled}
-        style={{ width: "100%", fontSize: 13 }}
-      />
       {value ? (
         <div className="text-xs" style={{ color: "var(--color-success)", marginTop: 2 }}>
           Selected
