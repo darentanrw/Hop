@@ -4,21 +4,20 @@ import type { RiderProfile } from "@hop/shared";
 import { useMutation } from "convex/react";
 import { type FormEvent, useState } from "react";
 import { api } from "../convex/_generated/api";
+import { getDefaultDateInput, getDefaultRange, slotsToIsoRange } from "../lib/time-range";
+import { TimeRangePicker } from "./time-range-picker";
 
 type AvailabilityFormProps = {
   profile: RiderProfile;
-  matcherBaseUrl: string;
 };
 
-function defaultDate(hoursFromNow: number) {
-  return new Date(Date.now() + hoursFromNow * 3_600_000).toISOString().slice(0, 16);
-}
-
-export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormProps) {
+export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const createAvailability = useMutation(api.mutations.createAvailability);
-  const [windowStart, setWindowStart] = useState(defaultDate(24));
-  const [windowEnd, setWindowEnd] = useState(defaultDate(28));
-  const [address, setAddress] = useState("");
+  const defaultRange = getDefaultRange();
+  const [dateInput, setDateInput] = useState(getDefaultDateInput());
+  const [startSlot, setStartSlot] = useState(defaultRange.startSlot);
+  const [endSlot, setEndSlot] = useState(defaultRange.endSlot);
+  const [destinationAddress, setDestinationAddress] = useState("");
   const [status, setStatus] = useState<{ type: "info" | "error" | "success"; text: string } | null>(
     null,
   );
@@ -29,31 +28,40 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
     setBusy(true);
     setStatus(null);
 
-    const matcherResponse = await fetch(`${matcherBaseUrl}/matcher/submit-destination`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        address,
-        pickupOriginId: "nus-utown",
-        windowStart,
-        windowEnd,
-      }),
-    });
-    const matcherPayload = await matcherResponse.json();
-
-    if (!matcherResponse.ok) {
+    const trimmedDestinationAddress = destinationAddress.trim();
+    if (!trimmedDestinationAddress) {
+      setStatus({ type: "error", text: "Enter the address you are heading to." });
       setBusy(false);
-      setStatus({
-        type: "error",
-        text: matcherPayload.error ?? "Could not process address privately.",
-      });
       return;
     }
 
+    const { windowStart, windowEnd } = slotsToIsoRange(dateInput, startSlot, endSlot);
+
     try {
+      const matcherResponse = await fetch("/api/matcher/destination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: trimmedDestinationAddress }),
+      });
+      const matcherPayload = (await matcherResponse.json()) as {
+        error?: string;
+        sealedDestinationRef?: string;
+        routeDescriptorRef?: string;
+        estimatedFareBand?: "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
+      };
+
+      if (
+        !matcherResponse.ok ||
+        !matcherPayload.sealedDestinationRef ||
+        !matcherPayload.routeDescriptorRef ||
+        !matcherPayload.estimatedFareBand
+      ) {
+        throw new Error(matcherPayload.error ?? "Could not save destination.");
+      }
+
       await createAvailability({
-        windowStart: new Date(windowStart).toISOString(),
-        windowEnd: new Date(windowEnd).toISOString(),
+        windowStart,
+        windowEnd,
         selfDeclaredGender: profile.selfDeclaredGender,
         sameGenderOnly: profile.sameGenderOnly,
         minGroupSize: profile.minGroupSize,
@@ -63,7 +71,6 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
         estimatedFareBand: matcherPayload.estimatedFareBand,
       });
       setStatus({ type: "success", text: "Availability saved." });
-      setAddress("");
       window.location.href = "/dashboard";
     } catch (err) {
       setStatus({
@@ -98,28 +105,32 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
           <strong
             style={{ fontSize: 13, color: "var(--privacy)", fontFamily: "var(--font-display)" }}
           >
-            Address stays private
+            Destination stays private
           </strong>
           <p className="text-sm" style={{ marginTop: 4, color: "var(--text-secondary)" }}>
-            Sent directly to the matcher service. Never stored on our main servers.
+            Hop matches on the destination tied to this booking window. Once a group forms, you will
+            need a new booking window to change it.
           </p>
         </div>
       </div>
 
-      {/* Address */}
       <div className="card stack">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <label htmlFor="avail-address">Home address</label>
-          <small className="text-muted">Where you&apos;re heading after campus</small>
+          <span>Destination</span>
+          <small className="text-muted">Where you are heading after pickup from NUS Utown</small>
         </div>
-        <textarea
-          id="avail-address"
-          rows={3}
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder="e.g. 123 Clementi Ave 3, Singapore 120123"
-          required
-        />
+        <div className="stack-xs">
+          <label htmlFor="destination-address">Going to</label>
+          <textarea
+            id="destination-address"
+            value={destinationAddress}
+            onChange={(event) => setDestinationAddress(event.target.value)}
+            placeholder="Enter your address or nearest drop-off point"
+            rows={3}
+            autoComplete="street-address"
+            required
+          />
+        </div>
       </div>
 
       {/* Time window */}
@@ -128,33 +139,16 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
           <span>Time window</span>
           <small className="text-muted">When you want to leave NUS Utown</small>
         </div>
-
-        <div className="grid-2">
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label htmlFor="avail-start" className="text-xs">
-              From
-            </label>
-            <input
-              id="avail-start"
-              type="datetime-local"
-              value={windowStart}
-              onChange={(e) => setWindowStart(e.target.value)}
-              required
-            />
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <label htmlFor="avail-end" className="text-xs">
-              Until
-            </label>
-            <input
-              id="avail-end"
-              type="datetime-local"
-              value={windowEnd}
-              onChange={(e) => setWindowEnd(e.target.value)}
-              required
-            />
-          </div>
-        </div>
+        <TimeRangePicker
+          dateInput={dateInput}
+          startSlot={startSlot}
+          endSlot={endSlot}
+          onDateInputChange={setDateInput}
+          onRangeChange={({ startSlot: nextStartSlot, endSlot: nextEndSlot }) => {
+            setStartSlot(nextStartSlot);
+            setEndSlot(nextEndSlot);
+          }}
+        />
       </div>
 
       {/* Pickup note */}
@@ -181,7 +175,11 @@ export function AvailabilityForm({ profile, matcherBaseUrl }: AvailabilityFormPr
         </div>
       </div>
 
-      <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+      <button
+        type="submit"
+        className="btn btn-primary btn-block"
+        disabled={busy || !destinationAddress.trim()}
+      >
         {busy ? (
           <>
             <svg

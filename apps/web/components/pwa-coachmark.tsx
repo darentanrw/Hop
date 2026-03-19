@@ -49,22 +49,25 @@ export function PwaCoachmark() {
     if (isStandalone) return null;
     if (deferredPrompt) {
       return {
-        title: "Install Hop on this device",
-        body: "Install Hop for faster access, proper full-screen navigation, and trip alerts right from your home screen.",
+        title: "Install Hop",
+        body: "Add Hop to your home screen for the full ride-day experience — match alerts, check-in, and payment all in one tap.",
         action: "Install app",
+        instruction: null,
       };
     }
     if (isiOSSafari()) {
       return {
         title: "Add Hop to your home screen",
-        body: "In Safari, tap Share, then choose Add to Home Screen so match and trip updates feel like a real app.",
+        body: "In Safari, tap the Share button then choose Add to Home Screen to get trip alerts and seamless access.",
         action: null,
+        instruction: "Tap Share → Add to Home Screen",
       };
     }
     return {
-      title: "Install Hop for faster access",
-      body: "Use your browser's install or Add to Home Screen option to pin Hop and get a better ride-day experience.",
+      title: "Install Hop",
+      body: "Use your browser's Install or Add to Home Screen option to pin Hop for the best ride-day experience.",
       action: null,
+      instruction: "Look for Install App or Add to Home Screen in your browser menu",
     };
   }, [deferredPrompt, isStandalone]);
 
@@ -167,12 +170,12 @@ export function PwaCoachmark() {
     setNotificationPermission(permission);
 
     if (permission !== "granted") {
-      setNotificationStatus("Notifications stay off until you allow them in the browser prompt.");
+      setNotificationStatus("Allow notifications in the browser prompt to receive ride alerts.");
       return;
     }
 
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-      setNotificationStatus("Notifications are enabled, but push is not supported on this device.");
+      setNotificationStatus("Notifications enabled, but push is not supported on this device.");
       return;
     }
 
@@ -191,15 +194,13 @@ export function PwaCoachmark() {
           : null);
 
       if (!subscription) {
-        setNotificationStatus(
-          "Notifications are enabled locally. Add NEXT_PUBLIC_VAPID_PUBLIC_KEY to finish push subscription setup.",
-        );
+        setNotificationStatus("Notifications enabled on this device.");
         return;
       }
 
       const payload = subscription.toJSON();
       if (!payload.endpoint || !payload.keys?.p256dh || !payload.keys?.auth) {
-        setNotificationStatus("Could not read the browser's push subscription details.");
+        setNotificationStatus("Could not read the push subscription details.");
         return;
       }
 
@@ -210,10 +211,10 @@ export function PwaCoachmark() {
         userAgent: navigator.userAgent,
       });
 
-      setNotificationStatus("Notifications are on. Hop will be ready to send ride-day alerts.");
+      setNotificationStatus("You're all set — Hop will send ride-day alerts to this device.");
     } catch (error) {
       console.error("Unable to enable Hop notifications", error);
-      setNotificationStatus("Could not finish notification setup on this device.");
+      setNotificationStatus("Could not finish notification setup.");
     }
   }
 
@@ -227,9 +228,7 @@ export function PwaCoachmark() {
       const endpoint = existing.endpoint;
       await existing.unsubscribe();
       await disablePushSubscription({ endpoint });
-      setNotificationStatus(
-        "Hop won't send push alerts to this device until you enable them again.",
-      );
+      setNotificationStatus("Push alerts disabled for this device.");
     } catch (error) {
       console.error("Unable to disable Hop notifications", error);
     }
@@ -261,83 +260,94 @@ export function PwaCoachmark() {
   }
 
   return (
-    <div className="stack-sm" style={{ marginBottom: 20 }}>
-      {showInstall ? (
-        <div className="card pwa-card">
-          <div className="row-between" style={{ alignItems: "flex-start", gap: 12 }}>
-            <div className="stack-xs" style={{ flex: 1 }}>
-              <span className="pill pill-accent pill-sm">Install</span>
-              <h3>{installCopy.title}</h3>
-              <p className="text-sm">{installCopy.body}</p>
-            </div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={dismissInstall}>
-              Later
-            </button>
-          </div>
-          {installCopy.action ? (
-            <button type="button" className="btn btn-primary btn-block" onClick={handleInstall}>
-              {installCopy.action}
-            </button>
-          ) : (
-            <div className="notice notice-info">
-              {isiOSSafari()
-                ? "Safari path: Share -> Add to Home Screen."
-                : "Look for Install App, Add to Home Screen, or Create Shortcut in your browser menu."}
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {showNotifications ? (
-        <div className="card pwa-card">
-          <div className="row-between" style={{ alignItems: "flex-start", gap: 12 }}>
-            <div className="stack-xs" style={{ flex: 1 }}>
-              <span className="pill pill-privacy pill-sm">Alerts</span>
-              <h3>Turn on ride-day notifications</h3>
-              <p className="text-sm">
-                Hop can use notifications for match acknowledgements, meetup timing, and payment
-                reminders.
-              </p>
-            </div>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={dismissNotifications}>
-              Later
-            </button>
-          </div>
-          {notificationPermission === "granted" ? (
-            <div className="stack-sm">
-              <div className="notice notice-success">
-                {notificationStatus ?? "Notifications are already enabled on this device."}
+    <div className="pwa-overlay">
+      <div className="pwa-overlay-backdrop" />
+      <div className="pwa-overlay-card">
+        {showInstall ? (
+          <div className="pwa-modal-content">
+            <div className="pwa-modal-icon">📱</div>
+            <h2>{installCopy.title}</h2>
+            <p
+              className="text-secondary"
+              style={{ textAlign: "center", fontSize: 15, lineHeight: 1.6 }}
+            >
+              {installCopy.body}
+            </p>
+            {installCopy.instruction ? (
+              <div className="notice notice-info" style={{ width: "100%", textAlign: "left" }}>
+                {installCopy.instruction}
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-block"
-                onClick={disableNotifications}
-              >
-                Remove this device subscription
+            ) : null}
+            {installCopy.action ? (
+              <button type="button" className="btn btn-primary btn-block" onClick={handleInstall}>
+                {installCopy.action}
               </button>
-            </div>
-          ) : (
-            <div className="stack-sm">
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                onClick={enableNotifications}
-              >
-                Enable notifications
-              </button>
-              {notificationPermission === "denied" ? (
-                <div className="notice notice-error">
-                  Notifications are blocked. Re-enable them from your browser or device settings for
-                  Hop to alert you.
+            ) : null}
+            <button type="button" className="btn btn-ghost btn-block" onClick={dismissInstall}>
+              Not now
+            </button>
+          </div>
+        ) : showNotifications ? (
+          <div className="pwa-modal-content">
+            <div className="pwa-modal-icon">🔔</div>
+            <h2>Stay in the loop</h2>
+            <p
+              className="text-secondary"
+              style={{ textAlign: "center", fontSize: 15, lineHeight: 1.6 }}
+            >
+              Get alerts when your group is confirmed, when it's time to head to the meetup, and
+              when payment is due.
+            </p>
+            {notificationPermission === "granted" ? (
+              <div className="stack-sm" style={{ width: "100%" }}>
+                <div className="notice notice-success">
+                  {notificationStatus ?? "Notifications are on for this device."}
                 </div>
-              ) : null}
-              {notificationStatus ? (
-                <div className="notice notice-info">{notificationStatus}</div>
-              ) : null}
-            </div>
-          )}
-        </div>
-      ) : null}
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-block"
+                  onClick={disableNotifications}
+                >
+                  Turn off on this device
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-block"
+                  onClick={dismissNotifications}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <div className="stack-sm" style={{ width: "100%" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={enableNotifications}
+                >
+                  Turn on notifications
+                </button>
+                {notificationPermission === "denied" ? (
+                  <div className="notice notice-error">
+                    Notifications are blocked. Re-enable them in your browser settings to receive
+                    ride alerts.
+                  </div>
+                ) : null}
+                {notificationStatus ? (
+                  <div className="notice notice-info">{notificationStatus}</div>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-block"
+                  onClick={dismissNotifications}
+                >
+                  Not now
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

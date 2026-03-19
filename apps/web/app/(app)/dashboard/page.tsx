@@ -1,24 +1,16 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchAction, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import Link from "next/link";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { PwaStatusCard } from "../../../components/pwa-status-card";
 import { api } from "../../../convex/_generated/api";
+import { formatStoredWindow } from "../../../lib/time-range";
 
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
-}
-
-function formatWindow(start: string, end: string) {
-  const s = new Date(start);
-  const e = new Date(end);
-  const day = s.toLocaleDateString("en-SG", { weekday: "short" });
-  const startTime = s.toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" });
-  const endTime = e.toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" });
-  return `${day} ${startTime} – ${endTime}`;
 }
 
 const statusConfig: Record<string, { icon: string; class: string; label: string }> = {
@@ -32,16 +24,21 @@ export default async function DashboardPage() {
   if (!token) return null;
 
   await fetchAction(api.mutations.runMatching, {}, { token });
+  await fetchMutation(api.trips.advanceCurrentGroupLifecycle, {}, { token });
 
-  const [riderProfile, availabilities, group] = await Promise.all([
+  const [riderProfile, availabilities, group, eligibility] = await Promise.all([
     fetchQuery(api.queries.getRiderProfile, {}, { token }),
     fetchQuery(api.queries.listAvailabilities, {}, { token }),
-    fetchQuery(api.queries.getActiveGroup, {}, { token }),
+    fetchQuery(api.trips.getActiveTrip, {}, { token }),
+    fetchQuery(api.trips.getRideEligibility, {}, { token }),
   ]);
 
   if (!riderProfile) return null;
 
   const activeAvailabilities = (availabilities ?? []).filter((a) => a.status !== "cancelled");
+  const isSearchingForGroup = activeAvailabilities.some(
+    (availability) => availability.status === "open",
+  );
 
   return (
     <div className="stack-lg stagger">
@@ -73,20 +70,23 @@ export default async function DashboardPage() {
             </div>
             <div className="row" style={{ gap: 16 }}>
               <div>
-                <p className="text-sm text-muted">Members</p>
-                <p className="font-display fw-700">{group.group.groupSize}</p>
+                <p className="text-sm text-muted">Group</p>
+                <p className="font-display fw-700">{group.group.groupName}</p>
               </div>
               <div>
-                <p className="text-sm text-muted">Fare</p>
-                <p className="font-display fw-700">{group.group.estimatedFareBand}</p>
+                <p className="text-sm text-muted">Members</p>
+                <p className="font-display fw-700">{group.stats.activeMemberCount}</p>
               </div>
               <div>
                 <p className="text-sm text-muted">Status</p>
                 <p className="font-display fw-600 text-accent">
-                  {group.revealReady ? "Ready to reveal" : "Confirming"}
+                  {group.group.status.replaceAll("_", " ")}
                 </p>
               </div>
             </div>
+            <p className="text-sm text-muted" style={{ marginTop: 12 }}>
+              Meet at {group.group.meetingLocationLabel}
+            </p>
           </div>
         </Link>
       ) : (
@@ -106,17 +106,25 @@ export default async function DashboardPage() {
           >
             🚗
           </div>
-          <h3 style={{ marginBottom: 4 }}>No active group</h3>
+          <h3 style={{ marginBottom: 4 }}>
+            {isSearchingForGroup ? "Searching for a group" : "No active group"}
+          </h3>
           <p className="text-sm text-muted" style={{ maxWidth: 240, margin: "0 auto" }}>
-            Submit your availability and matching will run automatically.
+            {isSearchingForGroup
+              ? "Matching is running automatically for your current ride window."
+              : eligibility?.blocked
+                ? "Clear your previous payment before scheduling another ride."
+                : "Submit your availability and matching will run automatically."}
           </p>
-          <Link
-            href="/availability"
-            className="btn btn-primary btn-sm"
-            style={{ marginTop: 16, display: "inline-flex" }}
-          >
-            Add a ride window
-          </Link>
+          {!eligibility?.blocked ? (
+            <Link
+              href="/availability"
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: 16, display: "inline-flex" }}
+            >
+              Add a ride window
+            </Link>
+          ) : null}
         </div>
       )}
 
@@ -138,10 +146,10 @@ export default async function DashboardPage() {
                 <div key={a._id} className="availability-item">
                   <div className={`avail-icon ${config.class}`}>{config.icon}</div>
                   <div className="avail-info">
-                    <div className="avail-time">{formatWindow(a.windowStart, a.windowEnd)}</div>
-                    <div className="avail-meta">
-                      {a.estimatedFareBand} · {config.label}
+                    <div className="avail-time">
+                      {formatStoredWindow(a.windowStart, a.windowEnd)}
                     </div>
+                    <div className="avail-meta">{config.label}</div>
                   </div>
                 </div>
               );
