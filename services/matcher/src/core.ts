@@ -168,16 +168,17 @@ export async function scoreRouteDescriptors(
 
       let detourMinutes: number;
       try {
-        const [routeToLeft, routeToRight, routeLeftToRight] = await Promise.all([
+        const [routeToLeft, routeToRight, routeLeftToRight, routeRightToLeft] = await Promise.all([
           getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, left.lat, left.lng),
           getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, right.lat, right.lng),
           getDrivingRoute(left.lat, left.lng, right.lat, right.lng),
+          getDrivingRoute(right.lat, right.lng, left.lat, left.lng),
         ]);
 
         const longestSingleTrip = Math.max(routeToLeft.timeSeconds, routeToRight.timeSeconds);
         const sequentialTrip = Math.min(
           routeToLeft.timeSeconds + routeLeftToRight.timeSeconds,
-          routeToRight.timeSeconds + routeLeftToRight.timeSeconds,
+          routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
         );
         detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
       } catch {
@@ -234,6 +235,32 @@ export function countDistinctLocations(members: Array<{ geohash6: string }>): nu
 
 export function getDescriptor(routeDescriptorRef: string): DescriptorRecord | undefined {
   return getStore().descriptors.get(routeDescriptorRef);
+}
+
+export function computeLocationClusters(routeDescriptorRefs: string[]): Record<string, string> {
+  const store = getStore();
+  const clusterByRef: Record<string, string> = {};
+  const canonicalGeohashes: string[] = [];
+
+  for (const ref of routeDescriptorRefs) {
+    const descriptor = store.descriptors.get(ref);
+    if (!descriptor) continue;
+
+    let merged = false;
+    for (const existing of canonicalGeohashes) {
+      if (areGeohashNeighbors(descriptor.geohash6, existing)) {
+        clusterByRef[ref] = existing;
+        merged = true;
+        break;
+      }
+    }
+    if (!merged) {
+      canonicalGeohashes.push(descriptor.geohash6);
+      clusterByRef[ref] = descriptor.geohash6;
+    }
+  }
+
+  return clusterByRef;
 }
 
 function importRecipientKey(publicKey: string) {

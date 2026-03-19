@@ -202,7 +202,7 @@ const schema = defineSchema({
     actorId: v.string(),
     metadata: v.any(),
     createdAt: v.string(),
-  }),
+  }).index("action", ["action"]),
   reports: defineTable({
     groupId: v.id("groups"),
     reporterUserId: v.string(),

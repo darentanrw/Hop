@@ -248,3 +248,18 @@ export const getAvailabilityById = internalQuery({
     return await ctx.db.get(availabilityId);
   },
 });
+
+export const getSemiLockedGroupRouteRefs = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const groups = await ctx.db.query("groups").collect();
+    const semiLocked = groups.filter((g) => g.status === "semi_locked");
+    const allAvailIds = semiLocked.flatMap((g) => g.availabilityIds);
+    const refs: string[] = [];
+    for (const id of allAvailIds) {
+      const avail = await ctx.db.get(id as Id<"availabilities">);
+      if (avail?.routeDescriptorRef) refs.push(avail.routeDescriptorRef);
+    }
+    return [...new Set(refs)];
+  },
+});

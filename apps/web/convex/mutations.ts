@@ -3,8 +3,11 @@ import {
   ACK_WINDOW_MINUTES,
   HARD_LOCK_MINUTES_BEFORE,
   LOCK_HOURS_BEFORE,
+  MAX_DETOUR_MINUTES,
   MAX_GROUP_SIZE,
+  MAX_SPREAD_KM,
   MEETUP_GRACE_MINUTES,
+  MIN_GROUP_SIZE,
   MIN_TIME_OVERLAP_MINUTES,
   PICKUP_ORIGIN_ID,
   PICKUP_ORIGIN_LABEL,
@@ -933,10 +936,13 @@ export const lockGroups = internalMutation({
         .collect();
       const activeMembers = members.filter((m) => m.participationStatus === "active");
 
-      if (group.groupSize >= MAX_GROUP_SIZE) {
+      const activeCount = activeMembers.length;
+
+      if (activeCount >= MAX_GROUP_SIZE) {
         const bookerUserId = selectBookerUserId(activeMembers.map((m) => m.userId));
         await ctx.db.patch(group._id, {
           status: "matched_pending_ack",
+          groupSize: activeCount,
           confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
           bookerUserId: bookerUserId ?? group.bookerUserId,
         });
@@ -959,8 +965,8 @@ export const lockGroups = internalMutation({
           })),
         );
       } else {
-        const spotsLeft = MAX_GROUP_SIZE - group.groupSize;
-        await ctx.db.patch(group._id, { status: "semi_locked" });
+        const spotsLeft = MAX_GROUP_SIZE - activeCount;
+        await ctx.db.patch(group._id, { status: "semi_locked", groupSize: activeCount });
         semiLockedCount += 1;
 
         await scheduleLifecycleNotifications(
@@ -971,11 +977,11 @@ export const lockGroups = internalMutation({
             kind: "group_semi_locked",
             eventKey: `${group._id}:semi_locked:${member.userId}`,
             title: `${group.groupName ?? "Your group"} is forming`,
-            body: `${group.groupSize} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
+            body: `${activeCount} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
             emailSubject: `${group.groupName ?? "Your Hop group"} is forming`,
             emailHtml: buildNotificationEmail(
               `${group.groupName ?? "Your group"} is forming`,
-              `${group.groupSize} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
+              `${activeCount} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
             ),
           })),
         );
@@ -1067,6 +1073,13 @@ export const lateJoinGroup = action({
       throw new Error("No valid open availability found.");
     }
 
+    const existingRefs = (await ctx.runQuery(
+      internal.queries.getSemiLockedGroupRouteRefs,
+      {},
+    )) as string[];
+    const allRefs = [...new Set([...existingRefs, availability.routeDescriptorRef])];
+    const { edges } = await fetchCompatibility(allRefs);
+
     return (await ctx.runMutation(internal.mutations.attemptLateJoin, {
       userId,
       availabilityId,
@@ -1076,6 +1089,12 @@ export const lateJoinGroup = action({
       sealedDestinationRef: availability.sealedDestinationRef,
       selfDeclaredGender: availability.selfDeclaredGender,
       sameGenderOnly: availability.sameGenderOnly,
+      compatibilityEdges: edges.map((e) => ({
+        leftRef: e.leftRef,
+        rightRef: e.rightRef,
+        detourMinutes: e.detourMinutes,
+        spreadDistanceKm: e.spreadDistanceKm,
+      })),
     })) as { joined: boolean; reason?: string; groupId?: string };
   },
 });
@@ -1095,68 +1114,157 @@ export const attemptLateJoin = internalMutation({
       v.literal("prefer_not_to_say"),
     ),
     sameGenderOnly: v.boolean(),
+    compatibilityEdges: v.array(
+      v.object({
+        leftRef: v.string(),
+        rightRef: v.string(),
+        detourMinutes: v.number(),
+        spreadDistanceKm: v.number(),
+      }),
+    ),
   },
   handler: async (ctx, args) => {
+    const existingMembership = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", args.userId))
+      .collect();
+    if (existingMembership.some((m) => m.participationStatus === "active")) {
+      return { joined: false, reason: "Already in an active group." };
+    }
+
+    const edgeMap = new Map<string, { detourMinutes: number; spreadDistanceKm: number }>();
+    for (const edge of args.compatibilityEdges) {
+      const key = [edge.leftRef, edge.rightRef].sort().join("::");
+      edgeMap.set(key, edge);
+    }
+
+    const joiner = { windowStart: args.windowStart, windowEnd: args.windowEnd };
     const groups = await ctx.db.query("groups").collect();
     const candidateGroups = groups.filter((g) => {
       if (g.status !== "semi_locked") return false;
-      if (g.groupSize >= MAX_GROUP_SIZE) return false;
-      const overlapMs =
-        Math.min(new Date(g.windowEnd).getTime(), new Date(args.windowEnd).getTime()) -
-        Math.max(new Date(g.windowStart).getTime(), new Date(args.windowStart).getTime());
-      return overlapMs > MIN_TIME_OVERLAP_MINUTES * 60_000;
+      return overlapMinutes(joiner, g) > MIN_TIME_OVERLAP_MINUTES;
     });
 
+    const joinerAvailability = await ctx.db.get(args.availabilityId);
+
     let targetGroup = null;
+    let targetActiveMembers: Array<{
+      _id: Id<"groupMembers">;
+      userId: string;
+      availabilityId: string;
+      participationStatus?: string;
+      displayName: string;
+      [key: string]: unknown;
+    }> = [];
     for (const group of candidateGroups) {
-      const memberAvailabilities = await Promise.all(
-        group.availabilityIds.map((id) => ctx.db.get(id as Id<"availabilities">)),
+      const members = await ctx.db
+        .query("groupMembers")
+        .withIndex("groupId", (q) => q.eq("groupId", group._id))
+        .collect();
+      const activeMembers = members.filter((m) => m.participationStatus === "active");
+
+      if (activeMembers.length >= MAX_GROUP_SIZE) continue;
+
+      const activeAvailabilities = await Promise.all(
+        activeMembers.map((m) => ctx.db.get(m.availabilityId as Id<"availabilities">)),
       );
-      const allCompatible = memberAvailabilities.every((avail) => {
+
+      const newSize = activeMembers.length + 1;
+
+      const sizeOk =
+        activeAvailabilities.every((avail) => {
+          if (!avail) return true;
+          return (
+            newSize >= (avail.minGroupSize ?? MIN_GROUP_SIZE) &&
+            newSize <= (avail.maxGroupSize ?? MAX_GROUP_SIZE)
+          );
+        }) &&
+        joinerAvailability != null &&
+        newSize >= (joinerAvailability.minGroupSize ?? MIN_GROUP_SIZE) &&
+        newSize <= (joinerAvailability.maxGroupSize ?? MAX_GROUP_SIZE);
+      if (!sizeOk) continue;
+
+      const genderOk = activeAvailabilities.every((avail) => {
         if (!avail) return true;
         return arePreferencesCompatible(
           { selfDeclaredGender: args.selfDeclaredGender, sameGenderOnly: args.sameGenderOnly },
           { selfDeclaredGender: avail.selfDeclaredGender, sameGenderOnly: avail.sameGenderOnly },
         );
       });
-      if (allCompatible) {
-        targetGroup = group;
-        break;
-      }
+      if (!genderOk) continue;
+
+      const routeOk = activeAvailabilities.every((avail) => {
+        if (!avail) return true;
+        const key = [args.routeDescriptorRef, avail.routeDescriptorRef].sort().join("::");
+        const edge = edgeMap.get(key);
+        if (!edge) return false;
+        return edge.detourMinutes <= MAX_DETOUR_MINUTES && edge.spreadDistanceKm <= MAX_SPREAD_KM;
+      });
+      if (!routeOk) continue;
+
+      targetGroup = group;
+      targetActiveMembers = activeMembers;
+      break;
     }
 
     if (!targetGroup) {
       return { joined: false, reason: "No compatible semi-locked groups found." };
     }
+
     const user = await ctx.db.get(args.userId);
     const displayName = user?.name?.trim() || "Hop member";
 
-    const newMemberUserIds = [...targetGroup.memberUserIds, args.userId];
-    const newAvailabilityIds = [...targetGroup.availabilityIds, args.availabilityId as string];
+    const newMemberUserIds = [...targetActiveMembers.map((m) => m.userId), args.userId];
+    const newAvailabilityIds = [
+      ...targetActiveMembers.map((m) => m.availabilityId),
+      args.availabilityId as string,
+    ];
 
-    const availability = await ctx.db.get(args.availabilityId);
-    const availabilityById = new Map([
-      [
-        args.availabilityId as string,
-        {
-          createdAt: availability?.createdAt,
-          sealedDestinationRef: args.sealedDestinationRef,
-        },
-      ],
-    ]);
-    const [lockedDestination] = buildLockedGroupDestinations(
-      [{ availabilityId: args.availabilityId as string, userId: args.userId }],
-      availabilityById,
-    );
+    const allRosterMembers = [
+      ...targetActiveMembers.map((m) => ({
+        availabilityId: m.availabilityId,
+        userId: m.userId,
+      })),
+      { availabilityId: args.availabilityId as string, userId: args.userId as string },
+    ];
+    const availabilityById = new Map<
+      string,
+      { createdAt?: string; sealedDestinationRef: string }
+    >();
+    for (const member of allRosterMembers) {
+      const avail = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+      if (avail) {
+        availabilityById.set(member.availabilityId, {
+          createdAt: avail.createdAt,
+          sealedDestinationRef: avail.sealedDestinationRef,
+        });
+      }
+    }
+
+    const allLockedDestinations = buildLockedGroupDestinations(allRosterMembers, availabilityById);
+    const newMemberDest = allLockedDestinations.find((d) => d.userId === (args.userId as string));
+    if (!newMemberDest) {
+      return { joined: false, reason: "Failed to compute destination for new member." };
+    }
+
+    const suggestedDropoffOrder = allLockedDestinations.map((d) => d.userId);
 
     await ctx.db.patch(targetGroup._id, {
       groupSize: newMemberUserIds.length,
       memberUserIds: newMemberUserIds,
       availabilityIds: newAvailabilityIds,
-      suggestedDropoffOrder: [...(targetGroup.suggestedDropoffOrder ?? []), args.userId],
+      suggestedDropoffOrder,
     });
 
     await ctx.db.patch(args.availabilityId, { status: "matched" });
+
+    for (const dest of allLockedDestinations) {
+      if (dest.userId === (args.userId as string)) continue;
+      const activeMember = targetActiveMembers.find((m) => m.userId === dest.userId);
+      if (activeMember) {
+        await ctx.db.patch(activeMember._id, { dropoffOrder: dest.dropoffOrder });
+      }
+    }
 
     await ctx.db.insert("groupMembers", {
       groupId: targetGroup._id,
@@ -1168,24 +1276,19 @@ export const attemptLateJoin = internalMutation({
       acknowledgementStatus: "accepted",
       acknowledgedAt: new Date().toISOString(),
       participationStatus: "active",
-      destinationAddress: lockedDestination.destinationAddress,
-      destinationSubmittedAt: lockedDestination.destinationSubmittedAt,
-      destinationLockedAt: lockedDestination.destinationLockedAt,
-      dropoffOrder: lockedDestination.dropoffOrder,
+      destinationAddress: newMemberDest.destinationAddress,
+      destinationSubmittedAt: newMemberDest.destinationSubmittedAt,
+      destinationLockedAt: newMemberDest.destinationLockedAt,
+      dropoffOrder: newMemberDest.dropoffOrder,
       qrToken: generateQrPassphrase(
         `${targetGroup._id}:${args.userId}:${newMemberUserIds.length - 1}`,
       ),
       paymentStatus: "none",
     });
 
-    const existingMembers = await ctx.db
-      .query("groupMembers")
-      .withIndex("groupId", (q) => q.eq("groupId", targetGroup._id))
-      .collect();
-
     await scheduleLifecycleNotifications(
       ctx,
-      existingMembers
+      targetActiveMembers
         .filter((m) => m.userId !== args.userId)
         .map((member) => ({
           userId: member.userId as Id<"users">,
@@ -1217,8 +1320,14 @@ export const requestRedelegate = mutation({
 
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
-    if (group.status !== "locked" && group.status !== "semi_locked") {
-      throw new Error("Group is not in a lockable state for redelegation.");
+    const REDELEGATABLE_STATUSES = new Set([
+      "semi_locked",
+      "locked",
+      "matched_pending_ack",
+      "meetup_preparation",
+    ]);
+    if (!REDELEGATABLE_STATUSES.has(group.status)) {
+      throw new Error("Group is not in a state that allows redelegation.");
     }
 
     const members = await ctx.db
@@ -1229,10 +1338,11 @@ export const requestRedelegate = mutation({
     const member = activeMembers.find((m) => m.userId === userId);
     if (!member) throw new Error("Not an active member of this group");
 
-    const existingVotes = await ctx.db.query("auditEvents").collect();
-    const redelegationVotes = existingVotes.filter(
-      (e) => e.action === "group.redelegate_vote" && e.metadata?.groupId === groupId,
-    );
+    const allRedelegationVotes = await ctx.db
+      .query("auditEvents")
+      .withIndex("action", (q) => q.eq("action", "group.redelegate_vote"))
+      .collect();
+    const redelegationVotes = allRedelegationVotes.filter((e) => e.metadata?.groupId === groupId);
     const alreadyVoted = redelegationVotes.some((e) => e.metadata?.voterId === userId);
     if (alreadyVoted) throw new Error("You have already voted to redelegate.");
 
