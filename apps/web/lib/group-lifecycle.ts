@@ -95,18 +95,18 @@ export function generateQrPassphrase(seed: string): string {
 }
 
 const groupThemes = [
-  { name: "Sky Loop", color: "#3b82f6" },       // blue
-  { name: "Sunset Blaze", color: "#f97316" },   // orange
-  { name: "Forest Grove", color: "#22c55e" },   // green
-  { name: "Crimson Rush", color: "#ef4444" },   // red
-  { name: "Cobalt Glide", color: "#2563eb" },   // deep blue
-  { name: "Amber Orbit", color: "#ea870a" },    // amber
-  { name: "Turquoise Bay", color: "#14b8a6" },  // teal
-  { name: "Tangerine Arc", color: "#e57a1a" },  // tangerine
-  { name: "Slate Path", color: "#64748b" },     // slate
-  { name: "Lime Twist", color: "#a3e635" },     // lime
-  { name: "Magenta Pop", color: "#db2777" },    // magenta
-  { name: "Charcoal Edge", color: "#111827" },  // charcoal/dark
+  { name: "Sky Loop", color: "#3b82f6" }, // blue
+  { name: "Sunset Blaze", color: "#f97316" }, // orange
+  { name: "Forest Grove", color: "#22c55e" }, // green
+  { name: "Crimson Rush", color: "#ef4444" }, // red
+  { name: "Cobalt Glide", color: "#2563eb" }, // deep blue
+  { name: "Amber Orbit", color: "#ea870a" }, // amber
+  { name: "Turquoise Bay", color: "#14b8a6" }, // teal
+  { name: "Tangerine Arc", color: "#e57a1a" }, // tangerine
+  { name: "Slate Path", color: "#64748b" }, // slate
+  { name: "Lime Twist", color: "#a3e635" }, // lime
+  { name: "Magenta Pop", color: "#db2777" }, // magenta
+  { name: "Charcoal Edge", color: "#111827" }, // charcoal/dark
 ];
 
 const riderEmojiPool = ["🦊", "🐼", "🦁", "🐯", "🦉", "🐢", "🐳", "🦄", "🐻", "🐝", "🦋", "🐙"];
