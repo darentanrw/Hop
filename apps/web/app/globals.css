@@ -466,7 +466,7 @@ label span {
 .page-container {
   max-width: 480px;
   margin: 0 auto;
-  padding: calc(var(--safe-top) + 32px) 16px calc(var(--nav-height) + var(--safe-bottom) + 16px);
+  padding: calc(var(--safe-top) + 20px) 16px calc(var(--nav-height) + var(--safe-bottom) + 16px);
   min-height: 100dvh;
 }
 
@@ -1225,7 +1225,7 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px;
+  padding: calc(var(--safe-top) + 40px) 20px calc(var(--safe-bottom) + 40px);
   position: relative;
   overflow: hidden;
 }
@@ -1417,7 +1417,7 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  padding: calc(var(--safe-top) + 20px) 20px calc(var(--safe-bottom) + 20px);
   max-width: 420px;
   margin: 0 auto;
 }
