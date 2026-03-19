@@ -535,6 +535,21 @@ export function GroupClient({
         ) : null}
       </div>
 
+      {/* ── Rider QR code ── */}
+      {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
+        <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
+          <h3>Your check-in QR</h3>
+          <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
+          {qrCode ? (
+            <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
+          ) : null}
+          <div className="notice notice-info backup-code-notice" style={{ width: "100%" }}>
+            Backup code:{" "}
+            <code className="inline-token-code">{group.currentUserMember.qrToken}</code>
+          </div>
+        </div>
+      ) : null}
+
       {/* ── Riders Card ── */}
       <div className="card">
         <div className="row-between" style={{ marginBottom: 12 }}>
@@ -650,20 +665,6 @@ export function GroupClient({
           >
             Start check-in
           </button>
-        </div>
-      ) : null}
-
-      {/* ── Rider QR code ── */}
-      {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
-        <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
-          <h3>Your check-in QR</h3>
-          <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
-          {qrCode ? (
-            <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
-          ) : null}
-          <div className="notice notice-info" style={{ width: "100%" }}>
-            Backup code: <code>{group.currentUserMember.qrToken}</code>
-          </div>
         </div>
       ) : null}
 
