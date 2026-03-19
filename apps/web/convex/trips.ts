@@ -6,7 +6,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
-import { resolveQaActingUserId } from "./local-qa";
+import { resolveQaActingUserId } from "./localQa";
 
 const ACTIVE_GROUP_STATUSES = new Set([
   "matched_pending_ack",
