@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "convex/react";
 import QrScanner from "qr-scanner";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { Countdown } from "./countdown";
@@ -209,6 +209,8 @@ export function GroupClient({
   const [qrCode, setQrCode] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerState, setScannerState] = useState<"idle" | "starting" | "live">("idle");
+  const [scannerStatus, setScannerStatus] = useState<StatusMessage>(null);
+  const [scannerBusy, setScannerBusy] = useState(false);
   const [receiptTotal, setReceiptTotal] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [paymentFile, setPaymentFile] = useState<File | null>(null);
@@ -220,6 +222,8 @@ export function GroupClient({
   const scannerBusyRef = useRef(false);
   const lastScannedTokenRef = useRef<string | null>(null);
   const lastScannedAtRef = useRef(0);
+  const groupRef = useRef(group);
+  const qaArgsRef = useRef(qaArgs);
 
   useEffect(() => {
     void syncLifecycle(qaArgs);
@@ -245,6 +249,14 @@ export function GroupClient({
     }).then(setQrCode);
   }, [group]);
 
+  useEffect(() => {
+    groupRef.current = group;
+  }, [group]);
+
+  useEffect(() => {
+    qaArgsRef.current = qaArgs;
+  }, [qaArgs]);
+
   const activeMembers = useMemo(
     () => group?.members.filter((member) => member.participationStatus === "active") ?? [],
     [group],
@@ -258,6 +270,7 @@ export function GroupClient({
       videoRef.current.srcObject = null;
     }
     scannerBusyRef.current = false;
+    setScannerBusy(false);
     setScannerOpen(false);
     setScannerState("idle");
   }, []);
@@ -291,49 +304,64 @@ export function GroupClient({
     };
   }, []);
 
-  const submitScannedQrToken = useEffectEvent(async (rawValue: string) => {
-    if (!group) return;
+  const submitScannedQrToken = useCallback(
+    async (rawValue: string) => {
+      const currentGroup = groupRef.current;
+      if (!currentGroup) return false;
 
-    const trimmedValue = rawValue.trim();
-    if (!trimmedValue) return;
+      const currentQaArgs = qaArgsRef.current;
 
-    const now = Date.now();
-    if (
-      scannerBusyRef.current ||
-      (lastScannedTokenRef.current === trimmedValue &&
-        now - lastScannedAtRef.current < SCAN_DEBOUNCE_MS)
-    ) {
-      return;
-    }
+      const trimmedValue = rawValue.trim();
+      if (!trimmedValue) return false;
 
-    scannerBusyRef.current = true;
-    lastScannedTokenRef.current = trimmedValue;
-    lastScannedAtRef.current = now;
-    setScanToken(trimmedValue);
-    setStatus({ type: "info", text: "QR detected. Verifying…" });
+      const now = Date.now();
+      if (
+        scannerBusyRef.current ||
+        (lastScannedTokenRef.current === trimmedValue &&
+          now - lastScannedAtRef.current < SCAN_DEBOUNCE_MS)
+      ) {
+        return false;
+      }
 
-    try {
-      await scanGroupQrToken({
-        groupId: group.group.id as Id<"groups">,
-        qrToken: trimmedValue,
-        ...qaArgs,
-      });
-      await syncLifecycle(qaArgs);
-      setStatus({ type: "success", text: "Checked in successfully." });
-      await scannerRef.current?.start();
-    } catch (error) {
-      setStatus({
-        type: "error",
-        text: error instanceof Error ? error.message : "Could not verify that rider.",
-      });
-    } finally {
-      scannerBusyRef.current = false;
-    }
-  });
+      scannerBusyRef.current = true;
+      setScannerBusy(true);
+      lastScannedTokenRef.current = trimmedValue;
+      lastScannedAtRef.current = now;
+      setScanToken(trimmedValue);
+      setScannerStatus({ type: "info", text: "QR detected. Verifying…" });
+
+      try {
+        await scanGroupQrToken({
+          groupId: currentGroup.group.id as Id<"groups">,
+          qrToken: trimmedValue,
+          ...currentQaArgs,
+        });
+        await syncLifecycle(currentQaArgs);
+        setScannerStatus({ type: "success", text: "Checked in successfully." });
+        return true;
+      } catch (error) {
+        setScannerStatus({
+          type: "error",
+          text: error instanceof Error ? error.message : "Could not verify that rider.",
+        });
+        return false;
+      } finally {
+        scannerBusyRef.current = false;
+        setScannerBusy(false);
+      }
+    },
+    [scanGroupQrToken, syncLifecycle],
+  );
+
+  const submitScannedQrTokenRef = useRef(submitScannedQrToken);
+
+  useEffect(() => {
+    submitScannedQrTokenRef.current = submitScannedQrToken;
+  }, [submitScannedQrToken]);
 
   const startLiveScanner = useCallback(() => {
     if (scannerOpen) return;
-    setStatus(null);
+    setScannerStatus(null);
     setScannerOpen(true);
     setScannerState("starting");
   }, [scannerOpen]);
@@ -347,7 +375,7 @@ export function GroupClient({
     const scanner = new QrScanner(
       videoRef.current,
       (result) => {
-        void submitScannedQrToken(result.data);
+        void submitScannedQrTokenRef.current(result.data);
       },
       {
         preferredCamera: "environment",
@@ -365,7 +393,7 @@ export function GroupClient({
           return;
         }
         setScannerState("live");
-        setStatus({
+        setScannerStatus({
           type: "info",
           text: "Scanner is on. Point at each rider's QR code.",
         });
@@ -380,7 +408,7 @@ export function GroupClient({
         }
         setScannerOpen(false);
         setScannerState("idle");
-        setStatus({
+        setScannerStatus({
           type: "error",
           text:
             error instanceof Error
@@ -396,7 +424,7 @@ export function GroupClient({
       }
       scanner.destroy();
     };
-  }, [group?.actions.canScanQr, scannerOpen, submitScannedQrToken]);
+  }, [group?.actions.canScanQr, scannerOpen]);
 
   if (!group) {
     if (qaViewPending) {
@@ -678,7 +706,7 @@ export function GroupClient({
               type="button"
               className="btn btn-primary"
               style={{ flex: 1 }}
-              disabled={busy || scannerState === "starting"}
+              disabled={busy || scannerBusy || scannerState === "starting"}
               onClick={startLiveScanner}
             >
               {scannerState === "live"
@@ -701,6 +729,19 @@ export function GroupClient({
               </div>
             </div>
           ) : null}
+          {scannerStatus ? (
+            <div
+              className={`notice ${
+                scannerStatus.type === "error"
+                  ? "notice-error"
+                  : scannerStatus.type === "success"
+                    ? "notice-success"
+                    : "notice-info"
+              }`}
+            >
+              {scannerStatus.text}
+            </div>
+          ) : null}
           <input
             type="text"
             value={scanToken}
@@ -710,13 +751,13 @@ export function GroupClient({
           <button
             type="button"
             className="btn btn-secondary btn-block"
-            disabled={busy || scanToken.trim().length < 6}
-            onClick={() =>
-              runAction(async () => {
-                await submitScannedQrToken(scanToken);
+            disabled={busy || scannerBusy || scanToken.trim().length < 6}
+            onClick={async () => {
+              const checkedIn = await submitScannedQrToken(scanToken);
+              if (checkedIn) {
                 setScanToken("");
-              })
-            }
+              }
+            }}
           >
             Check in rider
           </button>
