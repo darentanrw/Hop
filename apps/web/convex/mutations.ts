@@ -469,9 +469,9 @@ export const cancelTripParticipation = mutation({
     // Can only cancel after match, before trip is closed
     const CANCELLABLE_STATUSES = new Set([
       "matched_pending_ack",
-      "tentative",
+      "group_confirmed",
       "meetup_preparation",
-      "meetup_ready",
+      "meetup_checkin",
       "in_trip",
       "depart_ready",
       "payment_pending",
@@ -488,7 +488,12 @@ export const cancelTripParticipation = mutation({
     const member = members.find((m) => m.userId === userIdStr);
     if (!member) throw new Error("Not a member of this group");
 
-    // Mark user as cancelled and increment their cancelledTrips
+    // If the user has already cancelled, treat this as a successful no-op to keep the operation idempotent.
+    if (member.participationStatus === "cancelled_by_user") {
+      return { ok: true, message: "You have cancelled your participation in this trip" };
+    }
+
+    // Mark user as cancelled
     await ctx.db.patch(member._id, {
       participationStatus: "cancelled_by_user",
     });
@@ -499,11 +504,18 @@ export const cancelTripParticipation = mutation({
       await ctx.db.patch(availability._id, { status: "cancelled" });
     }
 
+    // Increment cancellation count (only once, since we check above)
     const user = await ctx.db.get(userId);
     if (user) {
       await ctx.db.patch(userId, {
         cancelledTrips: (user.cancelledTrips ?? 0) + 1,
       });
+    }
+
+    // Keep the parent group document in sync so active-trip lookup is correct.\n    // Remove the cancelling user and their availability from the group's arrays.\n    // These fields are not typed on the group schema, so we use \"as any\".\n    // biome-lint-ignore suspicious/noExplicitAny\n    const groupPatch: Record<string, unknown> = {};\n    // biome-lint-ignore suspicious/noExplicitAny\n    if (Array.isArray((group as any).memberUserIds)) {\n      // biome-lint-ignore suspicious/noExplicitAny\n      const updatedMemberUserIds = (group as any).memberUserIds.filter(\n        (id: string) => id !== userIdStr,\n      );\n      // biome-lint-ignore suspicious/noExplicitAny\n      (groupPatch as any).memberUserIds = updatedMemberUserIds;\n      // If groupSize is tracked, keep it consistent with memberUserIds.\n      // biome-lint-ignore suspicious/noExplicitAny\n      if (typeof (group as any).groupSize === \"number\" && updatedMemberUserIds.length > 0) {\n        // biome-lint-ignore suspicious/noExplicitAny\n        (groupPatch as any).groupSize = Math.max(2, updatedMemberUserIds.length);\n      }\n    }\n    // biome-lint-ignore suspicious/noExplicitAny\n    if (Array.isArray((group as any).availabilityIds)) {\n      // biome-lint-ignore suspicious/noExplicitAny\n      const updatedAvailabilityIds = (group as any).availabilityIds.filter(\n        (id: string) => id !== (member.availabilityId as unknown as string),\n      );\n      // biome-lint-ignore suspicious/noExplicitAny\n      (groupPatch as any).availabilityIds = updatedAvailabilityIds;\n    }
+    // Only patch the group if there is something to update.
+    if (Object.keys(groupPatch).length > 0) {
+      await ctx.db.patch(groupId, groupPatch);
     }
 
     return { ok: true, message: "You have cancelled your participation in this trip" };

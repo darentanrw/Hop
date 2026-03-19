@@ -3,7 +3,7 @@
 import { useMutation } from "convex/react";
 import { useState } from "react";
 import { api } from "../convex/_generated/api";
-import type { Doc, Id } from "../convex/_generated/dataModel";
+import type { Doc } from "../convex/_generated/dataModel";
 import { formatStoredWindow } from "../lib/time-range";
 
 interface AvailabilityListProps {
@@ -18,16 +18,16 @@ const statusConfig: Record<string, { icon: string; class: string; label: string 
 
 export function AvailabilityList({ availabilities }: AvailabilityListProps) {
   const cancelAvailability = useMutation(api.mutations.cancelAvailability);
-  const [deletingId, setDeletingId] = useState<Id<"availabilities"> | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deletedIds, setDeletedIds] = useState<Set<Id<"availabilities">>>(new Set());
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
 
   // Filter to show only non-cancelled availabilities
   const activeAvailabilities = availabilities.filter(
     (a) => a.status !== "cancelled" && !deletedIds.has(a._id),
   );
 
-  async function handleDelete(availabilityId: Id<"availabilities">) {
+  async function handleDelete(availabilityId: string) {
     if (!confirm("Delete this ride window?")) return;
 
     setDeletingId(availabilityId);

@@ -1,5 +1,3 @@
-import { calculateCredibilityScore } from "@hop/shared";
-
 export const MEETING_LOCATION_LABEL = "NUS University Town Plaza";
 
 const groupThemes = [

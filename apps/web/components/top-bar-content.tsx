@@ -1,10 +1,9 @@
 "use client";
 
-import type { RiderProfile } from "@hop/shared";
 import Link from "next/link";
 import { LogoutButton } from "./logout-button";
 
-export function TopBarContent({ profile }: { profile: RiderProfile }) {
+export function TopBarContent() {
   return (
     <div className="top-bar">
       <div className="hop-logo">H</div>
