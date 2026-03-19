@@ -3,7 +3,6 @@ import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
 import { GroupClient } from "../../../components/group-client";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 
 export default async function GroupPage({
   searchParams,
@@ -13,11 +12,10 @@ export default async function GroupPage({
   const token = await convexAuthNextjsToken();
   if (!token) redirect("/login");
   const { qaUserId } = await searchParams;
-  const actingUserId = qaUserId as Id<"users"> | undefined;
 
   await fetchAction(api.mutations.runMatching, {}, { token });
-  await fetchMutation(api.trips.advanceCurrentGroupLifecycle, { actingUserId }, { token });
-  const current = await fetchQuery(api.trips.getActiveTrip, { actingUserId }, { token });
+  await fetchMutation(api.trips.advanceCurrentGroupLifecycle, {}, { token });
+  const current = await fetchQuery(api.trips.getActiveTrip, {}, { token });
 
-  return <GroupClient initialGroup={current} qaActingUserId={actingUserId} />;
+  return <GroupClient initialGroup={current} qaActingUserId={qaUserId} />;
 }
