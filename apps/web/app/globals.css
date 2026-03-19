@@ -466,7 +466,7 @@ label span {
 .page-container {
   max-width: 480px;
   margin: 0 auto;
-  padding: calc(var(--safe-top) + 20px) 16px calc(var(--nav-height) + var(--safe-bottom) + 16px);
+  padding: calc(var(--safe-top) + 8px) 16px calc(var(--nav-height) + var(--safe-bottom) + 16px);
   min-height: 100dvh;
 }
 
