@@ -14,6 +14,7 @@ import type * as auth from "../auth.js";
 import type * as http from "../http.js";
 import type * as inboundEmail from "../inboundEmail.js";
 import type * as inboundMutations from "../inboundMutations.js";
+import type * as localQa from "../localQa.js";
 import type * as mutations from "../mutations.js";
 import type * as notifications from "../notifications.js";
 import type * as notificationsModel from "../notificationsModel.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   inboundEmail: typeof inboundEmail;
   inboundMutations: typeof inboundMutations;
+  localQa: typeof localQa;
   mutations: typeof mutations;
   notifications: typeof notifications;
   notificationsModel: typeof notificationsModel;

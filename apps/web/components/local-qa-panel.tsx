@@ -1,12 +1,16 @@
 "use client";
 
 import { useAction, useMutation, useQuery } from "convex/react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "../convex/_generated/api";
 
 const localQaRequested = process.env.NEXT_PUBLIC_ENABLE_LOCAL_QA === "true";
 
 export function LocalQaPanel() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const snapshot = useQuery(api.admin.localQaSnapshot);
   const bootstrapLocalQaUser = useMutation(api.admin.bootstrapLocalQaUser);
   const seedLocalQaPool = useMutation(api.admin.seedLocalQaPool);
@@ -58,12 +62,26 @@ export function LocalQaPanel() {
   }
 
   const activeGroup = snapshot?.activeGroup;
+  const qaViewerUserId = searchParams.get("qaUserId");
   const otherTokens = (snapshot?.qrTokens ?? []).filter((member) => !member.isCurrentUser);
   const pendingBotAcknowledgements = otherTokens.filter(
     (member) => member.acknowledgementStatus !== "accepted",
   ).length;
   const canForceBotConfirmations =
     activeGroup?.status === "matched_pending_ack" && otherTokens.length > 0;
+
+  function openGroupAs(userId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (userId === snapshot?.user.id) {
+      params.delete("qaUserId");
+    } else {
+      params.set("qaUserId", userId);
+    }
+    const query = params.toString();
+    const targetPath = activeGroup ? "/group" : pathname;
+    router.push(query ? `${targetPath}?${query}` : targetPath);
+    setOpen(false);
+  }
 
   return (
     <>
@@ -297,6 +315,47 @@ export function LocalQaPanel() {
                   </button>
                 </div>
               </div>
+
+              {snapshot?.qrTokens.length ? (
+                <div className="card stack">
+                  <div className="stack-xs">
+                    <h3>Switch group view</h3>
+                    <p className="text-xs text-muted">
+                      Open the current group as any rider in this QA group so you can compare the
+                      booker and rider interfaces.
+                    </p>
+                  </div>
+                  <div className="qa-member-switcher">
+                    {snapshot.qrTokens.map((member) => {
+                      const isSelected =
+                        qaViewerUserId === member.userId ||
+                        (!qaViewerUserId && member.isCurrentUser);
+                      const isBooker = activeGroup?.bookerUserId === member.userId;
+                      return (
+                        <button
+                          type="button"
+                          key={member.userId}
+                          className={`qa-member-option${isSelected ? " qa-member-option-active" : ""}`}
+                          onClick={() => openGroupAs(member.userId)}
+                        >
+                          <span className="qa-member-option-header">
+                            <span>
+                              {member.emoji} {member.displayName}
+                            </span>
+                            {isSelected ? (
+                              <span className="pill pill-accent pill-sm">Viewing</span>
+                            ) : null}
+                          </span>
+                          <span className="qa-member-option-meta">
+                            {member.isCurrentUser ? "Your account" : "QA rider"} ·{" "}
+                            {isBooker ? "Booker" : "Rider"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
 
               {otherTokens.length > 0 ? (
                 <div className="card stack">

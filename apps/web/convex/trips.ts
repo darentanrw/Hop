@@ -6,6 +6,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { resolveQaActingUserId } from "./localQa";
 
 const ACTIVE_GROUP_STATUSES = new Set([
   "matched_pending_ack",
@@ -352,6 +353,7 @@ async function buildTripPayload(
     currentUserMember: currentUserMember
       ? {
           userId: currentUserMember.userId,
+          displayName: currentUserMember.displayName,
           emoji: currentUserMember.emoji ?? "🙂",
           destinationLockedAt: currentUserMember.destinationLockedAt ?? null,
           qrToken: currentUserMember.qrToken ?? null,
@@ -361,6 +363,7 @@ async function buildTripPayload(
       : null,
     members: members.map((member) => ({
       userId: member.userId,
+      displayName: member.displayName,
       emoji: member.emoji ?? "🙂",
       acknowledgementStatus:
         member.acknowledgementStatus ??
@@ -404,9 +407,9 @@ async function buildTripPayload(
 }
 
 export const getRideEligibility = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+  args: { actingUserId: v.optional(v.id("users")) },
+  handler: async (ctx, { actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) return null;
 
     const memberships = await ctx.db
@@ -437,9 +440,9 @@ export const getRideEligibility = query({
 });
 
 export const advanceCurrentGroupLifecycle = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+  args: { actingUserId: v.optional(v.id("users")) },
+  handler: async (ctx, { actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await findActiveGroupForUser(ctx, userId);
@@ -451,9 +454,9 @@ export const advanceCurrentGroupLifecycle = mutation({
 });
 
 export const getActiveTrip = query({
-  args: {},
-  handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
+  args: { actingUserId: v.optional(v.id("users")) },
+  handler: async (ctx, { actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) return null;
 
     const group = await findActiveGroupForUser(ctx, userId);
@@ -494,9 +497,12 @@ export const submitGroupDestination = mutation({
 });
 
 export const startMeetupCheckIn = mutation({
-  args: { groupId: v.id("groups") },
-  handler: async (ctx, { groupId }) => {
-    const userId = await getAuthUserId(ctx);
+  args: {
+    groupId: v.id("groups"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(groupId);
@@ -531,9 +537,10 @@ export const scanGroupQrToken = mutation({
   args: {
     groupId: v.id("groups"),
     qrToken: v.string(),
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { groupId, qrToken }) => {
-    const userId = await getAuthUserId(ctx);
+  handler: async (ctx, { groupId, qrToken, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(groupId);
@@ -561,9 +568,12 @@ export const scanGroupQrToken = mutation({
 });
 
 export const departGroup = mutation({
-  args: { groupId: v.id("groups") },
-  handler: async (ctx, { groupId }) => {
-    const userId = await getAuthUserId(ctx);
+  args: {
+    groupId: v.id("groups"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(groupId);
@@ -641,9 +651,10 @@ export const submitReceipt = mutation({
     groupId: v.id("groups"),
     totalCostCents: v.number(),
     storageId: v.id("_storage"),
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { groupId, totalCostCents, storageId }) => {
-    const userId = await getAuthUserId(ctx);
+  handler: async (ctx, { groupId, totalCostCents, storageId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(groupId);
@@ -706,9 +717,10 @@ export const submitPaymentProof = mutation({
   args: {
     groupId: v.id("groups"),
     storageId: v.id("_storage"),
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { groupId, storageId }) => {
-    const userId = await getAuthUserId(ctx);
+  handler: async (ctx, { groupId, storageId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const member = await ctx.db
@@ -733,9 +745,10 @@ export const verifyPayment = mutation({
   args: {
     groupId: v.id("groups"),
     memberUserId: v.string(),
+    actingUserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { groupId, memberUserId }) => {
-    const userId = await getAuthUserId(ctx);
+  handler: async (ctx, { groupId, memberUserId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(groupId);
@@ -774,9 +787,10 @@ export const createReport = mutation({
       v.literal("other"),
     ),
     description: v.string(),
+    actingUserId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await resolveQaActingUserId(ctx, args.actingUserId);
     if (!userId) throw new Error("Not authenticated");
 
     const group = await ctx.db.get(args.groupId);
