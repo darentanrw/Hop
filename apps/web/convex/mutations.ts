@@ -533,7 +533,9 @@ export const cancelTripParticipation = mutation({
         // If the cancelling user is the booker, reassign to highest-credibility active member.
         if (group.bookerUserId === userIdStr) {
           const remainingMembers = members.filter(
-            (m) => updatedMemberUserIds.includes(m.userId) && m.participationStatus === "active",
+            (m) =>
+              updatedMemberUserIds.includes(m.userId) &&
+              (m.participationStatus ?? "active") === "active",
           );
           if (remainingMembers.length > 0) {
             const remainingUserIds = remainingMembers.map((m) => m.userId);
