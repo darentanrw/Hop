@@ -175,6 +175,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
   const [busy, setBusy] = useState(false);
   const [scanToken, setScanToken] = useState("");
   const [qrCode, setQrCode] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerState, setScannerState] = useState<"idle" | "starting" | "live">("idle");
   const [receiptTotal, setReceiptTotal] = useState("");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -225,6 +226,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
       videoRef.current.srcObject = null;
     }
     scannerBusyRef.current = false;
+    setScannerOpen(false);
     setScannerState("idle");
   }, []);
 
@@ -246,10 +248,10 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
   }
 
   useEffect(() => {
-    if (!group?.actions.canScanQr) {
+    if (!group?.actions.canScanQr && scannerOpen) {
       stopLiveScanner();
     }
-  }, [group?.actions.canScanQr, stopLiveScanner]);
+  }, [group?.actions.canScanQr, scannerOpen, stopLiveScanner]);
 
   useEffect(() => {
     return () => {
@@ -299,13 +301,14 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
   );
 
   const startLiveScanner = useCallback(() => {
-    if (scannerState === "starting" || scannerState === "live") return;
+    if (scannerOpen) return;
     setStatus(null);
+    setScannerOpen(true);
     setScannerState("starting");
-  }, [scannerState]);
+  }, [scannerOpen]);
 
   useEffect(() => {
-    if (scannerState !== "starting" || !group?.actions.canScanQr || !videoRef.current) {
+    if (!scannerOpen || !group?.actions.canScanQr || !videoRef.current) {
       return;
     }
 
@@ -344,6 +347,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         if (cancelled) {
           return;
         }
+        setScannerOpen(false);
         setScannerState("idle");
         setStatus({
           type: "error",
@@ -361,7 +365,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
       }
       scanner.destroy();
     };
-  }, [group?.actions.canScanQr, scannerState, submitScannedQrToken]);
+  }, [group?.actions.canScanQr, scannerOpen, submitScannedQrToken]);
 
   if (!group) {
     return (
@@ -375,6 +379,11 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
       </div>
     );
   }
+
+  const currentUserIsBooker = group.group.bookerUserId === group.currentUserId;
+  const showDepartCard =
+    currentUserIsBooker &&
+    (group.group.status === "meetup_checkin" || group.group.status === "depart_ready");
 
   return (
     <div className="stack stagger">
@@ -630,7 +639,7 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
               </button>
             ) : null}
           </div>
-          {scannerState !== "idle" ? (
+          {scannerOpen ? (
             <div className="scanner-shell">
               <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
               <div className="scanner-overlay" aria-hidden="true">
@@ -660,17 +669,23 @@ export function GroupClient({ initialGroup }: { initialGroup: ActiveTripPayload 
         </div>
       ) : null}
 
-      {group.actions.canDepart ? (
+      {showDepartCard ? (
         <div className="card stack-sm">
           <h3>Depart the group</h3>
           <p className="text-sm text-muted">
             Once everyone is checked in, or the 5-minute grace period has expired, the booker can
             depart and late riders are removed automatically.
           </p>
+          {!group.actions.canDepart ? (
+            <div className="text-sm text-muted">
+              Depart becomes available only after all riders are checked in or the 5-minute grace
+              window ends.
+            </div>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary btn-block"
-            disabled={busy}
+            disabled={busy || !group.actions.canDepart}
             onClick={() =>
               runAction(async () => {
                 await departGroup({ groupId: group.group.id as Id<"groups"> });

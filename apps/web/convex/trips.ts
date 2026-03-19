@@ -259,9 +259,17 @@ function buildActions(
   group: GroupDoc,
   currentUserId: string,
   currentUserMember: GroupMemberDoc | null,
+  options?: {
+    everyoneCheckedIn: boolean;
+    graceExpired: boolean;
+  },
 ) {
   const currentStatus = group.status;
   const isBooker = group.bookerUserId === currentUserId;
+  const canDepartNow =
+    currentStatus === "depart_ready" ||
+    (currentStatus === "meetup_checkin" &&
+      Boolean(options?.everyoneCheckedIn || options?.graceExpired));
 
   return {
     canAcknowledge:
@@ -277,7 +285,7 @@ function buildActions(
     canScanQr: (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") && isBooker,
     canStartCheckIn:
       (currentStatus === "group_confirmed" || currentStatus === "meetup_preparation") && isBooker,
-    canDepart: (currentStatus === "depart_ready" || currentStatus === "meetup_checkin") && isBooker,
+    canDepart: canDepartNow && isBooker,
     canUploadReceipt:
       (currentStatus === "in_trip" || currentStatus === "receipt_pending") && isBooker,
     canSubmitPaymentProof:
@@ -305,6 +313,11 @@ async function buildTripPayload(
   const activeMembers = getActiveMembers(members);
   const checkedInMembers = activeMembers.filter((member) => Boolean(member.checkedInAt));
   const outstandingPayments = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
+  const everyoneCheckedIn =
+    activeMembers.length > 0 && activeMembers.every((member) => Boolean(member.checkedInAt));
+  const graceExpired = group.graceDeadline
+    ? new Date(group.graceDeadline).getTime() <= Date.now()
+    : false;
 
   const sortedByDropoff = [...activeMembers].sort(
     (left, right) =>
@@ -383,7 +396,10 @@ async function buildTripPayload(
         emoji: member.emoji ?? "🙂",
         order: member.dropoffOrder ?? null,
       })),
-    actions: buildActions(group, currentUserId, currentUserMember),
+    actions: buildActions(group, currentUserId, currentUserMember, {
+      everyoneCheckedIn,
+      graceExpired,
+    }),
   };
 }
 
@@ -562,7 +578,7 @@ export const departGroup = mutation({
     const everyoneCheckedIn =
       activeMembers.length > 0 && activeMembers.every((member) => Boolean(member.checkedInAt));
 
-    if (!everyoneCheckedIn && !graceExpired && group.status !== "depart_ready") {
+    if (!everyoneCheckedIn && !graceExpired) {
       throw new Error("Wait for everyone to check in or for the 5-minute grace window to end.");
     }
 
