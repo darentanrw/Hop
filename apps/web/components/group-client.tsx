@@ -28,6 +28,7 @@ type ActiveTripPayload = {
     bookerUserId: string | null;
     suggestedDropoffOrder: string[];
     finalCostCents: number | null;
+    receiptImageUrl: string | null;
     receiptSubmittedAt: string | null;
     paymentDueAt: string | null;
     reportCount: number;
@@ -41,6 +42,7 @@ type ActiveTripPayload = {
     qrToken: string | null;
     amountDueCents: number;
     paymentStatus: string;
+    paymentProofImageUrl: string | null;
   } | null;
   members: Array<{
     userId: string;
@@ -54,6 +56,7 @@ type ActiveTripPayload = {
     dropoffOrder: number | null;
     amountDueCents: number;
     paymentStatus: string;
+    paymentProofImageUrl: string | null;
     paymentSubmittedAt: string | null;
     paymentVerifiedAt: string | null;
     isBooker: boolean;
@@ -162,6 +165,23 @@ async function uploadFile(
   const payload = (await response.json()) as { storageId?: Id<"_storage"> };
   if (!payload.storageId) throw new Error("The upload did not return a storage id.");
   return payload.storageId;
+}
+
+function ReceiptPreview({ src, alt }: { src: string; alt: string }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      style={{
+        width: "100%",
+        height: "auto",
+        display: "block",
+        borderRadius: 18,
+        border: "1px solid var(--border)",
+        background: "var(--surface-secondary)",
+      }}
+    />
+  );
 }
 
 export function GroupClient({
@@ -472,6 +492,9 @@ export function GroupClient({
   const currentUserIsBooker = group.group.bookerUserId === group.currentUserId;
   const bookerEmoji =
     group.members.find((m) => m.userId === group.group.bookerUserId)?.emoji ?? "🙂";
+  const riderPaymentProofs = activeMembers.filter(
+    (member) => !member.isBooker && Boolean(member.paymentProofImageUrl),
+  );
   const showDepartCard =
     currentUserIsBooker &&
     (group.group.status === "meetup_checkin" || group.group.status === "depart_ready");
@@ -721,6 +744,31 @@ export function GroupClient({
         ) : null}
       </div>
 
+      {group.group.receiptImageUrl ? (
+        <div className="card stack-sm">
+          <h3>{currentUserIsBooker ? "Fare receipt" : "Booker's fare receipt"}</h3>
+          <p className="text-sm text-muted">
+            {currentUserIsBooker
+              ? "This receipt is visible to everyone in the confirmed ride while settlement is open."
+              : "Review the uploaded fare receipt before sending payment."}
+          </p>
+          <div className="row-between">
+            <span className="pill pill-sm pill-success">
+              Final fare {formatCurrency(group.group.finalCostCents)}
+            </span>
+            {group.group.receiptSubmittedAt ? (
+              <span className="text-xs text-muted">
+                Uploaded {formatDateTime(group.group.receiptSubmittedAt)}
+              </span>
+            ) : null}
+          </div>
+          <ReceiptPreview
+            src={group.group.receiptImageUrl}
+            alt="Fare receipt uploaded by the booker"
+          />
+        </div>
+      ) : null}
+
       {/* ── Rider QR code ── */}
       {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
         <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
@@ -747,6 +795,19 @@ export function GroupClient({
             Backup passphrase:{" "}
             <code className="qr-passphrase">{group.currentUserMember.qrToken}</code>
           </div>
+        </div>
+      ) : null}
+
+      {!currentUserIsBooker && group.currentUserMember?.paymentProofImageUrl ? (
+        <div className="card stack-sm">
+          <h3>Your payment proof</h3>
+          <p className="text-sm text-muted">
+            This is the receipt screenshot the booker can review when confirming your payment.
+          </p>
+          <ReceiptPreview
+            src={group.currentUserMember.paymentProofImageUrl}
+            alt="Your uploaded payment proof"
+          />
         </div>
       ) : null}
 
@@ -996,45 +1057,56 @@ export function GroupClient({
             {activeMembers
               .filter((m) => !m.isBooker && m.amountDueCents > 0)
               .map((member) => (
-                <div className="row-between" key={`payment-${member.userId}`}>
-                  <div>
+                <div className="card stack-sm" key={`payment-${member.userId}`}>
+                  <div className="row-between">
                     <div className="member-name">
                       {member.emoji} {emojiName(member.emoji)} owes{" "}
                       {formatCurrency(member.amountDueCents)}
                     </div>
                     <div className="text-xs text-muted">
                       {member.paymentStatus === "submitted"
-                        ? "Proof uploaded — tap to confirm."
+                        ? "Proof uploaded - tap to confirm."
                         : member.paymentStatus === "verified"
                           ? "Payment confirmed."
                           : "Waiting for payment."}
                     </div>
                   </div>
-                  {member.paymentStatus === "submitted" ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busy}
-                      onClick={() =>
-                        runAction(async () => {
-                          await verifyPayment({
-                            groupId: group.group.id as Id<"groups">,
-                            memberUserId: member.userId,
-                            ...qaArgs,
-                          });
-                          setStatus({ type: "success", text: "Payment confirmed." });
-                        })
-                      }
-                    >
-                      Confirm
-                    </button>
-                  ) : (
+                  {member.paymentProofImageUrl ? (
+                    <ReceiptPreview
+                      src={member.paymentProofImageUrl}
+                      alt={`${emojiName(member.emoji)} payment proof`}
+                    />
+                  ) : null}
+                  <div className="row-between">
                     <span
-                      className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : "pill-muted"}`}
+                      className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : member.paymentProofImageUrl ? "pill-accent" : "pill-muted"}`}
                     >
-                      {member.paymentStatus === "verified" ? "Paid" : "Waiting"}
+                      {member.paymentStatus === "verified"
+                        ? "Paid"
+                        : member.paymentProofImageUrl
+                          ? "Proof uploaded"
+                          : "Waiting"}
                     </span>
-                  )}
+                    {member.paymentStatus === "submitted" ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busy}
+                        onClick={() =>
+                          runAction(async () => {
+                            await verifyPayment({
+                              groupId: group.group.id as Id<"groups">,
+                              memberUserId: member.userId,
+                              ...qaArgs,
+                            });
+                            setStatus({ type: "success", text: "Payment confirmed." });
+                          })
+                        }
+                      >
+                        Confirm
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
           </div>
