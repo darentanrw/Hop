@@ -15,6 +15,7 @@ import { buildLockedGroupDestinations } from "../lib/group-destinations";
 import {
   MEETING_LOCATION_LABEL,
   deriveMeetingTime,
+  generateQrPassphrase,
   getEmojiForMember,
   getGroupTheme,
   selectBookerUserId,
@@ -728,7 +729,7 @@ export const createTentativeGroup = internalMutation({
         destinationAddress: lockedDestination?.destinationAddress,
         destinationSubmittedAt: lockedDestination?.destinationSubmittedAt,
         destinationLockedAt: lockedDestination?.destinationLockedAt,
-        qrToken: `${groupId}:${member.userId}:${index}`,
+        qrToken: generateQrPassphrase(`${groupId}:${member.userId}:${index}`),
         dropoffOrder: lockedDestination?.dropoffOrder,
         paymentStatus: "none",
       });
