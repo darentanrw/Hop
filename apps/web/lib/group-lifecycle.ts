@@ -1,3 +1,5 @@
+import { calculateCredibilityScore } from "@hop/shared";
+
 export const MEETING_LOCATION_LABEL = "NUS University Town Plaza";
 
 const groupThemes = [
@@ -27,8 +29,26 @@ export function getEmojiForMember(seed: string, index: number) {
   return riderEmojiPool[(hashString(seed) + index * 7) % riderEmojiPool.length];
 }
 
-export function selectBookerUserId(memberUserIds: string[]) {
-  return [...memberUserIds].sort()[0] ?? null;
+export function selectBookerUserId(
+  memberUserIds: string[],
+  credibilityScores: Map<string, number> = new Map(),
+): string | null {
+  if (memberUserIds.length === 0) return null;
+
+  // If no credibility data, fall back to alphabetical
+  if (credibilityScores.size === 0) {
+    return [...memberUserIds].sort()[0];
+  }
+
+  // Select highest credibility score; tie-break by alphabetical order
+  return memberUserIds.reduce((best, current) => {
+    const bestScore = credibilityScores.get(best) ?? 0.5;
+    const currentScore = credibilityScores.get(current) ?? 0.5;
+    if (currentScore > bestScore || (currentScore === bestScore && current < best)) {
+      return current;
+    }
+    return best;
+  });
 }
 
 export function deriveMeetingTime(windowStart: string) {
