@@ -20,7 +20,12 @@ function member(overrides: Partial<GroupMemberLike> = {}): GroupMemberLike {
 }
 
 function opts(overrides: Partial<BuildActionsOptions> = {}): BuildActionsOptions {
-  return { everyoneCheckedIn: false, graceExpired: false, meetingTimePassed: false, ...overrides };
+  return {
+    everyoneCheckedIn: false,
+    graceExpired: false,
+    bookerAbsentWindowPassed: false,
+    ...overrides,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -83,12 +88,12 @@ describe("canRedelegateBooker", () => {
 // buildActions – canReportBookerAbsent
 // ---------------------------------------------------------------------------
 describe("canReportBookerAbsent", () => {
-  it("returns true for active non-booker rider in meetup_checkin after meeting time", () => {
+  it("returns true for active non-booker rider in meetup_checkin after 5-min buffer", () => {
     const actions = buildActions(
       group({ status: "meetup_checkin" }),
       RIDER,
       member(),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(actions.canReportBookerAbsent).toBe(true);
   });
@@ -98,17 +103,17 @@ describe("canReportBookerAbsent", () => {
       group({ status: "meetup_checkin" }),
       BOOKER,
       member(),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(actions.canReportBookerAbsent).toBe(false);
   });
 
-  it("returns false before meeting time has passed", () => {
+  it("returns false before the 5-min absent buffer has passed", () => {
     const actions = buildActions(
       group({ status: "meetup_checkin" }),
       RIDER,
       member(),
-      opts({ meetingTimePassed: false }),
+      opts({ bookerAbsentWindowPassed: false }),
     );
     expect(actions.canReportBookerAbsent).toBe(false);
   });
@@ -126,7 +131,7 @@ describe("canReportBookerAbsent", () => {
         group({ status }),
         RIDER,
         member(),
-        opts({ meetingTimePassed: true }),
+        opts({ bookerAbsentWindowPassed: true }),
       );
       expect(actions.canReportBookerAbsent).toBe(false);
     }
@@ -137,7 +142,7 @@ describe("canReportBookerAbsent", () => {
       group({ status: "meetup_checkin" }),
       RIDER,
       member({ participationStatus: "removed_no_show" }),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(actions.canReportBookerAbsent).toBe(false);
   });
@@ -147,7 +152,7 @@ describe("canReportBookerAbsent", () => {
       group({ status: "meetup_checkin" }),
       RIDER,
       member({ participationStatus: "cancelled_by_user" }),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(actions.canReportBookerAbsent).toBe(false);
   });
@@ -157,7 +162,7 @@ describe("canReportBookerAbsent", () => {
       group({ status: "meetup_checkin" }),
       RIDER,
       member({ participationStatus: undefined }),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(actions.canReportBookerAbsent).toBe(true);
   });
@@ -259,12 +264,12 @@ describe("booker vs rider action flags across redelegate-relevant statuses", () 
     expect(riderActions.canReportBookerAbsent).toBe(false);
   });
 
-  it("both redelegate and report-absent available in meetup_checkin (after meeting time)", () => {
+  it("both redelegate and report-absent available in meetup_checkin (after 5-min buffer)", () => {
     const bookerActions = buildActions(
       group({ status: "meetup_checkin" }),
       BOOKER,
       member(),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(bookerActions.canRedelegateBooker).toBe(true);
     expect(bookerActions.canReportBookerAbsent).toBe(false);
@@ -273,18 +278,18 @@ describe("booker vs rider action flags across redelegate-relevant statuses", () 
       group({ status: "meetup_checkin" }),
       RIDER,
       member(),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(riderActions.canRedelegateBooker).toBe(false);
     expect(riderActions.canReportBookerAbsent).toBe(true);
   });
 
-  it("meetup_checkin before meeting time: booker can redelegate, rider cannot report", () => {
+  it("meetup_checkin before 5-min buffer: booker can redelegate, rider cannot report", () => {
     const bookerActions = buildActions(
       group({ status: "meetup_checkin" }),
       BOOKER,
       member(),
-      opts({ meetingTimePassed: false }),
+      opts({ bookerAbsentWindowPassed: false }),
     );
     expect(bookerActions.canRedelegateBooker).toBe(true);
     expect(bookerActions.canReportBookerAbsent).toBe(false);
@@ -293,7 +298,7 @@ describe("booker vs rider action flags across redelegate-relevant statuses", () 
       group({ status: "meetup_checkin" }),
       RIDER,
       member(),
-      opts({ meetingTimePassed: false }),
+      opts({ bookerAbsentWindowPassed: false }),
     );
     expect(riderActions.canRedelegateBooker).toBe(false);
     expect(riderActions.canReportBookerAbsent).toBe(false);
@@ -304,7 +309,7 @@ describe("booker vs rider action flags across redelegate-relevant statuses", () 
       group({ status: "depart_ready" }),
       BOOKER,
       member(),
-      opts({ meetingTimePassed: true }),
+      opts({ bookerAbsentWindowPassed: true }),
     );
     expect(bookerActions.canRedelegateBooker).toBe(false);
     expect(bookerActions.canReportBookerAbsent).toBe(false);

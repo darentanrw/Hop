@@ -17,10 +17,12 @@ export const REDELEGATE_STATUSES = new Set([
   "meetup_checkin",
 ]);
 
+export const BOOKER_ABSENT_BUFFER_MS = 5 * 60_000;
+
 export interface BuildActionsOptions {
   everyoneCheckedIn: boolean;
   graceExpired: boolean;
-  meetingTimePassed: boolean;
+  bookerAbsentWindowPassed: boolean;
 }
 
 export function buildActions(
@@ -60,10 +62,12 @@ export function buildActions(
       currentUserMember?.paymentStatus !== "verified",
     canVerifyPayments: currentStatus === "payment_pending" && isBooker,
     canRedelegateBooker: isBooker && REDELEGATE_STATUSES.has(currentStatus),
+    // Non-checked-in callers are intentionally allowed: the booker runs the QR
+    // scanner, so nobody can check in when the booker is absent.
     canReportBookerAbsent:
       !isBooker &&
       currentStatus === "meetup_checkin" &&
-      Boolean(options?.meetingTimePassed) &&
+      Boolean(options?.bookerAbsentWindowPassed) &&
       (currentUserMember?.participationStatus ?? "active") === "active",
     canReport: currentStatus !== "matched_pending_ack" && Boolean(currentUserMember),
   };

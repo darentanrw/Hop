@@ -2,7 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
-import { REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
+import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -321,7 +321,8 @@ async function buildTripPayload(
     ? new Date(group.graceDeadline).getTime() <= Date.now()
     : false;
   const meetingTime = group.meetingTime ?? group.windowStart;
-  const meetingTimePassed = new Date(meetingTime).getTime() <= Date.now();
+  const bookerAbsentWindowPassed =
+    new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
 
   const sortedByDropoff = [...activeMembers].sort(
     (left, right) =>
@@ -431,7 +432,7 @@ async function buildTripPayload(
       ...buildActions(group, currentUserId, currentUserMember, {
         everyoneCheckedIn,
         graceExpired,
-        meetingTimePassed,
+        bookerAbsentWindowPassed,
       }),
       canChat:
         CHAT_ELIGIBLE_STATUSES.has(group.status) &&
@@ -883,8 +884,10 @@ export const reportBookerAbsent = mutation({
     }
 
     const meetingTime = group.meetingTime ?? group.windowStart;
-    const meetingTimePassed = new Date(meetingTime).getTime() <= Date.now();
-    if (!meetingTimePassed) throw new Error("Meeting time has not passed yet.");
+    const bufferElapsed = new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
+    if (!bufferElapsed) {
+      throw new Error("The 5-minute grace window after meeting time has not passed yet.");
+    }
 
     const members = await listGroupMembers(ctx, groupId);
     const activeMembers = getActiveMembers(members);
@@ -894,8 +897,6 @@ export const reportBookerAbsent = mutation({
 
     const bookerMember = activeMembers.find((m) => m.userId === (group.bookerUserId as string));
     if (bookerMember?.checkedInAt) throw new Error("The booker has already checked in.");
-
-    const previousBookerUserId = group.bookerUserId;
 
     const checkedInNonBooker = activeMembers.filter(
       (m) => m.userId !== (group.bookerUserId as string) && Boolean(m.checkedInAt),
@@ -927,19 +928,12 @@ export const reportBookerAbsent = mutation({
     const newBookerUserId = selectBookerUserId(candidateUserIds, credibilityScores);
     if (!newBookerUserId) throw new Error("No eligible members to become booker.");
 
+    // Penalty for the absent booker is deferred — departGroup will mark them
+    // removed_no_show and increment cancelledTrips if they never check in.
     await ctx.db.patch(groupId, {
       bookerUserId: newBookerUserId as Id<"users">,
       bookerRedelegatedAt: nowIso(),
     });
-
-    if (previousBookerUserId) {
-      const absentUser = await ctx.db.get(previousBookerUserId as Id<"users">);
-      if (absentUser) {
-        await ctx.db.patch(previousBookerUserId as Id<"users">, {
-          cancelledTrips: (absentUser.cancelledTrips ?? 0) + 1,
-        });
-      }
-    }
 
     return { ok: true };
   },
