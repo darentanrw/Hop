@@ -1152,9 +1152,7 @@ export function GroupClient({
               runAction(async () => {
                 await createReport({
                   groupId: group.group.id as Id<"groups">,
-                  reportedUserId: reportedUserId
-                    ? (reportedUserId as Id<"users">)
-                    : undefined,
+                  reportedUserId: reportedUserId ? (reportedUserId as Id<"users">) : undefined,
                   category: reportCategory as
                     | "no_show"
                     | "non_payment"
