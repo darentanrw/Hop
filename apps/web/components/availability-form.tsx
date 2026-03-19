@@ -18,6 +18,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const [dateInput, setDateInput] = useState(getDefaultDateInput());
   const [startSlot, setStartSlot] = useState(defaultRange.startSlot);
   const [endSlot, setEndSlot] = useState(defaultRange.endSlot);
+  const [destination, setDestination] = useState("");
   const [status, setStatus] = useState<{ type: "info" | "error" | "success"; text: string } | null>(
     null,
   );
@@ -25,12 +26,17 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!destination.trim()) {
+      setStatus({ type: "error", text: "Please enter your drop-off destination." });
+      return;
+    }
     setBusy(true);
     setStatus(null);
 
     const { windowStart, windowEnd } = slotsToIsoRange(dateInput, startSlot, endSlot);
     const matcherPayload = createStubMatcherSubmission(
       `${profile.userId}:${dateInput}:${startSlot}:${endSlot}`,
+      destination,
     );
 
     try {
@@ -45,7 +51,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         routeDescriptorRef: matcherPayload.routeDescriptorRef,
         estimatedFareBand: matcherPayload.estimatedFareBand,
       });
-      setStatus({ type: "success", text: "Availability saved." });
+      setStatus({ type: "success", text: "Window saved." });
       window.location.href = "/dashboard";
     } catch (err) {
       setStatus({
@@ -83,16 +89,49 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             Destination stays private
           </strong>
           <p className="text-sm" style={{ marginTop: 4, color: "var(--text-secondary)" }}>
-            Hop matches on the destination tied to this booking window. Once a group forms, you will
-            need a new booking window to change it.
+            Only riders in your confirmed group can see where you're going.
           </p>
+        </div>
+      </div>
+
+      {/* Destination */}
+      <div className="card stack-sm">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label htmlFor="destination" style={{ fontSize: 14 }}>
+            Drop-off destination
+          </label>
+          <small className="text-muted">Where are you heading?</small>
+        </div>
+        <div style={{ position: "relative" }}>
+          <span
+            style={{
+              position: "absolute",
+              left: 14,
+              top: "50%",
+              transform: "translateY(-50%)",
+              fontSize: 16,
+              pointerEvents: "none",
+            }}
+          >
+            🏁
+          </span>
+          <input
+            id="destination"
+            type="text"
+            value={destination}
+            onChange={(e) => setDestination(e.target.value)}
+            placeholder="e.g. Clementi MRT, Holland V, Jurong East"
+            style={{ paddingLeft: 42 }}
+            required
+            autoComplete="off"
+          />
         </div>
       </div>
 
       {/* Time window */}
       <div className="card stack">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span>Time window</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>Departure window</span>
           <small className="text-muted">When you want to leave NUS Utown</small>
         </div>
         <TimeRangePicker
@@ -107,7 +146,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         />
       </div>
 
-      {/* Pickup note */}
+      {/* Origin fixed */}
       <div
         style={{
           display: "flex",
@@ -125,9 +164,9 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             className="text-sm fw-600"
             style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}
           >
-            Pickup: NUS Utown
+            From: NUS Utown
           </p>
-          <p className="text-xs text-muted">Fixed origin for all matches</p>
+          <p className="text-xs text-muted">Fixed pickup for all matches</p>
         </div>
       </div>
 
@@ -146,10 +185,10 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             >
               <circle cx="12" cy="12" r="10" strokeDasharray="50" strokeDashoffset="20" />
             </svg>
-            Submitting...
+            Saving…
           </>
         ) : (
-          "Save availability"
+          "Save window"
         )}
       </button>
 
