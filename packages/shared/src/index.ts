@@ -7,12 +7,28 @@ export const SMALL_GROUP_RELEASE_HOURS = 5;
 export const MAX_GROUP_SIZE = 4;
 export const MIN_GROUP_SIZE = 2;
 export const MAX_DETOUR_MINUTES = 12;
+export const MEETUP_GRACE_MINUTES = 5;
+export const PAYMENT_WINDOW_HOURS = 24;
 
 export type SelfDeclaredGender = "woman" | "man" | "nonbinary" | "prefer_not_to_say";
 
 export type FareBand = "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
 
-export type GroupStatus = "tentative" | "revealed" | "dissolved";
+export type GroupStatus =
+  | "tentative"
+  | "revealed"
+  | "dissolved"
+  | "matched_pending_ack"
+  | "group_confirmed"
+  | "meetup_preparation"
+  | "meetup_checkin"
+  | "depart_ready"
+  | "in_trip"
+  | "receipt_pending"
+  | "payment_pending"
+  | "closed"
+  | "reported"
+  | "cancelled";
 
 export interface RiderProfile {
   userId: string;
