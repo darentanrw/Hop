@@ -12,13 +12,5 @@ export default async function GroupPage() {
   await fetchMutation(api.trips.advanceCurrentGroupLifecycle, {}, { token });
   const current = await fetchQuery(api.trips.getActiveTrip, {}, { token });
 
-  return (
-    <div className="stack-lg stagger">
-      <div style={{ paddingTop: 4 }}>
-        <h1>Your ride group</h1>
-        <p style={{ marginTop: 6 }}>Confirm, meet up, check in, ride, and settle up here.</p>
-      </div>
-      <GroupClient initialGroup={current} />
-    </div>
-  );
+  return <GroupClient initialGroup={current} />;
 }

@@ -624,12 +624,6 @@ label span {
   margin-bottom: 8px;
 }
 
-.top-bar-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .hop-logo {
   width: 32px;
   height: 32px;
@@ -643,23 +637,6 @@ label span {
   font-size: 16px;
   color: #0a0c14;
   flex-shrink: 0;
-}
-
-.top-bar-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.top-bar-info .pseudonym {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text);
-}
-
-.top-bar-info .campus {
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 /* --- Navigation: Bottom Tabs --- */
@@ -1440,13 +1417,114 @@ label span {
   color: var(--text-muted);
 }
 
-/* --- Group Card --- */
-.group-info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* --- Group Hero Card --- */
+.group-hero-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.group-my-emoji {
+  font-size: 52px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.group-identity-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.group-identity-you {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+}
+
+.group-identity-role {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--text);
+}
+
+.group-booker-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.group-booker-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+}
+
+.group-booker-emoji {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.group-logistics {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.group-logistics-row {
+  display: flex;
+  align-items: flex-start;
   gap: 12px;
 }
 
+.group-logistics-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.group-logistics-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  margin-bottom: 2px;
+}
+
+.group-logistics-value {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.group-countdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Legacy cell styles kept for compatibility */
 .group-info-cell {
   padding: 12px;
   background: var(--bg-raised);
@@ -1470,10 +1548,59 @@ label span {
   color: var(--text);
 }
 
-.pwa-card {
+/* --- PWA Full-Page Overlay --- */
+.pwa-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  animation: fadeIn 0.25s ease both;
+}
+
+.pwa-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 16, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.pwa-overlay-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  padding: 8px 24px calc(var(--safe-bottom) + 36px);
+  animation: slideUp 0.38s var(--ease-out-expo) both;
+}
+
+.pwa-overlay-card::before {
+  content: "";
+  display: block;
+  width: 36px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 12px auto 24px;
+}
+
+.pwa-modal-content {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  gap: 16px;
+}
+
+.pwa-modal-icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 4px;
 }
 
 .pwa-status-row {
