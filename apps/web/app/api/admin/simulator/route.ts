@@ -16,6 +16,7 @@ import {
   validateSimulatorRequest,
 } from "../../../../lib/admin-simulator";
 import { getGroupTheme } from "../../../../lib/group-lifecycle";
+import { getMatcherBaseUrl } from "../../../../lib/matcher-base-url";
 
 type DestinationSubmission = {
   sealedDestinationRef: string;
@@ -70,7 +71,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 
-  const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
   const previewSecret = process.env.MATCHER_ADMIN_PREVIEW_SECRET?.trim();
   if (!previewSecret) {
     return NextResponse.json(
@@ -80,6 +80,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const matcherBaseUrl = getMatcherBaseUrl();
     const SUBMIT_CONCURRENCY = 4;
     const riderDrafts: Array<
       DestinationSubmission & {

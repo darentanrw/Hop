@@ -116,6 +116,7 @@ The production site should use a **deployed Convex production deployment**, not 
 3. In Vercel, set these project environment variables:
    - `CONVEX_DEPLOY_KEY` — lets the production Vercel build run `convex deploy`
    - `NEXT_PUBLIC_MATCHER_BASE_URL` — public matcher base URL for the web app
+   - `MATCHER_BASE_URL` — server-side matcher base URL for Next.js routes and server actions
    - `MATCHER_ADMIN_PREVIEW_SECRET` — shared secret for the admin simulator preview endpoint
 
 ### Production config rule of thumb
@@ -123,6 +124,7 @@ The production site should use a **deployed Convex production deployment**, not 
 - Vercel env:
   - `CONVEX_DEPLOY_KEY`
   - `NEXT_PUBLIC_MATCHER_BASE_URL`
+  - `MATCHER_BASE_URL`
   - `MATCHER_ADMIN_PREVIEW_SECRET`
   - optionally `NEXT_PUBLIC_CONVEX_URL` for preview deployments
 - Convex production env:

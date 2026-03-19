@@ -27,6 +27,7 @@ import {
   getGroupTheme,
   selectBookerUserId,
 } from "../lib/group-lifecycle";
+import { getMatcherBaseUrl } from "../lib/matcher-base-url";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
 import { buildLoginUrl, buildNotificationEmail } from "../lib/notification-email";
@@ -85,8 +86,8 @@ async function scheduleLifecycleNotifications(
 // formGroups, evaluateGroup, and related helpers are in ../lib/matching.ts
 
 async function fetchCompatibility(routeDescriptorRefs: string[]) {
-  const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
   try {
+    const matcherBaseUrl = getMatcherBaseUrl();
     const response = await fetch(`${matcherBaseUrl}/matcher/compatibility`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -125,8 +126,8 @@ async function fetchRevealEnvelopes(
     publicKey: string;
   }>,
 ) {
-  const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
   try {
+    const matcherBaseUrl = getMatcherBaseUrl();
     const response = await fetch(`${matcherBaseUrl}/matcher/reveal-envelopes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

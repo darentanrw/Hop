@@ -1,9 +1,8 @@
 import type { AddressEnvelope, CompatibilityEdge } from "@hop/shared";
-
-const MATCHER_BASE_URL = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
+import { getMatcherBaseUrl } from "./matcher-base-url";
 
 export async function fetchCompatibility(routeDescriptorRefs: string[]) {
-  const response = await fetch(`${MATCHER_BASE_URL}/matcher/compatibility`, {
+  const response = await fetch(`${getMatcherBaseUrl()}/matcher/compatibility`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ routeDescriptorRefs }),
@@ -26,7 +25,7 @@ export async function fetchRevealEnvelopes(
     publicKey: string;
   }>,
 ) {
-  const response = await fetch(`${MATCHER_BASE_URL}/matcher/reveal-envelopes`, {
+  const response = await fetch(`${getMatcherBaseUrl()}/matcher/reveal-envelopes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ members }),
