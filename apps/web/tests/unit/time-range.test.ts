@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   clampRange,
   formatRangeSummary,
+  formatStoredWindow,
   slotFromPointerPosition,
   slotsToIsoRange,
   updateRangeForHandle,
@@ -34,5 +35,13 @@ describe("time range utilities", () => {
 
   test("formats a readable summary", () => {
     expect(formatRangeSummary("2026-03-20", 36, 40)).toContain("Mar");
+  });
+
+  test("formats stored windows in Singapore time", () => {
+    const formatted = formatStoredWindow("2026-03-20T10:00:00.000Z", "2026-03-20T12:00:00.000Z");
+
+    expect(formatted).toContain("Fri");
+    expect(formatted).toContain("6:00");
+    expect(formatted).toContain("8:00");
   });
 });

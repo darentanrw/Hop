@@ -4,7 +4,6 @@ import type { RiderProfile } from "@hop/shared";
 import { useMutation } from "convex/react";
 import { type FormEvent, useState } from "react";
 import { api } from "../convex/_generated/api";
-import { createStubMatcherSubmission } from "../lib/matcher-stub";
 import { getDefaultDateInput, getDefaultRange, slotsToIsoRange } from "../lib/time-range";
 import { TimeRangePicker } from "./time-range-picker";
 
@@ -18,6 +17,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const [dateInput, setDateInput] = useState(getDefaultDateInput());
   const [startSlot, setStartSlot] = useState(defaultRange.startSlot);
   const [endSlot, setEndSlot] = useState(defaultRange.endSlot);
+  const [destinationAddress, setDestinationAddress] = useState("");
   const [status, setStatus] = useState<{ type: "info" | "error" | "success"; text: string } | null>(
     null,
   );
@@ -28,12 +28,37 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
     setBusy(true);
     setStatus(null);
 
+    const trimmedDestinationAddress = destinationAddress.trim();
+    if (!trimmedDestinationAddress) {
+      setStatus({ type: "error", text: "Enter the address you are heading to." });
+      setBusy(false);
+      return;
+    }
+
     const { windowStart, windowEnd } = slotsToIsoRange(dateInput, startSlot, endSlot);
-    const matcherPayload = createStubMatcherSubmission(
-      `${profile.userId}:${dateInput}:${startSlot}:${endSlot}`,
-    );
 
     try {
+      const matcherResponse = await fetch("/api/matcher/destination", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: trimmedDestinationAddress }),
+      });
+      const matcherPayload = (await matcherResponse.json()) as {
+        error?: string;
+        sealedDestinationRef?: string;
+        routeDescriptorRef?: string;
+        estimatedFareBand?: "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
+      };
+
+      if (
+        !matcherResponse.ok ||
+        !matcherPayload.sealedDestinationRef ||
+        !matcherPayload.routeDescriptorRef ||
+        !matcherPayload.estimatedFareBand
+      ) {
+        throw new Error(matcherPayload.error ?? "Could not save destination.");
+      }
+
       await createAvailability({
         windowStart,
         windowEnd,
@@ -89,6 +114,25 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         </div>
       </div>
 
+      <div className="card stack">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span>Destination</span>
+          <small className="text-muted">Where you are heading after pickup from NUS Utown</small>
+        </div>
+        <div className="stack-xs">
+          <label htmlFor="destination-address">Going to</label>
+          <textarea
+            id="destination-address"
+            value={destinationAddress}
+            onChange={(event) => setDestinationAddress(event.target.value)}
+            placeholder="Enter your address or nearest drop-off point"
+            rows={3}
+            autoComplete="street-address"
+            required
+          />
+        </div>
+      </div>
+
       {/* Time window */}
       <div className="card stack">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -131,7 +175,11 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         </div>
       </div>
 
-      <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+      <button
+        type="submit"
+        className="btn btn-primary btn-block"
+        disabled={busy || !destinationAddress.trim()}
+      >
         {busy ? (
           <>
             <svg

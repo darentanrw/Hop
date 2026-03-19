@@ -43,6 +43,10 @@ function hashString(input: string) {
   return hash;
 }
 
+function normalizeAddress(address: string) {
+  return address.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function getDestinationForSeed(seed: string) {
   return destinations[hashString(seed) % destinations.length];
 }
@@ -108,6 +112,18 @@ export function createStubMatcherSubmission(seed: string) {
     sealedDestinationRef: `stub:destination:${encodeAddress(destination.address)}`,
     routeDescriptorRef: `stub:route:${destination.cluster}:${seedHash % 1000}`,
     estimatedFareBand: destination.fareBand,
+  };
+}
+
+export function createStubMatcherSubmissionForAddress(address: string) {
+  const trimmedAddress = address.trim();
+  const normalizedAddress = normalizeAddress(trimmedAddress);
+  const addressHash = hashString(normalizedAddress);
+
+  return {
+    sealedDestinationRef: `stub:destination:${encodeAddress(trimmedAddress)}`,
+    routeDescriptorRef: `stub:route:${addressHash % 4}:${addressHash % 1000}`,
+    estimatedFareBand: fareBands[hashString(`fare:${normalizedAddress}`) % fareBands.length],
   };
 }
 
