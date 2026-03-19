@@ -2,7 +2,7 @@ export const SLOT_MINUTES = 30;
 export const SLOTS_PER_DAY = 48;
 export const MIN_DURATION_SLOTS = 2;
 
-const SINGAPORE_TIME_ZONE = "Asia/Singapore";
+export const SINGAPORE_TIME_ZONE = "Asia/Singapore";
 const SINGAPORE_OFFSET_HOURS = 8;
 
 const timeFormatter = new Intl.DateTimeFormat("en-SG", {
@@ -15,6 +15,11 @@ const dateFormatter = new Intl.DateTimeFormat("en-SG", {
   weekday: "short",
   month: "short",
   day: "numeric",
+  timeZone: SINGAPORE_TIME_ZONE,
+});
+
+const weekdayFormatter = new Intl.DateTimeFormat("en-SG", {
+  weekday: "short",
   timeZone: SINGAPORE_TIME_ZONE,
 });
 
@@ -139,6 +144,16 @@ export function formatRangeSummary(dateInput: string, startSlot: number, endSlot
   const endLabel = timeFormatter.format(endDate);
 
   return `${dateLabel}, ${startLabel} - ${endLabel}`;
+}
+
+export function formatStoredWindow(windowStart: string, windowEnd: string) {
+  const start = new Date(windowStart);
+  const end = new Date(windowEnd);
+  const dayLabel = weekdayFormatter.format(start);
+  const startLabel = timeFormatter.format(start);
+  const endLabel = timeFormatter.format(end);
+
+  return `${dayLabel} ${startLabel} - ${endLabel}`;
 }
 
 export function slotFromPointerPosition(clientX: number, trackLeft: number, trackWidth: number) {
