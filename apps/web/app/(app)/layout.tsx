@@ -3,6 +3,7 @@ import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
 import { BottomNav } from "../../components/bottom-nav";
 import { ClientKeyRegistrar } from "../../components/client-key-registrar";
+import { LocalQaPanel } from "../../components/local-qa-panel";
 import { LogoutButton } from "../../components/logout-button";
 import { PwaCoachmark } from "../../components/pwa-coachmark";
 import { api } from "../../convex/_generated/api";
@@ -23,17 +24,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <>
       <div className="page-container">
         <div className="top-bar">
-          <div className="top-bar-brand">
-            <div className="hop-logo">H</div>
-            <div className="top-bar-info">
-              <span className="pseudonym">{riderProfile.name?.trim() || "Hop member"}</span>
-              <span className="campus">NUS</span>
-            </div>
-          </div>
+          <div className="hop-logo">H</div>
           <LogoutButton />
         </div>
         <ClientKeyRegistrar />
         <PwaCoachmark />
+        <LocalQaPanel />
         {children}
       </div>
       <BottomNav />

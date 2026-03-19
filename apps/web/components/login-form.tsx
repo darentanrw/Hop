@@ -1,19 +1,25 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useQuery } from "convex/react";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
+import { api } from "../convex/_generated/api";
 import { OtpInput } from "./otp-input";
 
 type Step = "email" | "otp";
 
+const localQaRequested = process.env.NEXT_PUBLIC_ENABLE_LOCAL_QA === "true";
+
 export function LoginForm() {
   const router = useRouter();
   const { signIn } = useAuthActions();
+  const localQaConfig = useQuery(api.admin.localQaConfig);
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<{ type: "info" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const localQaEnabled = localQaRequested && localQaConfig?.enabled === true;
 
   async function requestOtp(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -51,8 +57,52 @@ export function LoginForm() {
     }
   }
 
+  async function signInWithLocalQa() {
+    setBusy(true);
+    setStatus(null);
+
+    try {
+      await signIn("anonymous", {
+        name: "Local QA Rider",
+        email: `local-qa-${crypto.randomUUID().slice(0, 8)}@u.nus.edu`,
+      });
+      router.replace("/dashboard");
+    } catch (err) {
+      setStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Could not start the local QA session.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="stack stagger">
+      {localQaEnabled ? (
+        <div className="card stack" style={{ borderStyle: "dashed" }}>
+          <div className="stack-xs">
+            <div className="row" style={{ gap: 8 }}>
+              <span className="pill pill-accent">Local QA</span>
+              <span className="pill pill-muted">Dev only</span>
+            </div>
+            <h3 style={{ marginTop: 4 }}>Skip OTP for manual testing</h3>
+            <p className="text-sm text-muted">
+              Start a local QA session instantly, then use the dashboard controls to seed rides,
+              create demo groups, and trigger matching.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-block"
+            onClick={signInWithLocalQa}
+            disabled={busy}
+          >
+            {busy ? "Starting local QA..." : "Sign in with Local QA"}
+          </button>
+        </div>
+      ) : null}
+
       <div className="progress-bar">
         <div className="progress-fill" style={{ width: step === "email" ? "50%" : "100%" }} />
       </div>

@@ -15,7 +15,10 @@ import type * as http from "../http.js";
 import type * as inboundEmail from "../inboundEmail.js";
 import type * as inboundMutations from "../inboundMutations.js";
 import type * as mutations from "../mutations.js";
+import type * as notifications from "../notifications.js";
+import type * as notificationsModel from "../notificationsModel.js";
 import type * as queries from "../queries.js";
+import type * as trips from "../trips.js";
 import type * as verification from "../verification.js";
 
 import type {
@@ -32,7 +35,10 @@ declare const fullApi: ApiFromModules<{
   inboundEmail: typeof inboundEmail;
   inboundMutations: typeof inboundMutations;
   mutations: typeof mutations;
+  notifications: typeof notifications;
+  notificationsModel: typeof notificationsModel;
   queries: typeof queries;
+  trips: typeof trips;
   verification: typeof verification;
 }>;
 
