@@ -2,10 +2,24 @@
 
 import type { RiderProfile } from "@hop/shared";
 import { useMutation } from "convex/react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
-import { getDefaultDateInput, getDefaultRange, slotsToIsoRange } from "../lib/time-range";
+import {
+  clampRange,
+  getDefaultDateInput,
+  getDefaultRange,
+  getEarliestSlotForDate,
+  slotsToIsoRange,
+} from "../lib/time-range";
 import { TimeRangePicker } from "./time-range-picker";
+
+const matcherBaseUrl = process.env.NEXT_PUBLIC_MATCHER_BASE_URL ?? "http://localhost:4001";
+
+type AddressSuggestion = {
+  title: string;
+  address: string;
+  postal: string;
+};
 
 type AvailabilityFormProps = {
   profile: RiderProfile;
@@ -13,15 +27,58 @@ type AvailabilityFormProps = {
 
 export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const createAvailability = useMutation(api.mutations.createAvailability);
-  const defaultRange = getDefaultRange();
-  const [dateInput, setDateInput] = useState(getDefaultDateInput());
+  const initialDate = getDefaultDateInput();
+  const defaultRange = getDefaultRange(initialDate);
+  const [dateInput, setDateInput] = useState(initialDate);
   const [startSlot, setStartSlot] = useState(defaultRange.startSlot);
   const [endSlot, setEndSlot] = useState(defaultRange.endSlot);
+  const minSlot = getEarliestSlotForDate(dateInput);
   const [destinationAddress, setDestinationAddress] = useState("");
+  const [addressQuery, setAddressQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [status, setStatus] = useState<{ type: "info" | "error" | "success"; text: string } | null>(
     null,
   );
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  function handleAddressInput(text: string) {
+    setAddressQuery(text);
+    setDestinationAddress("");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (text.trim().length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${matcherBaseUrl}/matcher/search?q=${encodeURIComponent(text.trim())}`,
+        );
+        if (!response.ok) return;
+        const data = (await response.json()) as { results: AddressSuggestion[] };
+        setSuggestions(data.results ?? []);
+        setShowSuggestions((data.results ?? []).length > 0);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 300);
+  }
+
+  function selectSuggestion(suggestion: AddressSuggestion) {
+    setDestinationAddress(suggestion.address);
+    setAddressQuery(suggestion.address);
+    setShowSuggestions(false);
+    setSuggestions([]);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,14 +104,12 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         error?: string;
         sealedDestinationRef?: string;
         routeDescriptorRef?: string;
-        estimatedFareBand?: "S$10-15" | "S$16-20" | "S$21-25" | "S$26+";
       };
 
       if (
         !matcherResponse.ok ||
         !matcherPayload.sealedDestinationRef ||
-        !matcherPayload.routeDescriptorRef ||
-        !matcherPayload.estimatedFareBand
+        !matcherPayload.routeDescriptorRef
       ) {
         throw new Error(matcherPayload.error ?? "Could not save destination.");
       }
@@ -68,7 +123,6 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         maxGroupSize: profile.maxGroupSize,
         sealedDestinationRef: matcherPayload.sealedDestinationRef,
         routeDescriptorRef: matcherPayload.routeDescriptorRef,
-        estimatedFareBand: matcherPayload.estimatedFareBand,
       });
       setStatus({ type: "success", text: "Availability saved." });
       window.location.href = "/dashboard";
@@ -83,7 +137,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   }
 
   return (
-    <form className="stack stagger" onSubmit={handleSubmit}>
+    <form className="stack stagger" onSubmit={handleSubmit} style={{ overflow: "visible" }}>
       {/* Privacy badge */}
       <div className="card-privacy" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
         <div style={{ flexShrink: 0, marginTop: 2 }}>
@@ -114,22 +168,76 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         </div>
       </div>
 
-      <div className="card stack">
+      <div className="card stack" style={{ overflow: "visible", position: "relative", zIndex: 10 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <span>Destination</span>
           <small className="text-muted">Where you are heading after pickup from NUS Utown</small>
         </div>
         <div className="stack-xs">
           <label htmlFor="destination-address">Going to</label>
-          <textarea
-            id="destination-address"
-            value={destinationAddress}
-            onChange={(event) => setDestinationAddress(event.target.value)}
-            placeholder="Enter your address or nearest drop-off point"
-            rows={3}
-            autoComplete="street-address"
-            required
-          />
+          <div style={{ position: "relative" }}>
+            <input
+              id="destination-address"
+              type="text"
+              className="input"
+              value={addressQuery}
+              onChange={(e) => handleAddressInput(e.target.value)}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              placeholder="Search for your drop-off address"
+              autoComplete="off"
+              required
+              style={{ width: "100%" }}
+            />
+            {destinationAddress ? (
+              <div className="text-xs" style={{ color: "var(--color-success, #22c55e)", marginTop: 4 }}>
+                {destinationAddress}
+              </div>
+            ) : null}
+            {showSuggestions ? (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  zIndex: 999,
+                  background: "var(--bg-elevated, var(--surface, #fff))",
+                  border: "1px solid var(--border, #e2e2e2)",
+                  borderRadius: "var(--radius-md, 8px)",
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                  marginTop: 4,
+                }}
+              >
+                {suggestions.map((s) => (
+                  <button
+                    key={`${s.postal}-${s.address}`}
+                    type="button"
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      border: "none",
+                      background: "none",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      borderBottom: "1px solid var(--border, #eee)",
+                      lineHeight: 1.4,
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => selectSuggestion(s)}
+                  >
+                    <strong>{s.title}</strong>
+                    <br />
+                    <span className="text-muted" style={{ fontSize: 12 }}>{s.address}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -143,7 +251,14 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
           dateInput={dateInput}
           startSlot={startSlot}
           endSlot={endSlot}
-          onDateInputChange={setDateInput}
+          minSlot={minSlot}
+          onDateInputChange={(nextDate) => {
+            setDateInput(nextDate);
+            const nextMinSlot = getEarliestSlotForDate(nextDate);
+            const clamped = clampRange(startSlot, endSlot, nextMinSlot);
+            setStartSlot(clamped.startSlot);
+            setEndSlot(clamped.endSlot);
+          }}
           onRangeChange={({ startSlot: nextStartSlot, endSlot: nextEndSlot }) => {
             setStartSlot(nextStartSlot);
             setEndSlot(nextEndSlot);

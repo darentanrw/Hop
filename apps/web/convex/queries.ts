@@ -176,7 +176,6 @@ export const getMatchingCandidates = internalQuery({
       maxGroupSize: availability.maxGroupSize,
       routeDescriptorRef: availability.routeDescriptorRef,
       sealedDestinationRef: availability.sealedDestinationRef,
-      estimatedFareBand: availability.estimatedFareBand,
       displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
     }));
   },
@@ -236,5 +235,12 @@ export const getRevealContext = internalQuery({
         ciphertext: envelope.ciphertext,
       })),
     };
+  },
+});
+
+export const getAvailabilityById = internalQuery({
+  args: { availabilityId: v.id("availabilities") },
+  handler: async (ctx, { availabilityId }) => {
+    return await ctx.db.get(availabilityId);
   },
 });

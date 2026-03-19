@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   ACK_WINDOW_MINUTES,
+  MAX_GROUP_SIZE,
   MEETUP_GRACE_MINUTES,
   PAYMENT_WINDOW_HOURS,
   PICKUP_ORIGIN_ID,
@@ -14,6 +15,7 @@ import {
   deriveMeetingTime,
   getEmojiForMember,
   getGroupTheme,
+  selectBookerUserId,
 } from "../lib/group-lifecycle";
 import { createStubMatcherSubmission } from "../lib/matcher-stub";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -22,6 +24,9 @@ import { internalMutation, mutation, query } from "./_generated/server";
 
 const LOCAL_QA_BOT_PREFIX = "local-qa-bot-";
 const ACTIVE_GROUP_STATUSES = new Set([
+  "tentative",
+  "semi_locked",
+  "locked",
   "matched_pending_ack",
   "group_confirmed",
   "meetup_preparation",
@@ -42,7 +47,7 @@ const defaultPreferences = {
 
 type GroupDoc = Doc<"groups">;
 
-type LocalQaScenario = "matched" | "meetup" | "in_trip" | "payment";
+type LocalQaScenario = "matched" | "meetup" | "in_trip" | "payment" | "rolling_match";
 
 function ensureLocalQaEnabled() {
   if (process.env.ENABLE_LOCAL_QA !== "true") {
@@ -162,7 +167,6 @@ async function createQaAvailability(
     ...defaultPreferences,
     sealedDestinationRef: matcherPayload.sealedDestinationRef,
     routeDescriptorRef: matcherPayload.routeDescriptorRef,
-    estimatedFareBand: matcherPayload.estimatedFareBand,
     createdAt: nowIso(),
     status: "open",
     ...overrides,
@@ -220,7 +224,6 @@ async function createLocalQaGroupDocuments(
     windowStart: currentAvailability.windowStart,
     windowEnd: currentAvailability.windowEnd,
     groupSize: memberUserIds.length,
-    estimatedFareBand: currentAvailability.estimatedFareBand,
     maxDetourMinutes: 6,
     averageScore: 0.94,
     minimumScore: 0.9,
@@ -297,7 +300,15 @@ async function createLocalQaGroupDocuments(
     await ctx.db.patch(availabilityId, { status: "matched" });
   }
 
-  if (scenario !== "matched") {
+  if (scenario === "rolling_match") {
+    await ctx.db.patch(groupId, {
+      status: "tentative",
+      suggestedDropoffOrder: lockedDestinations.map((destination) => destination.userId),
+      memberUserIds,
+      availabilityIds,
+      groupSize: memberDocs.length,
+    });
+  } else if (scenario !== "matched") {
     await ctx.db.patch(groupId, {
       status:
         scenario === "meetup"
@@ -376,8 +387,17 @@ export const bootstrapLocalQaUser = mutation({
 });
 
 export const seedLocalQaPool = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    liveDestinations: v.optional(
+      v.array(
+        v.object({
+          sealedDestinationRef: v.string(),
+          routeDescriptorRef: v.string(),
+        }),
+      ),
+    ),
+  },
+  handler: async (ctx, { liveDestinations }) => {
     ensureLocalQaEnabled();
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
@@ -399,11 +419,17 @@ export const seedLocalQaPool = mutation({
       ctx,
       userId,
       `local-qa-self:${userId}:${Date.now()}`,
+      liveDestinations?.[0],
     );
     const bots = await Promise.all([createQaBot(ctx, 1), createQaBot(ctx, 2)]);
     const botAvailabilityIds = await Promise.all(
       bots.map((bot, index) =>
-        createQaAvailability(ctx, bot.userId, `local-qa-seed:${bot.userId}:${Date.now()}:${index}`),
+        createQaAvailability(
+          ctx,
+          bot.userId,
+          `local-qa-seed:${bot.userId}:${Date.now()}:${index}`,
+          liveDestinations?.[index + 1],
+        ),
       ),
     );
 
@@ -413,6 +439,7 @@ export const seedLocalQaPool = mutation({
       metadata: {
         currentAvailabilityId,
         botAvailabilityIds,
+        live: Boolean(liveDestinations),
       },
       createdAt: nowIso(),
     });
@@ -431,6 +458,7 @@ export const createLocalQaGroup = mutation({
       v.literal("meetup"),
       v.literal("in_trip"),
       v.literal("payment"),
+      v.literal("rolling_match"),
     ),
   },
   handler: async (ctx, { scenario }) => {
@@ -562,6 +590,76 @@ export const deleteCurrentLocalQaGroup = mutation({
       ok: true,
       deletedGroupId: activeGroup._id,
     };
+  },
+});
+
+export const forceLockGroups = mutation({
+  args: {},
+  handler: async (ctx) => {
+    ensureLocalQaEnabled();
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const activeGroup = await findActiveGroupForUser(ctx, userId);
+    if (!activeGroup) {
+      throw new Error("No active group to lock.");
+    }
+
+    if (activeGroup.status !== "tentative") {
+      throw new Error(`Group is "${activeGroup.status}", expected "tentative".`);
+    }
+
+    const newStatus = activeGroup.groupSize >= MAX_GROUP_SIZE ? "locked" : "semi_locked";
+    await ctx.db.patch(activeGroup._id, { status: newStatus });
+
+    await ctx.db.insert("auditEvents", {
+      action: "qa.force_lock",
+      actorId: userId,
+      metadata: { groupId: activeGroup._id, newStatus },
+      createdAt: nowIso(),
+    });
+
+    return { ok: true, groupId: activeGroup._id, newStatus };
+  },
+});
+
+export const forceHardLockGroups = mutation({
+  args: {},
+  handler: async (ctx) => {
+    ensureLocalQaEnabled();
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const activeGroup = await findActiveGroupForUser(ctx, userId);
+    if (!activeGroup) {
+      throw new Error("No active group to hard-lock.");
+    }
+
+    if (activeGroup.status !== "semi_locked") {
+      throw new Error(`Group is "${activeGroup.status}", expected "semi_locked".`);
+    }
+
+    const members = await ctx.db
+      .query("groupMembers")
+      .withIndex("groupId", (q) => q.eq("groupId", activeGroup._id))
+      .collect();
+    const activeMembers = members.filter((m) => m.participationStatus === "active");
+    const memberUserIds = activeMembers.map((m) => m.userId);
+    const bookerUserId = selectBookerUserId(memberUserIds);
+
+    await ctx.db.patch(activeGroup._id, {
+      status: "locked",
+      bookerUserId: bookerUserId ?? activeGroup.bookerUserId,
+    });
+
+    await ctx.db.insert("auditEvents", {
+      action: "qa.force_hard_lock",
+      actorId: userId,
+      metadata: { groupId: activeGroup._id, bookerUserId },
+      createdAt: nowIso(),
+    });
+
+    return { ok: true, groupId: activeGroup._id, bookerUserId };
   },
 });
 
@@ -738,5 +836,72 @@ export const deleteUser = internalMutation({
       deleted: true,
       email: user.email,
     };
+  },
+});
+
+/**
+ * One-time migration: cancel all open availabilities with old-style
+ * routeDescriptorRef values (pre-geohash) and dissolve any tentative
+ * groups that reference them.
+ *
+ * Run from Convex Dashboard → Functions → admin.migrateOldAvailabilities.
+ */
+export const migrateOldAvailabilities = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const availabilities = await ctx.db.query("availabilities").collect();
+    let cancelledAvailabilities = 0;
+    const affectedGroupIds = new Set<string>();
+
+    for (const availability of availabilities) {
+      if (availability.status !== "open") continue;
+
+      const isLegacy =
+        !availability.routeDescriptorRef.startsWith("stub:") &&
+        !availability.routeDescriptorRef.startsWith("route_");
+
+      const isOldRouteFormat =
+        availability.routeDescriptorRef.startsWith("route_") && "estimatedFareBand" in availability;
+
+      if (isLegacy || isOldRouteFormat) {
+        await ctx.db.patch(availability._id, { status: "cancelled" });
+        cancelledAvailabilities += 1;
+      }
+    }
+
+    const groups = await ctx.db.query("groups").collect();
+    let dissolvedGroups = 0;
+
+    for (const group of groups) {
+      if (group.status !== "tentative") continue;
+
+      let hasLegacyMember = false;
+      for (const availabilityId of group.availabilityIds) {
+        const availability = await ctx.db.get(availabilityId as Id<"availabilities">);
+        if (availability && availability.status === "cancelled") {
+          hasLegacyMember = true;
+          break;
+        }
+      }
+
+      if (hasLegacyMember) {
+        await ctx.db.patch(group._id, { status: "dissolved" });
+        dissolvedGroups += 1;
+        affectedGroupIds.add(group._id);
+      }
+    }
+
+    await ctx.db.insert("auditEvents", {
+      action: "migration.old_availabilities_cleared",
+      actorId: "system",
+      metadata: {
+        cancelledAvailabilities,
+        dissolvedGroups,
+        affectedGroupIds: [...affectedGroupIds],
+      },
+      createdAt: new Date().toISOString(),
+    });
+
+    return { cancelledAvailabilities, dissolvedGroups };
   },
 });

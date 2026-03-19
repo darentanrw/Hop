@@ -14,7 +14,6 @@ function availability(overrides: Partial<AvailabilityEntry> = {}): AvailabilityE
     maxGroupSize: 4,
     sealedDestinationRef: "dest_1",
     routeDescriptorRef: "route_1",
-    estimatedFareBand: "S$10-15",
     createdAt: new Date().toISOString(),
     status: "open",
     ...overrides,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { PwaStatusCard } from "../../../components/pwa-status-card";
 import { api } from "../../../convex/_generated/api";
+import { MAX_GROUP_SIZE } from "@hop/shared";
 import { formatStoredWindow } from "../../../lib/time-range";
 
 function getGreeting() {
@@ -18,6 +19,46 @@ const statusConfig: Record<string, { icon: string; class: string; label: string 
   matched: { icon: "✓", class: "status-matched", label: "Matched" },
   cancelled: { icon: "✕", class: "status-cancelled", label: "Cancelled" },
 };
+
+function getGroupStatusDisplay(status: string, memberCount: number) {
+  const spotsLeft = MAX_GROUP_SIZE - memberCount;
+  if (status === "tentative") {
+    return {
+      pill: "Forming",
+      pillClass: "pill-accent pill-dot pill-pulse",
+      subtitle:
+        spotsLeft > 0
+          ? `Matched ${memberCount} rider${memberCount > 1 ? "s" : ""} — looking for ${spotsLeft} more`
+          : "Group full — locking in soon",
+    };
+  }
+  if (status === "semi_locked") {
+    return {
+      pill: `Open to +${spotsLeft}`,
+      pillClass: "pill-accent pill-dot pill-pulse",
+      subtitle: `${memberCount} riders matched. Open for late joiners until 30 min before departure.`,
+    };
+  }
+  if (status === "matched_pending_ack") {
+    return {
+      pill: "Confirm ride",
+      pillClass: "pill-accent pill-dot pill-pulse",
+      subtitle: "Tap to confirm your spot in this group.",
+    };
+  }
+  if (status === "locked") {
+    return {
+      pill: "Locked",
+      pillClass: "pill-accent",
+      subtitle: "Group locked. Waiting for confirmations.",
+    };
+  }
+  return {
+    pill: "Active group",
+    pillClass: "pill-accent pill-dot pill-pulse",
+    subtitle: null,
+  };
+}
 
 export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
@@ -52,41 +93,51 @@ export default async function DashboardPage() {
       {group ? (
         <Link href="/group" style={{ textDecoration: "none" }}>
           <div className="card-accent" style={{ cursor: "pointer" }}>
-            <div className="row-between" style={{ marginBottom: 12 }}>
-              <span className="pill pill-accent pill-dot pill-pulse">Active group</span>
-              <svg
-                aria-hidden="true"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M5 12h14M12 5l7 7-7 7" />
-              </svg>
-            </div>
-            <div className="row" style={{ gap: 16 }}>
-              <div>
-                <p className="text-sm text-muted">Group</p>
-                <p className="font-display fw-700">{group.group.groupName}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted">Members</p>
-                <p className="font-display fw-700">{group.stats.activeMemberCount}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted">Status</p>
-                <p className="font-display fw-600 text-accent">
-                  {group.group.status.replaceAll("_", " ")}
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-muted" style={{ marginTop: 12 }}>
-              Meet at {group.group.meetingLocationLabel}
-            </p>
+            {(() => {
+              const display = getGroupStatusDisplay(
+                group.group.status,
+                group.stats.activeMemberCount,
+              );
+              return (
+                <>
+                  <div className="row-between" style={{ marginBottom: 12 }}>
+                    <span className={`pill pill-sm ${display.pillClass}`}>{display.pill}</span>
+                    <svg
+                      aria-hidden="true"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--accent)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </div>
+                  <div className="row" style={{ gap: 16 }}>
+                    <div>
+                      <p className="text-sm text-muted">Group</p>
+                      <p className="font-display fw-700">{group.group.groupName}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted">Riders</p>
+                      <p className="font-display fw-700">
+                        {group.stats.activeMemberCount}/{MAX_GROUP_SIZE}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted">Status</p>
+                      <p className="font-display fw-600 text-accent">{display.pill}</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted" style={{ marginTop: 12 }}>
+                    {display.subtitle ?? `Meet at ${group.group.meetingLocationLabel}`}
+                  </p>
+                </>
+              );
+            })()}
           </div>
         </Link>
       ) : (
