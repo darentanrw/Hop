@@ -25,15 +25,15 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
-    setStatus(null);
 
     const trimmedDestinationAddress = destinationAddress.trim();
     if (!trimmedDestinationAddress) {
       setStatus({ type: "error", text: "Enter the address you are heading to." });
-      setBusy(false);
       return;
     }
+
+    setBusy(true);
+    setStatus(null);
 
     const { windowStart, windowEnd } = slotsToIsoRange(dateInput, startSlot, endSlot);
 
@@ -70,7 +70,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         routeDescriptorRef: matcherPayload.routeDescriptorRef,
         estimatedFareBand: matcherPayload.estimatedFareBand,
       });
-      setStatus({ type: "success", text: "Availability saved." });
+      setStatus({ type: "success", text: "Window saved." });
       window.location.href = "/dashboard";
     } catch (err) {
       setStatus({
@@ -84,7 +84,6 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
 
   return (
     <form className="stack stagger" onSubmit={handleSubmit}>
-      {/* Privacy badge */}
       <div className="card-privacy" style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
         <div style={{ flexShrink: 0, marginTop: 2 }}>
           <svg
@@ -133,10 +132,9 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         </div>
       </div>
 
-      {/* Time window */}
       <div className="card stack">
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span>Time window</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>Departure window</span>
           <small className="text-muted">When you want to leave NUS Utown</small>
         </div>
         <TimeRangePicker
@@ -151,7 +149,6 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         />
       </div>
 
-      {/* Pickup note */}
       <div
         style={{
           display: "flex",
@@ -169,9 +166,9 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             className="text-sm fw-600"
             style={{ color: "var(--text)", fontFamily: "var(--font-display)" }}
           >
-            Pickup: NUS Utown
+            From: NUS Utown
           </p>
-          <p className="text-xs text-muted">Fixed origin for all matches</p>
+          <p className="text-xs text-muted">Fixed pickup for all matches</p>
         </div>
       </div>
 
@@ -194,10 +191,10 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             >
               <circle cx="12" cy="12" r="10" strokeDasharray="50" strokeDashoffset="20" />
             </svg>
-            Submitting...
+            Saving…
           </>
         ) : (
-          "Save availability"
+          "Save window"
         )}
       </button>
 
