@@ -161,6 +161,7 @@ const schema = defineSchema({
     generalAreaLabels: v.optional(v.array(v.string())),
     reportCount: v.optional(v.number()),
     rewardedUserIds: v.optional(v.array(v.string())),
+    bookerRedelegatedAt: v.optional(v.string()),
   }),
   groupMembers: defineTable({
     groupId: v.id("groups"),

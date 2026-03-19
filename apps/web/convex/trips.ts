@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
+import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -298,52 +299,6 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
   return await ctx.db.get(group._id);
 }
 
-function buildActions(
-  group: GroupDoc,
-  currentUserId: string,
-  currentUserMember: GroupMemberDoc | null,
-  options?: {
-    everyoneCheckedIn: boolean;
-    graceExpired: boolean;
-  },
-) {
-  const currentStatus = group.status;
-  const isBooker = group.bookerUserId === currentUserId;
-  const canDepartNow =
-    currentStatus === "depart_ready" ||
-    (currentStatus === "meetup_checkin" &&
-      Boolean(options?.everyoneCheckedIn || options?.graceExpired));
-
-  return {
-    canAcknowledge:
-      currentStatus === "matched_pending_ack" &&
-      currentUserMember?.participationStatus !== "removed_no_ack" &&
-      currentUserMember?.acknowledgementStatus !== "accepted",
-    canSubmitDestination: false,
-    canShowQr:
-      (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") &&
-      !isBooker &&
-      Boolean(currentUserMember?.destinationLockedAt) &&
-      (currentUserMember?.participationStatus ?? "active") === "active",
-    canScanQr: (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") && isBooker,
-    canStartCheckIn:
-      (currentStatus === "group_confirmed" || currentStatus === "meetup_preparation") && isBooker,
-    canDepart: canDepartNow && isBooker,
-    canUploadReceipt:
-      (currentStatus === "in_trip" || currentStatus === "receipt_pending") && isBooker,
-    canSubmitPaymentProof:
-      currentStatus === "payment_pending" &&
-      !isBooker &&
-      (currentUserMember?.amountDueCents ?? 0) > 0 &&
-      currentUserMember?.paymentStatus !== "verified",
-    canVerifyPayments: currentStatus === "payment_pending" && isBooker,
-    canReport: currentStatus !== "matched_pending_ack" && Boolean(currentUserMember),
-    canChat:
-      CHAT_ELIGIBLE_STATUSES.has(currentStatus) &&
-      (currentUserMember?.participationStatus ?? "active") === "active",
-  };
-}
-
 async function buildTripPayload(
   ctx: QueryCtx | MutationCtx,
   group: GroupDoc,
@@ -365,6 +320,9 @@ async function buildTripPayload(
   const graceExpired = group.graceDeadline
     ? new Date(group.graceDeadline).getTime() <= Date.now()
     : false;
+  const meetingTime = group.meetingTime ?? group.windowStart;
+  const bookerAbsentWindowPassed =
+    new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
 
   const sortedByDropoff = [...activeMembers].sort(
     (left, right) =>
@@ -414,6 +372,9 @@ async function buildTripPayload(
       receiptSubmittedAt: group.receiptSubmittedAt ?? null,
       paymentDueAt: group.paymentDueAt ?? null,
       reportCount: reports.length,
+      bookerCheckedIn: activeMembers.some(
+        (m) => m.userId === group.bookerUserId && Boolean(m.checkedInAt),
+      ),
     },
     currentUserId,
     currentUserMember: currentUserMemberWithPaymentProof
@@ -467,10 +428,16 @@ async function buildTripPayload(
         emoji: member.emoji ?? "🙂",
         order: member.dropoffOrder ?? null,
       })),
-    actions: buildActions(group, currentUserId, currentUserMember, {
-      everyoneCheckedIn,
-      graceExpired,
-    }),
+    actions: {
+      ...buildActions(group, currentUserId, currentUserMember, {
+        everyoneCheckedIn,
+        graceExpired,
+        bookerAbsentWindowPassed,
+      }),
+      canChat:
+        CHAT_ELIGIBLE_STATUSES.has(group.status) &&
+        (currentUserMember?.participationStatus ?? "active") === "active",
+    },
   };
 }
 
@@ -861,6 +828,109 @@ export const verifyPayment = mutation({
     }
 
     await syncLifecycleForGroup(ctx, (await ctx.db.get(groupId)) ?? group);
+    return { ok: true };
+  },
+});
+
+export const redelegateBooker = mutation({
+  args: {
+    groupId: v.id("groups"),
+    newBookerUserId: v.id("users"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, newBookerUserId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
+    if (!userId) throw new Error("Not authenticated");
+
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+    if (group.bookerUserId !== userId) throw new Error("Only the current booker can redelegate.");
+    if (!REDELEGATE_STATUSES.has(group.status)) {
+      throw new Error("Cannot redelegate booker in the current group status.");
+    }
+
+    const members = await listGroupMembers(ctx, groupId);
+    const activeMembers = getActiveMembers(members);
+    const target = activeMembers.find((m) => m.userId === (newBookerUserId as string));
+    if (!target) throw new Error("Target user is not an active member of this group.");
+    if (target.userId === (userId as string)) {
+      throw new Error("Cannot redelegate to yourself.");
+    }
+
+    await ctx.db.patch(groupId, { bookerUserId: newBookerUserId });
+    return { ok: true };
+  },
+});
+
+export const reportBookerAbsent = mutation({
+  args: {
+    groupId: v.id("groups"),
+    actingUserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { groupId, actingUserId }) => {
+    const userId = await resolveQaActingUserId(ctx, actingUserId);
+    if (!userId) throw new Error("Not authenticated");
+
+    const group = await ctx.db.get(groupId);
+    if (!group) throw new Error("Group not found");
+    if (group.bookerUserId === userId)
+      throw new Error("The booker cannot report themselves absent.");
+    if (group.status !== "meetup_checkin") {
+      throw new Error("Cannot report booker absent in the current group status.");
+    }
+
+    const meetingTime = group.meetingTime ?? group.windowStart;
+    const bufferElapsed = new Date(meetingTime).getTime() + BOOKER_ABSENT_BUFFER_MS <= Date.now();
+    if (!bufferElapsed) {
+      throw new Error("The 5-minute grace window after meeting time has not passed yet.");
+    }
+
+    const members = await listGroupMembers(ctx, groupId);
+    const activeMembers = getActiveMembers(members);
+
+    const callerMember = activeMembers.find((m) => m.userId === (userId as string));
+    if (!callerMember) throw new Error("You are not an active member of this group.");
+
+    const bookerMember = activeMembers.find((m) => m.userId === (group.bookerUserId as string));
+    if (bookerMember?.checkedInAt) throw new Error("The booker has already checked in.");
+
+    const checkedInNonBooker = activeMembers.filter(
+      (m) => m.userId !== (group.bookerUserId as string) && Boolean(m.checkedInAt),
+    );
+
+    const candidates =
+      checkedInNonBooker.length > 0
+        ? checkedInNonBooker
+        : activeMembers.filter((m) => m.userId !== (group.bookerUserId as string));
+
+    if (candidates.length === 0) throw new Error("No eligible members to become booker.");
+
+    const candidateUserIds = candidates.map((m) => m.userId);
+    const credibilityScores = new Map<string, number>();
+    for (const m of candidates) {
+      const user = await ctx.db.get(m.userId as Id<"users">);
+      if (user) {
+        credibilityScores.set(
+          m.userId,
+          calculateCredibilityScore({
+            successfulTrips: user.successfulTrips ?? 0,
+            cancelledTrips: user.cancelledTrips ?? 0,
+            reportedCount: user.reportedCount ?? 0,
+          }),
+        );
+      }
+    }
+
+    const newBookerUserId = selectBookerUserId(candidateUserIds, credibilityScores);
+    if (!newBookerUserId) throw new Error("No eligible members to become booker.");
+
+    // Penalty for the absent booker is deferred — departGroup will mark them
+    // removed_no_show and increment cancelledTrips if they never check in.
+    await ctx.db.patch(groupId, {
+      bookerUserId: newBookerUserId as Id<"users">,
+      bookerRedelegatedAt: nowIso(), // audit trail only; does not block repeat reassignment
+    });
+
     return { ok: true };
   },
 });
