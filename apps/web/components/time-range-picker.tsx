@@ -5,7 +5,7 @@ import {
   MIN_DURATION_SLOTS,
   SLOTS_PER_DAY,
   clampRange,
-  formatRangeSummary,
+  formatRangeSummaryParts,
   slotFromPointerPosition,
   slotOptions,
   updateRangeForHandle,
@@ -62,7 +62,7 @@ export function TimeRangePicker({
 
   const startPercent = (startSlot / SLOTS_PER_DAY) * 100;
   const endPercent = (endSlot / SLOTS_PER_DAY) * 100;
-  const rangeSummary = formatRangeSummary(dateInput, startSlot, endSlot);
+  const { dateLabel, timeLabel } = formatRangeSummaryParts(dateInput, startSlot, endSlot);
 
   function moveHandle(handle: "start" | "end", nextSlot: number) {
     onRangeChange(updateRangeForHandle(handle, nextSlot, { startSlot, endSlot }));
@@ -105,7 +105,10 @@ export function TimeRangePicker({
 
       <div className="time-range-summary">
         <span className="pill pill-accent pill-sm">Window</span>
-        <strong>{rangeSummary}</strong>
+        <div className="time-range-summary-copy">
+          <strong>{timeLabel}</strong>
+          <span>{dateLabel}</span>
+        </div>
       </div>
 
       <div className="time-range-track-shell">
