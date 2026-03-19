@@ -907,6 +907,137 @@ label span {
   color: #ff82a8;
 }
 
+s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.rider-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  position: relative;
+}
+
+.rider-chip-emoji {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  transition: transform 0.2s var(--ease-out-expo);
+}
+
+.rider-chip-you {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
+.rider-chip-label {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rider-chip-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* --- Drop-off Timeline --- */
+.dropoff-timeline {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px 0 8px;
+}
+
+.dropoff-stop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+/* Each stop (except origin and last) draws a solid connector line. */
+.dropoff-stop:not(:last-child):not(.dropoff-stop-origin)::after {
+  content: "";
+  position: absolute;
+  top: 21px;
+  left: calc(50% + 22px);
+  right: calc(-50% + 22px);
+  height: 2px;
+  background: var(--border);
+}
+
+/* The origin's connector is dashed. */
+.dropoff-stop-origin::after {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: calc(50% + 22px);
+  right: calc(-50% + 22px);
+  border-top: 2px dashed var(--border);
+}
+
+.dropoff-stop-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  position: relative;
+  z-index: 1;
+}
+
+.dropoff-stop-origin .dropoff-stop-circle {
+  background: var(--surface-hover);
+  border: 2px dashed var(--border);
+}
+
+.dropoff-stop-label {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  text-align: center;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.dropoff-stop-sublabel {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.dropoff-stop-you .dropoff-stop-circle {
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
 /* --- Member Row --- */
 .member-item {
   display: flex;
@@ -2375,6 +2506,120 @@ code {
   background: linear-gradient(135deg, #b87808, #a05518);
   -webkit-background-clip: text;
   background-clip: text;
+}
+
+/* --- Group Tabs --- */
+.group-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--surface-hover);
+  border-radius: var(--radius-full);
+  animation: fadeUp 0.3s var(--ease-out-expo) both;
+}
+
+.group-tab {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out-expo);
+}
+
+.group-tab:hover {
+  color: var(--text);
+}
+
+.group-tab-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* --- Group Chat --- */
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 200px - var(--nav-height) - var(--safe-bottom));
+  animation: fadeUp 0.3s var(--ease-out-expo) both;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  scroll-behavior: smooth;
+}
+
+.chat-bubble {
+  max-width: 82%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.chat-bubble-other {
+  align-self: flex-start;
+  background: var(--surface-hover);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-bubble-self {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  border-bottom-right-radius: 4px;
+}
+
+.chat-sender {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+  opacity: 0.7;
+}
+
+.chat-time {
+  font-size: 10px;
+  opacity: 0.5;
+  margin-top: 2px;
+  text-align: right;
+}
+
+.chat-bubble-other .chat-time {
+  text-align: left;
+}
+
+.chat-input-bar {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.chat-input-bar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 14px;
+  gap: 8px;
 }
 
 /* --- Responsive --- */
