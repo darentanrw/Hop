@@ -169,9 +169,9 @@ export default function VerifyEmailPage() {
       <div className="auth-body">
         <div className="card stack">
           <p className="text-muted text-sm">
-            Check your inbox and reply with <strong>only</strong> the passphrase — nothing else. No
-            other text, signature, or attachments. This page will update automatically when we
-            receive your reply.
+            Check your inbox and reply with the <strong>exact</strong> passphrase. Capitalization
+            does not matter, and extra signature or quoted reply text is okay, but keep the same
+            hyphens and word order. This page will update automatically when we receive your reply.
           </p>
           <button
             type="button"

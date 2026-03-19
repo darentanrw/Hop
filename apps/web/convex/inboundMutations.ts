@@ -1,19 +1,13 @@
 import { v } from "convex/values";
+import { findNewestVerificationMatchByBody } from "../lib/inbound-email";
 import { internalMutation, internalQuery } from "./_generated/server";
 
-export const getPendingVerificationByPassphrase = internalQuery({
-  args: { passphrase: v.string() },
-  handler: async (ctx, { passphrase }) => {
-    const normalized = passphrase.trim().toLowerCase();
+export const getPendingVerificationByBody = internalQuery({
+  args: { bodyText: v.string() },
+  handler: async (ctx, { bodyText }) => {
     const all = await ctx.db.query("emailVerifications").collect();
-    const match = all
-      .filter(
-        (record) =>
-          !record.verifiedAt &&
-          record.expiresAt > Date.now() &&
-          record.passphrase.toLowerCase() === normalized,
-      )
-      .sort((left, right) => right._creationTime - left._creationTime)[0];
+    const active = all.filter((record) => !record.verifiedAt && record.expiresAt > Date.now());
+    const match = findNewestVerificationMatchByBody(active, bodyText);
     return match ? { id: match._id, email: match.email, userId: match.userId } : null;
   },
 });
