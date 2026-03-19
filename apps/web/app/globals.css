@@ -1241,71 +1241,13 @@ label span {
   max-width: 100%;
 }
 
-.landing-features {
-  display: flex;
-  gap: 12px;
-  width: 100%;
-  animation: fadeUp 0.6s var(--ease-out-expo) 0.2s both;
-}
-
-.landing-feature {
-  flex: 1;
-  padding: 16px 12px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  background: rgba(21, 26, 46, 0.5);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  transition: border-color 0.2s, transform 0.2s;
-}
-
-.landing-feature:hover {
-  border-color: rgba(255, 255, 255, 0.12);
-  transform: translateY(-2px);
-}
-
-.landing-feature-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-}
-
-.landing-feature-icon.icon-privacy {
-  background: var(--privacy-subtle);
-  color: var(--privacy);
-}
-
-.landing-feature-icon.icon-anon {
-  background: rgba(168, 130, 255, 0.12);
-  color: #a882ff;
-}
-
-.landing-feature-icon.icon-campus {
-  background: var(--accent-subtle);
-  color: var(--accent);
-}
-
-.landing-feature-label {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
 .landing-cta {
   display: flex;
   flex-direction: column;
   gap: 12px;
   align-items: center;
   width: 100%;
+  margin-top: 24px;
   animation: fadeUp 0.6s var(--ease-out-expo) 0.25s both;
 }
 
@@ -1314,22 +1256,6 @@ label span {
   max-width: 280px;
   padding: 16px 32px;
   font-size: 16px;
-}
-
-.landing-signin {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.landing-signin a {
-  color: var(--text-secondary);
-  text-decoration: underline;
-  text-decoration-color: rgba(139, 146, 176, 0.3);
-  text-underline-offset: 3px;
-}
-
-.landing-signin a:hover {
-  color: var(--text);
 }
 
 .landing-badge {
@@ -2281,15 +2207,6 @@ code {
   background: radial-gradient(circle, rgba(13, 136, 128, 0.06) 0%, transparent 70%);
 }
 
-[data-theme="light"] .landing-feature {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .landing-feature:hover {
-  border-color: rgba(0, 0, 0, 0.12);
-}
-
 [data-theme="light"] .landing-badge {
   background: rgba(255, 255, 255, 0.75);
   border-color: rgba(0, 0, 0, 0.06);
@@ -2435,10 +2352,6 @@ code {
 
   .otp-group {
     gap: 6px;
-  }
-
-  .landing-features {
-    flex-direction: column;
   }
 
   .grid-2 {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const WORDS = ["safely", "privately", "effortlessly", "conveniently", "on a budget", "sustainably"];
+const WORDS = ["on a budget", "securely", "sustainably", "effortlessly", "safely", "conveniently"];
 const WORD_HEIGHT = 42;
 const INTERVAL_MS = 2200;
 const TRANSITION_MS = 500;

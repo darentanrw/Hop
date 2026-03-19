@@ -1,0 +1,156 @@
+.car-scene {
+  width: 100%;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  margin-top: 10px;
+  margin-bottom: 20px;
+  /* Removed fadeUp animation so we can see it driving in from the edge of the screen */
+}
+
+.car-wrapper {
+  position: relative;
+  width: 300px;
+  height: 120px;
+  /* Speedy enter + hard brake dip */
+  animation: driveInBrake 2.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+  transform-origin: bottom center;
+}
+
+.car-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* Hard brake animation logic */
+@keyframes driveInBrake {
+  0% {
+    /* Starts far away on the left, smaller, and slightly higher up */
+    transform: translateX(calc(-50vw - 150px)) translateY(-80px) scale(0.15);
+  }
+  60% {
+    /* Shoots past center slightly, scales up to normal, dips forward (rotate) */
+    transform: translateX(10px) translateY(5px) scale(1) rotate(2deg);
+  }
+  85% {
+    /* Recoils back just a tiny bit */
+    transform: translateX(-2px) translateY(-1px) scale(1) rotate(-0.5deg);
+  }
+  100% {
+    /* Settles dead center */
+    transform: translateX(0) translateY(0) scale(1) rotate(0deg);
+  }
+}
+
+/* --- Theme Handling for SVG --- */
+.glass-light {
+  display: none;
+}
+
+[data-theme="light"] .glass-dark {
+  display: none;
+}
+
+[data-theme="light"] .glass-light {
+  display: block;
+}
+
+[data-theme="light"] .car-shadow-svg {
+  fill: rgba(0, 0, 0, 0.15);
+}
+
+/* --- Door Animations --- */
+/* 
+  Using CSS transform on SVG groups to simulate 3D perspective opening.
+  We scaleX to compress the width, and skewY to angle it up/down.
+*/
+
+.front-door,
+.rear-door {
+  transition: transform 1.2s var(--ease-spring);
+}
+
+.front-door {
+  transform-origin: 180px 60px; /* Hinge on the right edge of the front door */
+}
+
+.rear-door {
+  transform-origin: 132px 60px; /* Hinge on the right edge of the rear door */
+}
+
+.doors-open .front-door,
+.doors-open .rear-door {
+  transform: scaleX(0.4) skewY(-15deg);
+}
+
+/* --- User Animations --- */
+
+.near-rear-missing {
+  opacity: 0;
+  transform-origin: 99px 65px; /* Center of the missing user avatar */
+  transform: scale(0.85);
+  transition: opacity 1s var(--ease-out-expo), transform 1s var(--ease-out-expo);
+}
+
+.user-visible .near-rear-missing {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Pulse animation starts after the user is visible, unless they are solid */
+.user-visible:not(.user-solid) .near-rear-missing {
+  animation: missingUserPulse 2s ease-in-out infinite 1s;
+}
+
+@keyframes missingUserPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.near-rear-missing circle,
+.near-rear-missing path {
+  transition: all 0.3s ease-out;
+}
+
+/* --- EXIT ANIMATIONS (isHopping) --- */
+
+/* 1. Solidify user */
+.user-solid .near-rear-missing {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.user-solid .near-rear-missing circle,
+.user-solid .near-rear-missing path {
+  stroke-dasharray: 0;
+  fill: #94a3b8; /* Same as near-front */
+  stroke: transparent;
+}
+
+/* 3. Speed off right */
+.speed-off {
+  animation: speedOffRight 0.8s cubic-bezier(0.5, 0, 0.1, 1) forwards;
+}
+
+@keyframes speedOffRight {
+  0% {
+    transform: translateX(0) translateY(0) scale(1) rotate(0deg);
+  }
+  20% {
+    /* Slight dip back before taking off */
+    transform: translateX(-15px) translateY(2px) scale(1) rotate(-1deg);
+  }
+  100% {
+    /* Shoots off screen to the right */
+    transform: translateX(calc(50vw + 300px)) translateY(-20px) scale(0.6) rotate(3deg);
+  }
+}
