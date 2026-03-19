@@ -2539,6 +2539,13 @@ code {
   gap: 8px;
 }
 
+/* --- PWA standalone: guarantee minimum top inset --- */
+@media (display-mode: standalone) {
+  :root {
+    --safe-top: env(safe-area-inset-top, 44px);
+  }
+}
+
 /* --- Responsive --- */
 @media (min-width: 481px) {
   .page-container {
