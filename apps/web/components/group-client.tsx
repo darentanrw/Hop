@@ -1096,7 +1096,7 @@ export function GroupClient({
                           runAction(async () => {
                             await verifyPayment({
                               groupId: group.group.id as Id<"groups">,
-                              memberUserId: member.userId,
+                              memberUserId: member.userId as Id<"users">,
                               ...qaArgs,
                             });
                             setStatus({ type: "success", text: "Payment confirmed." });
@@ -1152,7 +1152,7 @@ export function GroupClient({
               runAction(async () => {
                 await createReport({
                   groupId: group.group.id as Id<"groups">,
-                  reportedUserId: reportedUserId || undefined,
+                  reportedUserId: reportedUserId ? (reportedUserId as Id<"users">) : undefined,
                   category: reportCategory as
                     | "no_show"
                     | "non_payment"

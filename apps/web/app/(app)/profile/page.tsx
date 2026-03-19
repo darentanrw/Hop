@@ -3,17 +3,19 @@
 import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 
 export default function ProfilePage() {
   const riderProfile = useQuery(api.queries.getRiderProfile);
   const savePreferences = useMutation(api.mutations.savePreferences);
 
-  const [selectedGender, setSelectedGender] = useState<SelfDeclaredGender>(
-    riderProfile?.selfDeclaredGender ?? "prefer_not_to_say",
-  );
+  const [selectedGender, setSelectedGender] = useState<SelfDeclaredGender>("prefer_not_to_say");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSelectedGender(riderProfile?.selfDeclaredGender ?? "prefer_not_to_say");
+  }, [riderProfile?.selfDeclaredGender]);
   const [saveStatus, setSaveStatus] = useState<{
     type: "success" | "error";
     message: string;

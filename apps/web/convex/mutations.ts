@@ -467,16 +467,8 @@ export const cancelTripParticipation = mutation({
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
 
-    // Can only cancel after match, before trip is closed
-    const CANCELLABLE_STATUSES = new Set([
-      "matched_pending_ack",
-      "tentative",
-      "meetup_preparation",
-      "meetup_ready",
-      "in_trip",
-      "depart_ready",
-      "payment_pending",
-    ]);
+    // Can only cancel while match is pending acknowledgement
+    const CANCELLABLE_STATUSES = new Set(["matched_pending_ack"]);
     if (!CANCELLABLE_STATUSES.has(group.status)) {
       throw new Error("Cannot cancel trip in current status");
     }
@@ -489,7 +481,12 @@ export const cancelTripParticipation = mutation({
     const member = members.find((m) => m.userId === userIdStr);
     if (!member) throw new Error("Not a member of this group");
 
-    // Mark user as cancelled and increment their cancelledTrips
+    // If the user has already cancelled, treat this as a successful no-op to keep the operation idempotent.
+    if (member.participationStatus === "cancelled_by_user") {
+      return { ok: true, message: "You have cancelled your participation in this trip" };
+    }
+
+    // Mark user as cancelled
     await ctx.db.patch(member._id, {
       participationStatus: "cancelled_by_user",
     });
@@ -500,11 +497,92 @@ export const cancelTripParticipation = mutation({
       await ctx.db.patch(availability._id, { status: "cancelled" });
     }
 
+    // Increment cancellation count (only once, since we check above)
     const user = await ctx.db.get(userId);
     if (user) {
       await ctx.db.patch(userId, {
         cancelledTrips: (user.cancelledTrips ?? 0) + 1,
       });
+    }
+    // Keep the parent group document in sync (cancellation only allowed in matched_pending_ack).
+    const groupPatch: Partial<{
+      memberUserIds: typeof group.memberUserIds;
+      availabilityIds: typeof group.availabilityIds;
+      groupSize: number;
+      bookerUserId: string | undefined;
+      status: typeof group.status;
+    }> = {};
+
+    // Remove availability regardless of status
+    const updatedAvailabilityIds = group.availabilityIds.filter(
+      (id) => id !== (member.availabilityId as unknown as string),
+    );
+    if (updatedAvailabilityIds.length !== group.availabilityIds.length) {
+      groupPatch.availabilityIds = updatedAvailabilityIds;
+    }
+
+    const updatedMemberUserIds = group.memberUserIds.filter((id) => id !== userIdStr);
+    if (updatedMemberUserIds.length !== group.memberUserIds.length) {
+      groupPatch.memberUserIds = updatedMemberUserIds;
+      groupPatch.groupSize = updatedMemberUserIds.length;
+
+      if (updatedMemberUserIds.length < 2) {
+        // Fewer than 2 riders left — group can't proceed. Cancel it immediately and
+        // reopen the remaining riders' availabilities so they return to the matching pool.
+        groupPatch.bookerUserId = undefined;
+        groupPatch.status = "cancelled";
+
+        const survivingMembers = members.filter(
+          (m) => m.userId !== userIdStr && (m.participationStatus ?? "active") === "active",
+        );
+        for (const survivor of survivingMembers) {
+          await ctx.db.patch(survivor._id, {
+            participationStatus: "removed_no_ack",
+          });
+          const survivorAvailability = await ctx.db.get(
+            survivor.availabilityId as Id<"availabilities">,
+          );
+          if (survivorAvailability?.status === "matched") {
+            await ctx.db.patch(survivorAvailability._id, { status: "open" });
+          }
+        }
+      } else {
+        // If the cancelling user is the booker, reassign to highest-credibility active member.
+        if (group.bookerUserId === userIdStr) {
+          const remainingMembers = members.filter(
+            (m) =>
+              updatedMemberUserIds.includes(m.userId) &&
+              (m.participationStatus ?? "active") === "active",
+          );
+          if (remainingMembers.length > 0) {
+            const remainingUserIds = remainingMembers.map((m) => m.userId);
+            const userDocs = await Promise.all(
+              remainingUserIds.map((uid) => ctx.db.get(uid as Id<"users">)),
+            );
+            const credibilityScores = new Map<string, number>();
+            for (const [index, remainingUserId] of remainingUserIds.entries()) {
+              const user = userDocs[index];
+              if (user) {
+                const score = calculateCredibilityScore({
+                  successfulTrips: user.successfulTrips ?? 0,
+                  cancelledTrips: user.cancelledTrips ?? 0,
+                  reportedCount: user.reportedCount ?? 0,
+                });
+                credibilityScores.set(remainingUserId, score);
+              }
+            }
+            const nextBookerUserId = selectBookerUserId(remainingUserIds, credibilityScores);
+            if (nextBookerUserId) {
+              groupPatch.bookerUserId = nextBookerUserId;
+            }
+          }
+        }
+      }
+    }
+
+    // Only patch the group if there is something to update.
+    if (Object.keys(groupPatch).length > 0) {
+      await ctx.db.patch(groupId, groupPatch);
     }
 
     return { ok: true, message: "You have cancelled your participation in this trip" };

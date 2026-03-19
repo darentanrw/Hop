@@ -23,7 +23,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <>
       <div className="page-container">
-        <TopBarContent profile={riderProfile} />
+        <TopBarContent />
         <ClientKeyRegistrar />
         <PwaCoachmark />
         <LocalQaPanel />

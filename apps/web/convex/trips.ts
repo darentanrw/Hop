@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { PAYMENT_WINDOW_HOURS } from "@hop/shared";
+import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
-import { computeSplitAmounts } from "../lib/group-lifecycle";
+import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -157,14 +157,31 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           });
         }
 
+        // Select the highest-credibility booker among accepted riders.
+        const userDocs = await Promise.all(
+          acceptedUserIds.map((userId) => ctx.db.get(userId as Id<"users">)),
+        );
+        const credibilityScores = new Map<string, number>();
+        for (const [index, acceptedUserId] of acceptedUserIds.entries()) {
+          const user = userDocs[index];
+          if (user) {
+            const score = calculateCredibilityScore({
+              successfulTrips: user.successfulTrips ?? 0,
+              cancelledTrips: user.cancelledTrips ?? 0,
+              reportedCount: user.reportedCount ?? 0,
+            });
+            credibilityScores.set(acceptedUserId, score);
+          }
+        }
+        const nextBookerUserId =
+          selectBookerUserId(acceptedUserIds, credibilityScores) ?? acceptedUserIds[0];
+
         await ctx.db.patch(group._id, {
           status: "meetup_preparation",
           memberUserIds: acceptedUserIds,
           availabilityIds: acceptedAvailabilityIds,
           groupSize: acceptedMembers.length,
-          bookerUserId: acceptedUserIds.includes(group.bookerUserId ?? "")
-            ? group.bookerUserId
-            : acceptedUserIds[0],
+          bookerUserId: nextBookerUserId,
           suggestedDropoffOrder: orderedAcceptedMembers.map((member) => member.userId),
         });
 
@@ -261,29 +278,15 @@ async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
   }
 
   if (group.status === "payment_pending") {
-    // Track members who verified payment and increment their successfulTrips immediately
+    // Credit for verified payments is done in verifyPayment (single writer) for durable idempotency.
+    // Here we only close the group when all payment members have paid.
     const paymentMembers = activeMembers.filter((member) => (member.amountDueCents ?? 0) > 0);
-    const verifiedMembers = paymentMembers.filter((member) => member.paymentStatus === "verified");
-
-    for (const member of verifiedMembers) {
-      const user = await ctx.db.get(member.userId as Id<"users">);
-      if (user) {
-        // Check if this user already got successfulTrips for this group (use auditEvents)
-        const alreadyRewarded = false; // TODO: implement dedup check
-        if (!alreadyRewarded) {
-          await ctx.db.patch(member.userId as Id<"users">, {
-            successfulTrips: (user.successfulTrips ?? 0) + 1,
-          });
-        }
-      }
-    }
-
-    // Check if all payment members have paid
     const allPaid = paymentMembers.every((member) => member.paymentStatus === "verified");
     if (allPaid) {
+      const latestGroup = await ctx.db.get(group._id);
       await ctx.db.patch(group._id, {
         status: "closed",
-        closedAt: group.closedAt ?? nowIso(),
+        closedAt: latestGroup?.closedAt ?? group.closedAt ?? nowIso(),
       });
     }
   }
@@ -811,7 +814,7 @@ export const submitPaymentProof = mutation({
 export const verifyPayment = mutation({
   args: {
     groupId: v.id("groups"),
-    memberUserId: v.string(),
+    memberUserId: v.id("users"),
     actingUserId: v.optional(v.id("users")),
   },
   handler: async (ctx, { groupId, memberUserId, actingUserId }) => {
@@ -836,7 +839,22 @@ export const verifyPayment = mutation({
       paymentVerifiedByUserId: userId,
     });
 
-    await syncLifecycleForGroup(ctx, group);
+    // Credit successfulTrips once per verified member (single writer = durable idempotency).
+    const latestGroup = await ctx.db.get(groupId);
+    const rewarded = (latestGroup?.rewardedUserIds ?? []) as string[];
+    if (!rewarded.includes(memberUserId)) {
+      const rewardUser = await ctx.db.get(memberUserId);
+      if (rewardUser) {
+        await ctx.db.patch(memberUserId, {
+          successfulTrips: (rewardUser.successfulTrips ?? 0) + 1,
+        });
+      }
+      await ctx.db.patch(groupId, {
+        rewardedUserIds: [...rewarded, memberUserId],
+      });
+    }
+
+    await syncLifecycleForGroup(ctx, (await ctx.db.get(groupId)) ?? group);
     return { ok: true };
   },
 });
@@ -844,7 +862,7 @@ export const verifyPayment = mutation({
 export const createReport = mutation({
   args: {
     groupId: v.id("groups"),
-    reportedUserId: v.optional(v.string()),
+    reportedUserId: v.optional(v.id("users")),
     category: v.union(
       v.literal("no_show"),
       v.literal("non_payment"),
@@ -879,9 +897,9 @@ export const createReport = mutation({
 
     // Increment reportedCount for the reported user
     if (args.reportedUserId) {
-      const reportedUser = await ctx.db.get(args.reportedUserId as Id<"users">);
+      const reportedUser = await ctx.db.get(args.reportedUserId);
       if (reportedUser) {
-        await ctx.db.patch(args.reportedUserId as Id<"users">, {
+        await ctx.db.patch(args.reportedUserId, {
           reportedCount: (reportedUser.reportedCount ?? 0) + 1,
         });
       }

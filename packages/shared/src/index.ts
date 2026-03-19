@@ -12,8 +12,10 @@ export const PAYMENT_WINDOW_HOURS = 24;
 
 /**
  * Calculate user credibility score (0.5–1.0) based on trip history.
- * Factors: 70% success rate, 30% report impact
- * Each report reduces score by 10%, new users start at 0.75
+ * Weighted factors: 70% trip success rate, 30% report impact.
+ * Each report reduces the report impact factor by 10 percentage points,
+ * which translates to up to 3 percentage points off the final score per report
+ * when the success rate is 100%. New users with no trips start at 0.75.
  */
 export function calculateCredibilityScore(user: {
   successfulTrips: number;
