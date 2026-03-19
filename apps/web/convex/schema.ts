@@ -212,6 +212,14 @@ const schema = defineSchema({
     description: v.string(),
     createdAt: v.string(),
   }).index("groupId", ["groupId"]),
+  groupMessages: defineTable({
+    groupId: v.id("groups"),
+    senderUserId: v.string(),
+    senderDisplayName: v.string(),
+    senderEmoji: v.string(),
+    body: v.string(),
+    createdAt: v.string(),
+  }).index("groupId_createdAt", ["groupId", "createdAt"]),
   notificationEvents: defineTable({
     userId: v.id("users"),
     groupId: v.optional(v.id("groups")),

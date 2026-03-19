@@ -7,6 +7,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { CHAT_ELIGIBLE_STATUSES } from "./chat";
 import { resolveQaActingUserId } from "./localQa";
 
 const ACTIVE_GROUP_STATUSES = new Set([
@@ -337,6 +338,9 @@ function buildActions(
       currentUserMember?.paymentStatus !== "verified",
     canVerifyPayments: currentStatus === "payment_pending" && isBooker,
     canReport: currentStatus !== "matched_pending_ack" && Boolean(currentUserMember),
+    canChat:
+      CHAT_ELIGIBLE_STATUSES.has(currentStatus) &&
+      (currentUserMember?.participationStatus ?? "active") === "active",
   };
 }
 

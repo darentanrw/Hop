@@ -83,6 +83,7 @@ type ActiveTripPayload = {
     canSubmitPaymentProof: boolean;
     canVerifyPayments: boolean;
     canReport: boolean;
+    canChat: boolean;
   };
 };
 
@@ -182,7 +183,7 @@ function ReceiptPreview({ src, alt }: { src: string; alt: string }) {
         display: "block",
         borderRadius: 18,
         border: "1px solid var(--border)",
-        background: "var(--surface-secondary)",
+        background: "var(--surface-hover)",
       }}
     />
   );
@@ -222,6 +223,7 @@ export function GroupClient({
   const submitPaymentProof = useMutation(api.trips.submitPaymentProof);
   const verifyPayment = useMutation(api.trips.verifyPayment);
   const createReport = useMutation(api.trips.createReport);
+  const sendChatMessage = useMutation(api.chat.sendMessage);
 
   const [status, setStatus] = useState<StatusMessage>(null);
   const [busy, setBusy] = useState(false);
@@ -240,6 +242,19 @@ export function GroupClient({
   const [reportDescription, setReportDescription] = useState("");
   const [reportedUserId, setReportedUserId] = useState("");
   const [justCheckedIn, setJustCheckedIn] = useState<{ emoji: string; name: string } | null>(null);
+  const [tab, setTab] = useState<"ride" | "chat" | "report">("ride");
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+
+  const chatGroupId = group?.group.id as Id<"groups"> | undefined;
+  const canChat = group?.actions.canChat ?? false;
+  const canReport = group?.actions.canReport ?? false;
+  const showTabs = canChat || canReport;
+  const chatMessages = useQuery(
+    api.chat.listMessages,
+    chatGroupId && canChat ? { groupId: chatGroupId, ...qaArgs } : "skip",
+  );
+  const chatMessagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScanner | null>(null);
@@ -294,6 +309,21 @@ export function GroupClient({
   useEffect(() => {
     qaArgsRef.current = qaArgs;
   }, [qaArgs]);
+
+  useEffect(() => {
+    if (tab === "chat" && !canChat) setTab("ride");
+    if (tab === "report" && !canReport) setTab("ride");
+    if (!showTabs && tab !== "ride") setTab("ride");
+  }, [showTabs, canChat, canReport, tab]);
+
+  const prevChatCountRef = useRef(0);
+  const currentChatCount = chatMessages?.length ?? 0;
+  if (currentChatCount !== prevChatCountRef.current) {
+    prevChatCountRef.current = currentChatCount;
+    queueMicrotask(() => {
+      chatMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+  }
 
   const activeMembers = useMemo(
     () => group?.members.filter((m) => m.participationStatus === "active") ?? [],
@@ -516,699 +546,846 @@ export function GroupClient({
         </div>
       ) : null}
 
-      {/* ── Priority: Scan QR first (booker, during check-in) ── */}
-      {showScanFirst ? (
-        <div className="card stack-sm">
-          <div className="row-between">
-            <h3>Scan riders in</h3>
-            <span className="text-sm text-muted">
-              {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
-            </span>
-          </div>
-
-          {/* Who's checked in – inline mini-roster */}
-          <div className="checkin-roster">
-            {activeMembers.map((member) => (
-              <div
-                key={member.userId}
-                className={`checkin-avatar ${member.checkedInAt ? "checkin-avatar-done" : ""}`}
-                title={`${emojiName(member.emoji)}${member.checkedInAt ? " — here" : ""}`}
-              >
-                {member.emoji}
-                {member.checkedInAt ? <span className="checkin-tick">✓</span> : null}
-              </div>
-            ))}
-          </div>
-
-          {/* Just checked in flash */}
-          {justCheckedIn ? (
-            <div className="checkin-flash">
-              <span style={{ fontSize: 28 }}>{justCheckedIn.emoji}</span>
-              <strong>{justCheckedIn.name} is here!</strong>
-            </div>
-          ) : null}
-
-          <div className="row" style={{ gap: 10 }}>
+      {/* ── Tab bar ── */}
+      {showTabs ? (
+        <div className="group-tabs">
+          <button
+            type="button"
+            className={`group-tab ${tab === "ride" ? "group-tab-active" : ""}`}
+            onClick={() => setTab("ride")}
+          >
+            Ride
+          </button>
+          {canChat ? (
             <button
               type="button"
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              disabled={busy || scannerBusy || scannerState === "starting"}
-              onClick={startLiveScanner}
+              className={`group-tab ${tab === "chat" ? "group-tab-active" : ""}`}
+              onClick={() => setTab("chat")}
             >
-              {scannerState === "live"
-                ? "Scanner on"
-                : scannerState === "starting"
-                  ? "Opening camera…"
-                  : "Open camera"}
+              Chat
             </button>
-            {scannerState === "live" ? (
-              <button type="button" className="btn btn-secondary" onClick={stopLiveScanner}>
-                Stop
-              </button>
-            ) : null}
-          </div>
+          ) : null}
+          {canReport ? (
+            <button
+              type="button"
+              className={`group-tab ${tab === "report" ? "group-tab-active" : ""}`}
+              onClick={() => setTab("report")}
+            >
+              Report
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
-          {scannerOpen ? (
-            <div className="scanner-shell" style={{ position: "relative" }}>
-              <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
-              <div
-                key={scannerFlashKey}
-                className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
-                aria-hidden="true"
-              >
-                <div
-                  className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
-                />
+      {/* ── RIDE TAB ── */}
+      {tab === "ride" || !showTabs ? (
+        <>
+          {/* ── Priority: Scan QR first (booker, during check-in) ── */}
+          {showScanFirst ? (
+            <div className="card stack-sm">
+              <div className="row-between">
+                <h3>Scan riders in</h3>
+                <span className="text-sm text-muted">
+                  {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+                </span>
               </div>
+
+              {/* Who's checked in – inline mini-roster */}
+              <div className="checkin-roster">
+                {activeMembers.map((member) => (
+                  <div
+                    key={member.userId}
+                    className={`checkin-avatar ${member.checkedInAt ? "checkin-avatar-done" : ""}`}
+                    title={`${emojiName(member.emoji)}${member.checkedInAt ? " — here" : ""}`}
+                  >
+                    {member.emoji}
+                    {member.checkedInAt ? <span className="checkin-tick">✓</span> : null}
+                  </div>
+                ))}
+              </div>
+
+              {/* Just checked in flash */}
               {justCheckedIn ? (
-                <div className="scanner-success-overlay">
-                  <span style={{ fontSize: 48 }}>{justCheckedIn.emoji}</span>
+                <div className="checkin-flash">
+                  <span style={{ fontSize: 28 }}>{justCheckedIn.emoji}</span>
                   <strong>{justCheckedIn.name} is here!</strong>
                 </div>
               ) : null}
+
+              <div className="row" style={{ gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={busy || scannerBusy || scannerState === "starting"}
+                  onClick={startLiveScanner}
+                >
+                  {scannerState === "live"
+                    ? "Scanner on"
+                    : scannerState === "starting"
+                      ? "Opening camera…"
+                      : "Open camera"}
+                </button>
+                {scannerState === "live" ? (
+                  <button type="button" className="btn btn-secondary" onClick={stopLiveScanner}>
+                    Stop
+                  </button>
+                ) : null}
+              </div>
+
+              {scannerOpen ? (
+                <div className="scanner-shell" style={{ position: "relative" }}>
+                  <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
+                  <div
+                    key={scannerFlashKey}
+                    className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
+                    aria-hidden="true"
+                  >
+                    <div
+                      className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
+                    />
+                  </div>
+                  {justCheckedIn ? (
+                    <div className="scanner-success-overlay">
+                      <span style={{ fontSize: 48 }}>{justCheckedIn.emoji}</span>
+                      <strong>{justCheckedIn.name} is here!</strong>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {scannerStatus ? (
+                <div
+                  className={`notice ${
+                    scannerStatus.type === "error"
+                      ? "notice-error"
+                      : scannerStatus.type === "success"
+                        ? "notice-success"
+                        : "notice-info"
+                  }`}
+                >
+                  {scannerStatus.text}
+                </div>
+              ) : null}
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  type="text"
+                  value={scanToken}
+                  onChange={(e) => setScanToken(e.target.value)}
+                  placeholder="Paste rider passphrase"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ flexShrink: 0 }}
+                  disabled={busy || scannerBusy || scanToken.trim().length < 4}
+                  onClick={async () => {
+                    const checkedIn = await submitScannedQrToken(scanToken);
+                    if (checkedIn) {
+                      setScanToken("");
+                    }
+                  }}
+                >
+                  {scannerBusy ? "Checking..." : "Check in"}
+                </button>
+              </div>
             </div>
           ) : null}
 
-          {scannerStatus ? (
+          {/* ── Priority: Depart first (all checked in) ── */}
+          {showDepartFirst ? (
             <div
-              className={`notice ${
-                scannerStatus.type === "error"
-                  ? "notice-error"
-                  : scannerStatus.type === "success"
-                    ? "notice-success"
-                    : "notice-info"
-              }`}
+              className="card stack-sm"
+              style={{
+                border: `1px solid ${group.group.groupColor}44`,
+                boxShadow: `0 8px 28px ${group.group.groupColor}22`,
+              }}
             >
-              {scannerStatus.text}
+              <div style={{ textAlign: "center", padding: "8px 0" }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>🚕</div>
+                <h3>Everyone's here!</h3>
+                <p className="text-sm text-muted" style={{ marginTop: 4, marginBottom: 16 }}>
+                  All riders checked in. Ready when you are.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy || !group.actions.canDepart}
+                onClick={() =>
+                  runAction(async () => {
+                    await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
+                    setStatus({ type: "success", text: "Departed. Safe travels!" });
+                  })
+                }
+              >
+                Depart now
+              </button>
             </div>
           ) : null}
 
-          <div style={{ display: "flex", gap: 8 }}>
+          {/* ── Hero Card ── */}
+          <div
+            className="card group-hero-card"
+            style={{
+              border: `1px solid ${group.group.groupColor}33`,
+              boxShadow: `0 10px 36px ${group.group.groupColor}1a`,
+            }}
+          >
+            <div className="row-between" style={{ marginBottom: 20 }}>
+              <span
+                className="pill pill-sm"
+                style={{
+                  background: `${group.group.groupColor}22`,
+                  color: group.group.groupColor,
+                  border: `1px solid ${group.group.groupColor}44`,
+                }}
+              >
+                {group.group.groupName}
+              </span>
+              <span className="pill pill-muted pill-sm">{friendlyStatus(group.group.status)}</span>
+            </div>
+
+            <div className="group-identity-row">
+              <div className="group-my-emoji">{group.currentUserMember?.emoji ?? "🙂"}</div>
+              <div className="group-identity-labels">
+                <span className="group-identity-you">You</span>
+                <span className="group-identity-role">
+                  {emojiName(group.currentUserMember?.emoji ?? "🙂")} ·{" "}
+                  {currentUserIsBooker ? "Booker" : "Rider"}
+                </span>
+              </div>
+              {!currentUserIsBooker && (
+                <div className="group-booker-hint">
+                  <span className="group-booker-label">Booker</span>
+                  <span className="group-booker-emoji">{bookerEmoji}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="divider" style={{ margin: "16px 0" }} />
+
+            <div className="group-logistics">
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">📍</span>
+                <div>
+                  <div className="group-logistics-label">Meet at</div>
+                  <div className="group-logistics-value">{group.group.meetingLocationLabel}</div>
+                </div>
+              </div>
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">🕐</span>
+                <div>
+                  <div className="group-logistics-label">Time</div>
+                  <div className="group-logistics-value">
+                    {formatDateTime(group.group.meetingTime)}
+                  </div>
+                </div>
+              </div>
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">🏁</span>
+                <div>
+                  <div className="group-logistics-label">Your destination</div>
+                  <div className="group-logistics-value">{group.group.pickupLabel}</div>
+                </div>
+              </div>
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">💰</span>
+                <div>
+                  <div className="group-logistics-label">Fare</div>
+                  <div className="group-logistics-value">
+                    {group.group.finalCostCents !== null
+                      ? formatCurrency(group.group.finalCostCents)
+                      : "TBD after trip"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {group.group.status === "matched_pending_ack" ? (
+              <div className="group-countdown-row">
+                <span className="text-sm text-muted">Confirm by</span>
+                <Countdown deadline={group.group.confirmationDeadline} />
+              </div>
+            ) : null}
+            {(group.group.status === "meetup_checkin" || group.group.status === "depart_ready") &&
+            group.group.graceDeadline ? (
+              <div className="group-countdown-row">
+                <span className="text-sm text-muted">Departs in</span>
+                <Countdown deadline={group.group.graceDeadline} />
+              </div>
+            ) : null}
+            {group.group.status === "payment_pending" && group.group.paymentDueAt ? (
+              <div className="group-countdown-row">
+                <span className="text-sm text-muted">Pay by</span>
+                <Countdown deadline={group.group.paymentDueAt} />
+              </div>
+            ) : null}
+          </div>
+
+          {/* ── Forming banner (tentative — rolling matching) ── */}
+          {group.group.status === "tentative"
+            ? (() => {
+                const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
+                return (
+                  <div
+                    className="card"
+                    style={{
+                      background: `${group.group.groupColor}0d`,
+                      border: `1px solid ${group.group.groupColor}33`,
+                      textAlign: "center",
+                      padding: "20px 16px",
+                    }}
+                  >
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>
+                      {Array.from(
+                        { length: group.stats.activeMemberCount },
+                        (_, i) => group.members[i]?.emoji ?? "🙂",
+                      ).join(" ")}
+                      {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
+                    </div>
+                    <h3 style={{ marginBottom: 4 }}>
+                      {group.stats.activeMemberCount} rider
+                      {group.stats.activeMemberCount > 1 ? "s" : ""} matched
+                    </h3>
+                    <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
+                      {spotsLeft > 0
+                        ? `Looking for up to ${spotsLeft} more rider${spotsLeft > 1 ? "s" : ""} with nearby destinations. The group locks 3 h before departure.`
+                        : "Group is full and will lock in soon."}
+                    </p>
+                  </div>
+                );
+              })()
+            : null}
+
+          {/* ── Semi-locked banner (T-3h lock — open to late joiners) ── */}
+          {group.group.status === "semi_locked"
+            ? (() => {
+                const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
+                return (
+                  <div
+                    className="card"
+                    style={{
+                      background: `${group.group.groupColor}0d`,
+                      border: `1px solid ${group.group.groupColor}33`,
+                      textAlign: "center",
+                      padding: "20px 16px",
+                    }}
+                  >
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>
+                      {Array.from(
+                        { length: group.stats.activeMemberCount },
+                        (_, i) => group.members[i]?.emoji ?? "🙂",
+                      ).join(" ")}
+                      {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
+                    </div>
+                    <h3 style={{ marginBottom: 4 }}>Open to +{spotsLeft}</h3>
+                    <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
+                      {group.stats.activeMemberCount} riders matched. New riders can join until 30
+                      min before departure.
+                    </p>
+                  </div>
+                );
+              })()
+            : null}
+
+          {/* ── Locked banner (legacy fallback) ── */}
+          {group.group.status === "locked" ? (
+            <div className="card" style={{ textAlign: "center", padding: "20px 16px" }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
+              <h3 style={{ marginBottom: 4 }}>Group locked</h3>
+              <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
+                {group.stats.activeMemberCount} riders confirmed. Waiting for the ride to be
+                finalized.
+              </p>
+            </div>
+          ) : null}
+
+          {/* ── Receipt preview ── */}
+          {group.group.receiptImageUrl ? (
+            <div className="card stack-sm">
+              <h3>{currentUserIsBooker ? "Fare receipt" : "Booker's fare receipt"}</h3>
+              <p className="text-sm text-muted">
+                {currentUserIsBooker
+                  ? "This receipt is visible to everyone in the confirmed ride while settlement is open."
+                  : "Review the uploaded fare receipt before sending payment."}
+              </p>
+              <div className="row-between">
+                <span className="pill pill-sm pill-success">
+                  Final fare {formatCurrency(group.group.finalCostCents)}
+                </span>
+                {group.group.receiptSubmittedAt ? (
+                  <span className="text-xs text-muted">
+                    Uploaded {formatDateTime(group.group.receiptSubmittedAt)}
+                  </span>
+                ) : null}
+              </div>
+              <ReceiptPreview
+                src={group.group.receiptImageUrl}
+                alt="Fare receipt uploaded by the booker"
+              />
+            </div>
+          ) : null}
+
+          {/* ── Rider QR code ── */}
+          {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
+            <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
+              <h3>Your check-in code</h3>
+              <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
+              {qrCode ? (
+                <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
+              ) : null}
+
+              <div className="checkin-roster" style={{ justifyContent: "center" }}>
+                {activeMembers.map((member) => (
+                  <div
+                    key={member.userId}
+                    className={`checkin-avatar ${member.checkedInAt ? "checkin-avatar-done" : ""}`}
+                    title={`${emojiName(member.emoji)}${member.checkedInAt ? " — here" : " — not yet"}`}
+                  >
+                    {member.emoji}
+                    {member.checkedInAt ? <span className="checkin-tick">✓</span> : null}
+                  </div>
+                ))}
+              </div>
+
+              <div className="notice notice-info" style={{ width: "100%", textAlign: "left" }}>
+                Backup passphrase:{" "}
+                <code className="qr-passphrase">{group.currentUserMember.qrToken}</code>
+              </div>
+            </div>
+          ) : null}
+
+          {!currentUserIsBooker && group.currentUserMember?.paymentProofImageUrl ? (
+            <div className="card stack-sm">
+              <h3>Your payment proof</h3>
+              <p className="text-sm text-muted">
+                This is the receipt screenshot the booker can review when confirming your payment.
+              </p>
+              <ReceiptPreview
+                src={group.currentUserMember.paymentProofImageUrl}
+                alt="Your uploaded payment proof"
+              />
+            </div>
+          ) : null}
+
+          {/* ── Riders / Drop-off timeline ── */}
+          {!showDepartFirst
+            ? (() => {
+                const dropoffMap = new Map(group.dropoffPreview.map((d) => [d.userId, d.order]));
+                const hasDropoff = dropoffMap.size > 0;
+
+                if (hasDropoff) {
+                  const orderedMembers = [...group.members].sort((a, b) => {
+                    const oa = dropoffMap.get(a.userId) ?? Number.MAX_SAFE_INTEGER;
+                    const ob = dropoffMap.get(b.userId) ?? Number.MAX_SAFE_INTEGER;
+                    return oa - ob;
+                  });
+                  return (
+                    <div className="card stack-sm">
+                      <div className="row-between">
+                        <h3>Drop-off order</h3>
+                        <span className="text-sm text-muted">
+                          {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+                        </span>
+                      </div>
+                      <div className="dropoff-timeline">
+                        <div className="dropoff-stop dropoff-stop-origin">
+                          <div className="dropoff-stop-circle">📍</div>
+                          <div className="dropoff-stop-label">Pickup</div>
+                        </div>
+                        {orderedMembers.map((member, index) => {
+                          const isMe = member.userId === group.currentUserId;
+                          const badge = memberBadge(member);
+                          return (
+                            <div
+                              key={member.userId}
+                              className={`dropoff-stop${isMe ? " dropoff-stop-you" : ""}`}
+                            >
+                              <div className={`dropoff-stop-circle rider-avatar-${index % 4}`}>
+                                {member.emoji}
+                              </div>
+                              <div className="dropoff-stop-label">
+                                {isMe ? "You" : emojiName(member.emoji)}
+                              </div>
+                              <div className="dropoff-stop-sublabel">{badge.label}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="card stack-sm">
+                    <div className="row-between">
+                      <h3>Riders</h3>
+                      <span className="text-sm text-muted">
+                        {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+                      </span>
+                    </div>
+                    <div className="riders-grid">
+                      {group.members.map((member, index) => {
+                        const badge = memberBadge(member);
+                        const isMe = member.userId === group.currentUserId;
+                        return (
+                          <div className="rider-chip" key={member.userId}>
+                            <div
+                              className={`rider-chip-emoji rider-avatar-${index % 4}${isMe ? " rider-chip-you" : ""}`}
+                            >
+                              {member.emoji}
+                            </div>
+                            <div className="rider-chip-label">
+                              {isMe ? "You" : emojiName(member.emoji)}
+                              {member.isBooker ? " · B" : ""}
+                            </div>
+                            <div className="rider-chip-badge">{badge.label}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
+
+          {/* ── Confirm / Decline ── */}
+          {group.actions.canAcknowledge ? (
+            <div className="row" style={{ gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ flex: 1 }}
+                disabled={busy}
+                onClick={() =>
+                  runAction(async () => {
+                    await updateAcknowledgement({
+                      groupId: group.group.id as Id<"groups">,
+                      accepted: true,
+                      ...qaArgs,
+                    });
+                    setStatus({ type: "success", text: "You're confirmed for this ride." });
+                  })
+                }
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ flex: 1 }}
+                disabled={busy}
+                onClick={() =>
+                  runAction(async () => {
+                    await updateAcknowledgement({
+                      groupId: group.group.id as Id<"groups">,
+                      accepted: false,
+                      ...qaArgs,
+                    });
+                    setStatus({ type: "info", text: "You've declined this ride." });
+                  })
+                }
+              >
+                Decline
+              </button>
+            </div>
+          ) : null}
+
+          {/* ── Start check-in (booker, before scanning) ── */}
+          {group.actions.canStartCheckIn ? (
+            <div className="card stack-sm">
+              <h3>Start check-in</h3>
+              <p className="text-sm text-muted">
+                Once everyone is at {group.group.meetingLocationLabel}, tap to open check-in and
+                scan each rider.
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy}
+                onClick={() =>
+                  runAction(async () => {
+                    await startMeetupCheckIn({
+                      groupId: group.group.id as Id<"groups">,
+                      ...qaArgs,
+                    });
+                    setStatus({ type: "success", text: "Check-in is open." });
+                  })
+                }
+              >
+                Start check-in
+              </button>
+            </div>
+          ) : null}
+
+          {/* ── Depart (non-priority: shown lower when not everyone checked in) ── */}
+          {showDepartCard && !showDepartFirst ? (
+            <div className="card stack-sm">
+              <h3>Depart</h3>
+              <p className="text-sm text-muted">
+                Once the grace period ends or everyone is checked in, you can depart. Riders who
+                haven't checked in will be removed.
+              </p>
+              {!group.actions.canDepart ? (
+                <div className="text-sm text-muted">
+                  Waiting for all riders or the grace window.
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy || !group.actions.canDepart}
+                onClick={() =>
+                  runAction(async () => {
+                    await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
+                    setStatus({ type: "success", text: "Departed. Safe travels!" });
+                  })
+                }
+              >
+                Depart now
+              </button>
+            </div>
+          ) : null}
+
+          {/* ── Upload receipt (booker) ── */}
+          {group.actions.canUploadReceipt ? (
+            <div className="card stack-sm">
+              <h3>Upload receipt</h3>
+              <p className="text-sm text-muted">
+                Enter the final fare and attach a photo of the receipt. Hop will split it
+                automatically.
+              </p>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={receiptTotal}
+                onChange={(e) => setReceiptTotal(e.target.value)}
+                placeholder="Total fare (e.g. 24.80)"
+              />
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
+                onClick={() =>
+                  runAction(async () => {
+                    if (!receiptFile) throw new Error("Attach the receipt photo first.");
+                    const storageId = await uploadFile(receiptFile, generateUploadUrl);
+                    await submitReceipt({
+                      groupId: group.group.id as Id<"groups">,
+                      totalCostCents: Math.round(Number(receiptTotal) * 100),
+                      storageId,
+                      ...qaArgs,
+                    });
+                    setReceiptFile(null);
+                    setReceiptTotal("");
+                    setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
+                  })
+                }
+              >
+                Submit receipt
+              </button>
+            </div>
+          ) : null}
+
+          {/* ── Submit payment proof (rider) ── */}
+          {group.actions.canSubmitPaymentProof ? (
+            <div className="card stack-sm">
+              <h3>Pay your share</h3>
+              <p className="text-sm text-muted">
+                You owe {formatCurrency(group.currentUserMember?.amountDueCents ?? 0)}. Transfer to
+                the booker and upload a screenshot.
+              </p>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setPaymentFile(e.target.files?.[0] ?? null)}
+              />
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy || !paymentFile}
+                onClick={() =>
+                  runAction(async () => {
+                    if (!paymentFile) throw new Error("Attach your payment screenshot first.");
+                    const storageId = await uploadFile(paymentFile, generateUploadUrl);
+                    await submitPaymentProof({
+                      groupId: group.group.id as Id<"groups">,
+                      storageId,
+                      ...qaArgs,
+                    });
+                    setPaymentFile(null);
+                    setStatus({
+                      type: "success",
+                      text: "Payment submitted. Waiting for confirmation.",
+                    });
+                  })
+                }
+              >
+                Upload payment proof
+              </button>
+            </div>
+          ) : null}
+
+          {/* ── Verify payments (booker) ── */}
+          {group.actions.canVerifyPayments ? (
+            <div className="card stack-sm">
+              <h3>Verify payments</h3>
+              <div className="stack-sm">
+                {activeMembers
+                  .filter((m) => !m.isBooker && m.amountDueCents > 0)
+                  .map((member) => (
+                    <div className="card stack-sm" key={`payment-${member.userId}`}>
+                      <div className="row-between">
+                        <div className="member-name">
+                          {member.emoji} {emojiName(member.emoji)} owes{" "}
+                          {formatCurrency(member.amountDueCents)}
+                        </div>
+                        <div className="text-xs text-muted">
+                          {member.paymentStatus === "submitted"
+                            ? "Proof uploaded - tap to confirm."
+                            : member.paymentStatus === "verified"
+                              ? "Payment confirmed."
+                              : "Waiting for payment."}
+                        </div>
+                      </div>
+                      {member.paymentProofImageUrl ? (
+                        <ReceiptPreview
+                          src={member.paymentProofImageUrl}
+                          alt={`${emojiName(member.emoji)} payment proof`}
+                        />
+                      ) : null}
+                      <div className="row-between">
+                        <span
+                          className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : member.paymentProofImageUrl ? "pill-accent" : "pill-muted"}`}
+                        >
+                          {member.paymentStatus === "verified"
+                            ? "Paid"
+                            : member.paymentProofImageUrl
+                              ? "Proof uploaded"
+                              : "Waiting"}
+                        </span>
+                        {member.paymentStatus === "submitted" ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={busy}
+                            onClick={() =>
+                              runAction(async () => {
+                                await verifyPayment({
+                                  groupId: group.group.id as Id<"groups">,
+                                  memberUserId: member.userId as Id<"users">,
+                                  ...qaArgs,
+                                });
+                                setStatus({ type: "success", text: "Payment confirmed." });
+                              })
+                            }
+                          >
+                            Confirm
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* ── CHAT TAB ── */}
+      {tab === "chat" && canChat ? (
+        <div className="chat-view">
+          <div className="chat-messages">
+            {chatMessages && chatMessages.length > 0 ? (
+              chatMessages.map((msg) => {
+                const isSelf = msg.senderUserId === group.currentUserId;
+                return (
+                  <div
+                    key={msg._id}
+                    className={`chat-bubble ${isSelf ? "chat-bubble-self" : "chat-bubble-other"}`}
+                  >
+                    {!isSelf ? (
+                      <div className="chat-sender">
+                        {msg.senderEmoji} {msg.senderDisplayName}
+                      </div>
+                    ) : null}
+                    <div>{msg.body}</div>
+                    <div className="chat-time">
+                      {new Date(msg.createdAt).toLocaleTimeString("en-SG", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="chat-empty">No messages yet. Say hi!</div>
+            )}
+            <div ref={chatMessagesEndRef} />
+          </div>
+          <div className="chat-input-bar">
             <input
               type="text"
-              value={scanToken}
-              onChange={(e) => setScanToken(e.target.value)}
-              placeholder="Paste rider passphrase"
-              style={{ flex: 1 }}
+              value={chatDraft}
+              onChange={(e) => setChatDraft(e.target.value)}
+              placeholder="Type a message…"
+              maxLength={500}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && chatDraft.trim()) {
+                  e.preventDefault();
+                  const body = chatDraft.trim();
+                  setChatDraft("");
+                  setChatBusy(true);
+                  void sendChatMessage({
+                    groupId: group.group.id as Id<"groups">,
+                    body,
+                    ...qaArgs,
+                  })
+                    .catch(() => setChatDraft(body))
+                    .finally(() => setChatBusy(false));
+                }
+              }}
             />
             <button
               type="button"
-              className="btn btn-secondary"
-              style={{ flexShrink: 0 }}
-              disabled={busy || scannerBusy || scanToken.trim().length < 4}
-              onClick={async () => {
-                const checkedIn = await submitScannedQrToken(scanToken);
-                if (checkedIn) {
-                  setScanToken("");
-                }
+              className="btn btn-primary"
+              disabled={chatBusy || !chatDraft.trim()}
+              onClick={() => {
+                const body = chatDraft.trim();
+                if (!body) return;
+                setChatDraft("");
+                setChatBusy(true);
+                void sendChatMessage({
+                  groupId: group.group.id as Id<"groups">,
+                  body,
+                  ...qaArgs,
+                })
+                  .catch(() => setChatDraft(body))
+                  .finally(() => setChatBusy(false));
               }}
             >
-              {scannerBusy ? "Checking..." : "Check in"}
+              Send
             </button>
           </div>
         </div>
       ) : null}
 
-      {/* ── Priority: Depart first (all checked in) ── */}
-      {showDepartFirst ? (
+      {/* ── REPORT TAB ── */}
+      {tab === "report" && canReport ? (
         <div
           className="card stack-sm"
-          style={{
-            border: `1px solid ${group.group.groupColor}44`,
-            boxShadow: `0 8px 28px ${group.group.groupColor}22`,
-          }}
+          style={{ animation: "fadeUp 0.3s var(--ease-out-expo) both" }}
         >
-          <div style={{ textAlign: "center", padding: "8px 0" }}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>🚕</div>
-            <h3>Everyone's here!</h3>
-            <p className="text-sm text-muted" style={{ marginTop: 4, marginBottom: 16 }}>
-              All riders checked in. Ready when you are.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            disabled={busy || !group.actions.canDepart}
-            onClick={() =>
-              runAction(async () => {
-                await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
-                setStatus({ type: "success", text: "Departed. Safe travels!" });
-              })
-            }
-          >
-            Depart now
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Hero Card ── */}
-      <div
-        className="card group-hero-card"
-        style={{
-          border: `1px solid ${group.group.groupColor}33`,
-          boxShadow: `0 10px 36px ${group.group.groupColor}1a`,
-        }}
-      >
-        <div className="row-between" style={{ marginBottom: 20 }}>
-          <span
-            className="pill pill-sm"
-            style={{
-              background: `${group.group.groupColor}22`,
-              color: group.group.groupColor,
-              border: `1px solid ${group.group.groupColor}44`,
-            }}
-          >
-            {group.group.groupName}
-          </span>
-          <span className="pill pill-muted pill-sm">{friendlyStatus(group.group.status)}</span>
-        </div>
-
-        <div className="group-identity-row">
-          <div className="group-my-emoji">{group.currentUserMember?.emoji ?? "🙂"}</div>
-          <div className="group-identity-labels">
-            <span className="group-identity-you">You</span>
-            <span className="group-identity-role">
-              {emojiName(group.currentUserMember?.emoji ?? "🙂")} ·{" "}
-              {currentUserIsBooker ? "Booker" : "Rider"}
-            </span>
-          </div>
-          {!currentUserIsBooker && (
-            <div className="group-booker-hint">
-              <span className="group-booker-label">Booker</span>
-              <span className="group-booker-emoji">{bookerEmoji}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="divider" style={{ margin: "16px 0" }} />
-
-        <div className="group-logistics">
-          <div className="group-logistics-row">
-            <span className="group-logistics-icon">📍</span>
-            <div>
-              <div className="group-logistics-label">Meet at</div>
-              <div className="group-logistics-value">{group.group.meetingLocationLabel}</div>
-            </div>
-          </div>
-          <div className="group-logistics-row">
-            <span className="group-logistics-icon">🕐</span>
-            <div>
-              <div className="group-logistics-label">Time</div>
-              <div className="group-logistics-value">{formatDateTime(group.group.meetingTime)}</div>
-            </div>
-          </div>
-          <div className="group-logistics-row">
-            <span className="group-logistics-icon">🏁</span>
-            <div>
-              <div className="group-logistics-label">Your destination</div>
-              <div className="group-logistics-value">{group.group.pickupLabel}</div>
-            </div>
-          </div>
-          <div className="group-logistics-row">
-            <span className="group-logistics-icon">💰</span>
-            <div>
-              <div className="group-logistics-label">Fare</div>
-              <div className="group-logistics-value">
-                {group.group.finalCostCents !== null
-                  ? formatCurrency(group.group.finalCostCents)
-                  : "TBD after trip"}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {group.group.status === "matched_pending_ack" ? (
-          <div className="group-countdown-row">
-            <span className="text-sm text-muted">Confirm by</span>
-            <Countdown deadline={group.group.confirmationDeadline} />
-          </div>
-        ) : null}
-        {(group.group.status === "meetup_checkin" || group.group.status === "depart_ready") &&
-        group.group.graceDeadline ? (
-          <div className="group-countdown-row">
-            <span className="text-sm text-muted">Departs in</span>
-            <Countdown deadline={group.group.graceDeadline} />
-          </div>
-        ) : null}
-        {group.group.status === "payment_pending" && group.group.paymentDueAt ? (
-          <div className="group-countdown-row">
-            <span className="text-sm text-muted">Pay by</span>
-            <Countdown deadline={group.group.paymentDueAt} />
-          </div>
-        ) : null}
-      </div>
-
-      {/* ── Forming banner (tentative — rolling matching) ── */}
-      {group.group.status === "tentative"
-        ? (() => {
-            const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
-            return (
-              <div
-                className="card"
-                style={{
-                  background: `${group.group.groupColor}0d`,
-                  border: `1px solid ${group.group.groupColor}33`,
-                  textAlign: "center",
-                  padding: "20px 16px",
-                }}
-              >
-                <div style={{ fontSize: 28, marginBottom: 8 }}>
-                  {Array.from(
-                    { length: group.stats.activeMemberCount },
-                    (_, i) => group.members[i]?.emoji ?? "🙂",
-                  ).join(" ")}
-                  {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
-                </div>
-                <h3 style={{ marginBottom: 4 }}>
-                  {group.stats.activeMemberCount} rider
-                  {group.stats.activeMemberCount > 1 ? "s" : ""} matched
-                </h3>
-                <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-                  {spotsLeft > 0
-                    ? `Looking for up to ${spotsLeft} more rider${spotsLeft > 1 ? "s" : ""} with nearby destinations. The group locks 3 h before departure.`
-                    : "Group is full and will lock in soon."}
-                </p>
-              </div>
-            );
-          })()
-        : null}
-
-      {/* ── Semi-locked banner (T-3h lock — open to late joiners) ── */}
-      {group.group.status === "semi_locked"
-        ? (() => {
-            const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
-            return (
-              <div
-                className="card"
-                style={{
-                  background: `${group.group.groupColor}0d`,
-                  border: `1px solid ${group.group.groupColor}33`,
-                  textAlign: "center",
-                  padding: "20px 16px",
-                }}
-              >
-                <div style={{ fontSize: 28, marginBottom: 8 }}>
-                  {Array.from(
-                    { length: group.stats.activeMemberCount },
-                    (_, i) => group.members[i]?.emoji ?? "🙂",
-                  ).join(" ")}
-                  {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
-                </div>
-                <h3 style={{ marginBottom: 4 }}>Open to +{spotsLeft}</h3>
-                <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-                  {group.stats.activeMemberCount} riders matched. New riders can join until 30 min
-                  before departure.
-                </p>
-              </div>
-            );
-          })()
-        : null}
-
-      {/* ── Locked banner (legacy fallback) ── */}
-      {group.group.status === "locked" ? (
-        <div className="card" style={{ textAlign: "center", padding: "20px 16px" }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>🔒</div>
-          <h3 style={{ marginBottom: 4 }}>Group locked</h3>
-          <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-            {group.stats.activeMemberCount} riders confirmed. Waiting for the ride to be finalized.
-          </p>
-        </div>
-      ) : null}
-
-      {/* ── Receipt preview ── */}
-      {group.group.receiptImageUrl ? (
-        <div className="card stack-sm">
-          <h3>{currentUserIsBooker ? "Fare receipt" : "Booker's fare receipt"}</h3>
-          <p className="text-sm text-muted">
-            {currentUserIsBooker
-              ? "This receipt is visible to everyone in the confirmed ride while settlement is open."
-              : "Review the uploaded fare receipt before sending payment."}
-          </p>
-          <div className="row-between">
-            <span className="pill pill-sm pill-success">
-              Final fare {formatCurrency(group.group.finalCostCents)}
-            </span>
-            {group.group.receiptSubmittedAt ? (
-              <span className="text-xs text-muted">
-                Uploaded {formatDateTime(group.group.receiptSubmittedAt)}
-              </span>
-            ) : null}
-          </div>
-          <ReceiptPreview
-            src={group.group.receiptImageUrl}
-            alt="Fare receipt uploaded by the booker"
-          />
-        </div>
-      ) : null}
-
-      {/* ── Rider QR code ── */}
-      {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
-        <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
-          <h3>Your check-in code</h3>
-          <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
-          {qrCode ? (
-            <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
-          ) : null}
-
-          <div className="checkin-roster" style={{ justifyContent: "center" }}>
-            {activeMembers.map((member) => (
-              <div
-                key={member.userId}
-                className={`checkin-avatar ${member.checkedInAt ? "checkin-avatar-done" : ""}`}
-                title={`${emojiName(member.emoji)}${member.checkedInAt ? " — here" : " — not yet"}`}
-              >
-                {member.emoji}
-                {member.checkedInAt ? <span className="checkin-tick">✓</span> : null}
-              </div>
-            ))}
-          </div>
-
-          <div className="notice notice-info" style={{ width: "100%", textAlign: "left" }}>
-            Backup passphrase:{" "}
-            <code className="qr-passphrase">{group.currentUserMember.qrToken}</code>
-          </div>
-        </div>
-      ) : null}
-
-      {!currentUserIsBooker && group.currentUserMember?.paymentProofImageUrl ? (
-        <div className="card stack-sm">
-          <h3>Your payment proof</h3>
-          <p className="text-sm text-muted">
-            This is the receipt screenshot the booker can review when confirming your payment.
-          </p>
-          <ReceiptPreview
-            src={group.currentUserMember.paymentProofImageUrl}
-            alt="Your uploaded payment proof"
-          />
-        </div>
-      ) : null}
-
-      {/* ── Riders (hidden when booker has everyone checked in) ── */}
-      {!showDepartFirst ? (
-        <div className="card">
-          <div className="row-between" style={{ marginBottom: 12 }}>
-            <h3>Riders</h3>
-            <span className="text-sm text-muted">
-              {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
-            </span>
-          </div>
-          <div className="stack-sm">
-            {group.members.map((member, index) => {
-              const badge = memberBadge(member);
-              const isMe = member.userId === group.currentUserId;
-              return (
-                <div className="member-item" key={member.userId}>
-                  <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
-                  <div className="member-info">
-                    <div className="member-name">
-                      {emojiName(member.emoji)}
-                      {member.isBooker ? " · Booker" : ""}
-                      {isMe ? " · You" : ""}
-                    </div>
-                  </div>
-                  <span className={`pill pill-sm ${badge.pillClass}`}>{badge.label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      {/* ── Confirm / Decline ── */}
-      {group.actions.canAcknowledge ? (
-        <div className="row" style={{ gap: 10 }}>
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ flex: 1 }}
-            disabled={busy}
-            onClick={() =>
-              runAction(async () => {
-                await updateAcknowledgement({
-                  groupId: group.group.id as Id<"groups">,
-                  accepted: true,
-                  ...qaArgs,
-                });
-                setStatus({ type: "success", text: "You're confirmed for this ride." });
-              })
-            }
-          >
-            Confirm
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            style={{ flex: 1 }}
-            disabled={busy}
-            onClick={() =>
-              runAction(async () => {
-                await updateAcknowledgement({
-                  groupId: group.group.id as Id<"groups">,
-                  accepted: false,
-                  ...qaArgs,
-                });
-                setStatus({ type: "info", text: "You've declined this ride." });
-              })
-            }
-          >
-            Decline
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Drop-off order preview ── */}
-      {group.dropoffPreview.length > 0 ? (
-        <div className="card stack-sm">
-          <h3>Drop-off order</h3>
-          <div className="stack-sm">
-            {group.dropoffPreview.map((member) => (
-              <div className="row-between" key={member.userId}>
-                <div className="row" style={{ gap: 10 }}>
-                  <span
-                    style={{
-                      fontFamily: "var(--font-display)",
-                      fontWeight: 600,
-                      color: "var(--text-muted)",
-                      minWidth: 20,
-                    }}
-                  >
-                    {member.order}.
-                  </span>
-                  <span style={{ fontSize: 20 }}>{member.emoji}</span>
-                  <span style={{ fontSize: 14 }}>{emojiName(member.emoji)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* ── Start check-in (booker, before scanning) ── */}
-      {group.actions.canStartCheckIn ? (
-        <div className="card stack-sm">
-          <h3>Start check-in</h3>
-          <p className="text-sm text-muted">
-            Once everyone is at {group.group.meetingLocationLabel}, tap to open check-in and scan
-            each rider.
-          </p>
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            disabled={busy}
-            onClick={() =>
-              runAction(async () => {
-                await startMeetupCheckIn({
-                  groupId: group.group.id as Id<"groups">,
-                  ...qaArgs,
-                });
-                setStatus({ type: "success", text: "Check-in is open." });
-              })
-            }
-          >
-            Start check-in
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Depart (non-priority: shown lower when not everyone checked in) ── */}
-      {showDepartCard && !showDepartFirst ? (
-        <div className="card stack-sm">
-          <h3>Depart</h3>
-          <p className="text-sm text-muted">
-            Once the grace period ends or everyone is checked in, you can depart. Riders who haven't
-            checked in will be removed.
-          </p>
-          {!group.actions.canDepart ? (
-            <div className="text-sm text-muted">Waiting for all riders or the grace window.</div>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            disabled={busy || !group.actions.canDepart}
-            onClick={() =>
-              runAction(async () => {
-                await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
-                setStatus({ type: "success", text: "Departed. Safe travels!" });
-              })
-            }
-          >
-            Depart now
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Upload receipt (booker) ── */}
-      {group.actions.canUploadReceipt ? (
-        <div className="card stack-sm">
-          <h3>Upload receipt</h3>
-          <p className="text-sm text-muted">
-            Enter the final fare and attach a photo of the receipt. Hop will split it automatically.
-          </p>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={receiptTotal}
-            onChange={(e) => setReceiptTotal(e.target.value)}
-            placeholder="Total fare (e.g. 24.80)"
-          />
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-          />
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
-            onClick={() =>
-              runAction(async () => {
-                if (!receiptFile) throw new Error("Attach the receipt photo first.");
-                const storageId = await uploadFile(receiptFile, generateUploadUrl);
-                await submitReceipt({
-                  groupId: group.group.id as Id<"groups">,
-                  totalCostCents: Math.round(Number(receiptTotal) * 100),
-                  storageId,
-                  ...qaArgs,
-                });
-                setReceiptFile(null);
-                setReceiptTotal("");
-                setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
-              })
-            }
-          >
-            Submit receipt
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Submit payment proof (rider) ── */}
-      {group.actions.canSubmitPaymentProof ? (
-        <div className="card stack-sm">
-          <h3>Pay your share</h3>
-          <p className="text-sm text-muted">
-            You owe {formatCurrency(group.currentUserMember?.amountDueCents ?? 0)}. Transfer to the
-            booker and upload a screenshot.
-          </p>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setPaymentFile(e.target.files?.[0] ?? null)}
-          />
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            disabled={busy || !paymentFile}
-            onClick={() =>
-              runAction(async () => {
-                if (!paymentFile) throw new Error("Attach your payment screenshot first.");
-                const storageId = await uploadFile(paymentFile, generateUploadUrl);
-                await submitPaymentProof({
-                  groupId: group.group.id as Id<"groups">,
-                  storageId,
-                  ...qaArgs,
-                });
-                setPaymentFile(null);
-                setStatus({
-                  type: "success",
-                  text: "Payment submitted. Waiting for confirmation.",
-                });
-              })
-            }
-          >
-            Upload payment proof
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Verify payments (booker) ── */}
-      {group.actions.canVerifyPayments ? (
-        <div className="card stack-sm">
-          <h3>Verify payments</h3>
-          <div className="stack-sm">
-            {activeMembers
-              .filter((m) => !m.isBooker && m.amountDueCents > 0)
-              .map((member) => (
-                <div className="card stack-sm" key={`payment-${member.userId}`}>
-                  <div className="row-between">
-                    <div className="member-name">
-                      {member.emoji} {emojiName(member.emoji)} owes{" "}
-                      {formatCurrency(member.amountDueCents)}
-                    </div>
-                    <div className="text-xs text-muted">
-                      {member.paymentStatus === "submitted"
-                        ? "Proof uploaded - tap to confirm."
-                        : member.paymentStatus === "verified"
-                          ? "Payment confirmed."
-                          : "Waiting for payment."}
-                    </div>
-                  </div>
-                  {member.paymentProofImageUrl ? (
-                    <ReceiptPreview
-                      src={member.paymentProofImageUrl}
-                      alt={`${emojiName(member.emoji)} payment proof`}
-                    />
-                  ) : null}
-                  <div className="row-between">
-                    <span
-                      className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : member.paymentProofImageUrl ? "pill-accent" : "pill-muted"}`}
-                    >
-                      {member.paymentStatus === "verified"
-                        ? "Paid"
-                        : member.paymentProofImageUrl
-                          ? "Proof uploaded"
-                          : "Waiting"}
-                    </span>
-                    {member.paymentStatus === "submitted" ? (
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        disabled={busy}
-                        onClick={() =>
-                          runAction(async () => {
-                            await verifyPayment({
-                              groupId: group.group.id as Id<"groups">,
-                              memberUserId: member.userId as Id<"users">,
-                              ...qaArgs,
-                            });
-                            setStatus({ type: "success", text: "Payment confirmed." });
-                          })
-                        }
-                      >
-                        Confirm
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* ── Report ── */}
-      {group.actions.canReport ? (
-        <div className="card stack-sm">
           <h3>Report an issue</h3>
           <p className="text-sm text-muted">
             Report a no-show, non-payment, unsafe behaviour, or other concern.
