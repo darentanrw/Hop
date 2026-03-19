@@ -1128,8 +1128,27 @@ export const attemptLateJoin = internalMutation({
       .query("groupMembers")
       .withIndex("userId", (q) => q.eq("userId", args.userId))
       .collect();
-    if (existingMembership.some((m) => m.participationStatus === "active")) {
-      return { joined: false, reason: "Already in an active group." };
+    const activeMemberships = existingMembership.filter((m) => m.participationStatus === "active");
+    if (activeMemberships.length > 0) {
+      const activeGroupStatuses = new Set([
+        "tentative",
+        "semi_locked",
+        "locked",
+        "matched_pending_ack",
+        "group_confirmed",
+        "meetup_preparation",
+        "meetup_checkin",
+        "depart_ready",
+        "in_trip",
+        "receipt_pending",
+        "payment_pending",
+      ]);
+      for (const membership of activeMemberships) {
+        const group = await ctx.db.get(membership.groupId);
+        if (group && activeGroupStatuses.has(group.status)) {
+          return { joined: false, reason: "Already in an active group." };
+        }
+      }
     }
 
     const edgeMap = new Map<string, { detourMinutes: number; spreadDistanceKm: number }>();
