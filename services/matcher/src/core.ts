@@ -151,7 +151,10 @@ export async function scoreRouteDescriptors(
       const right = store.descriptors.get(rightRef);
 
       if (!left || !right) {
-        continue;
+        const missingRefs = [left ? null : leftRef, right ? null : rightRef].filter(Boolean);
+        throw new Error(
+          `Missing matcher route descriptor${missingRefs.length === 1 ? "" : "s"}: ${missingRefs.join(", ")}.`,
+        );
       }
 
       const geohash6Match = areGeohashNeighbors(left.geohash6, right.geohash6);
@@ -181,8 +184,12 @@ export async function scoreRouteDescriptors(
           routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
         );
         detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
-      } catch {
-        detourMinutes = spreadDistanceKm * 1.5;
+      } catch (error) {
+        throw new Error(
+          `Could not calculate live route compatibility for ${leftRef} and ${rightRef}: ${
+            error instanceof Error ? error.message : "unknown routing error"
+          }`,
+        );
       }
 
       if (detourMinutes > MAX_DETOUR_MINUTES) {
@@ -288,7 +295,7 @@ export function revealEnvelopes(
     for (const sender of members) {
       const destinationRecord = store.destinations.get(sender.sealedDestinationRef);
       if (!destinationRecord) {
-        continue;
+        throw new Error(`Missing matcher destination record for ${sender.sealedDestinationRef}.`);
       }
 
       const plaintextAddress = unsealAddress(destinationRecord);

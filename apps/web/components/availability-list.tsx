@@ -1,10 +1,14 @@
 "use client";
 
 import { useMutation, useQuery } from "convex/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
-import { decodeStubDestinationRef } from "../lib/matcher-stub";
+import {
+  type DestinationLabelCache,
+  loadDestinationLabelCache,
+  resolveDestinationLabel,
+} from "../lib/destination-storage";
 
 interface AvailabilityListProps {
   availabilities?: Doc<"availabilities">[];
@@ -23,13 +27,6 @@ function formatWindow(start: string, end: string) {
   return { day, range: `${startTime} – ${endTime}` };
 }
 
-function getDestinationLabel(sealedDestinationRef: string): string {
-  if (sealedDestinationRef.startsWith("stub:")) {
-    return decodeStubDestinationRef(sealedDestinationRef);
-  }
-  return "Your destination";
-}
-
 const STATUS_PILL: Record<string, { label: string; cls: string }> = {
   open: { label: "Searching", cls: "pill-accent pill-dot pill-pulse" },
   matched: { label: "Matched", cls: "pill-success" },
@@ -41,7 +38,18 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
   const cancelAvailability = useMutation(api.mutations.cancelAvailability);
   const [deletingId, setDeletingId] = useState<Id<"availabilities"> | null>(null);
   const [deletedIds, setDeletedIds] = useState<Set<Id<"availabilities">>>(new Set());
+  const [destinationLabels, setDestinationLabels] = useState<DestinationLabelCache>({});
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const syncDestinationLabels = () => {
+      setDestinationLabels(loadDestinationLabelCache());
+    };
+
+    syncDestinationLabels();
+    window.addEventListener("storage", syncDestinationLabels);
+    return () => window.removeEventListener("storage", syncDestinationLabels);
+  }, []);
 
   const availabilities = liveAvailabilities ?? initialAvailabilities;
   const activeItems = (availabilities ?? [])
@@ -86,7 +94,10 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
 
       {activeItems.map((availability) => {
         const { day, range } = formatWindow(availability.windowStart, availability.windowEnd);
-        const destination = getDestinationLabel(availability.sealedDestinationRef);
+        const destination = resolveDestinationLabel(
+          availability.sealedDestinationRef,
+          destinationLabels,
+        );
         const pill = STATUS_PILL[availability.status] ?? STATUS_PILL.open;
         const isDeleting = deletingId === availability._id;
 

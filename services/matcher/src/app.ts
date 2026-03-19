@@ -1,0 +1,292 @@
+import crypto from "node:crypto";
+import type { CompatibilityEdge } from "@hop/shared";
+import cors from "cors";
+import express, { type NextFunction, type Request, type Response } from "express";
+import {
+  computeLocationClusters,
+  revealEnvelopes,
+  scoreRouteDescriptors,
+  submitDestination,
+} from "./core";
+import {
+  type MatcherLogger,
+  createLogger,
+  getRequestLogContext,
+  summarizeRequestBody,
+} from "./logger";
+
+type CreateMatcherAppOptions = {
+  logger?: MatcherLogger;
+};
+
+const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
+
+function createRequestId() {
+  return crypto.randomUUID();
+}
+
+function getDurationMs(startedAt: bigint) {
+  return Number((process.hrtime.bigint() - startedAt) / 1_000_000n);
+}
+
+function summarizeCompatibilityScores(edges: CompatibilityEdge[]) {
+  if (edges.length === 0) {
+    return {
+      averageScore: 0,
+      minimumScore: 0,
+      maximumScore: 0,
+      topMatch: null,
+    };
+  }
+
+  const sortedByScore = [...edges].sort(
+    (left, right) => right.score - left.score || left.detourMinutes - right.detourMinutes,
+  );
+  const totalScore = edges.reduce((sum, edge) => sum + edge.score, 0);
+
+  return {
+    averageScore: Number((totalScore / edges.length).toFixed(2)),
+    minimumScore: sortedByScore.at(-1)?.score ?? 0,
+    maximumScore: sortedByScore[0]?.score ?? 0,
+    topMatch: sortedByScore[0]
+      ? {
+          leftRef: sortedByScore[0].leftRef,
+          rightRef: sortedByScore[0].rightRef,
+          score: sortedByScore[0].score,
+          detourMinutes: sortedByScore[0].detourMinutes,
+          spreadDistanceKm: sortedByScore[0].spreadDistanceKm,
+        }
+      : null,
+  };
+}
+
+function respondWithBadRequest(
+  request: Request,
+  response: Response,
+  logger: MatcherLogger,
+  message: string,
+  context: Record<string, unknown> = {},
+) {
+  logger.warn("request.validation_failed", {
+    ...getRequestLogContext(request),
+    ...context,
+    error: message,
+  });
+  response.status(400).json({ error: message });
+}
+
+export function createMatcherApp(options: CreateMatcherAppOptions = {}) {
+  const logger = options.logger ?? createLogger();
+  const app = express();
+
+  app.disable("x-powered-by");
+  app.use(cors());
+
+  app.use((request, response, next) => {
+    const startedAt = process.hrtime.bigint();
+    const requestId = request.get("x-request-id")?.trim() || createRequestId();
+    let finished = false;
+
+    request.requestId = requestId;
+    response.setHeader("x-request-id", requestId);
+
+    response.on("finish", () => {
+      finished = true;
+      logger.debug("request.completed", {
+        ...getRequestLogContext(request),
+        statusCode: response.statusCode,
+        durationMs: getDurationMs(startedAt),
+      });
+    });
+
+    response.on("close", () => {
+      if (finished) return;
+
+      logger.warn("request.aborted", {
+        ...getRequestLogContext(request),
+        statusCode: response.statusCode,
+        durationMs: getDurationMs(startedAt),
+      });
+    });
+
+    next();
+  });
+
+  app.use(express.json({ limit: "1mb" }));
+
+  app.use((request, _response, next) => {
+    logger.info("request.received", {
+      route: request.path,
+    });
+    next();
+  });
+
+  app.get("/health", (request, response) => {
+    logger.debug("health.check", {
+      ...getRequestLogContext(request),
+    });
+    response.json({ ok: true });
+  });
+
+  app.get("/matcher/search", async (request, response) => {
+    const query = String(request.query.q ?? "").trim();
+
+    if (query.length < 2) {
+      response.json({ results: [] });
+      return;
+    }
+
+    try {
+      const url = `${ONEMAP_SEARCH_URL}?searchVal=${encodeURIComponent(query)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+      const upstream = await fetch(url);
+      if (!upstream.ok) {
+        logger.warn("matcher.search_failed", {
+          ...getRequestLogContext(request),
+          queryLength: query.length,
+          upstreamStatus: upstream.status,
+        });
+        response.status(502).json({ error: "Address search is unavailable right now. Try again." });
+        return;
+      }
+
+      const data = (await upstream.json()) as {
+        results?: Array<{
+          SEARCHVAL: string;
+          LATITUDE: string;
+          LONGITUDE: string;
+          POSTAL: string;
+          BUILDING: string;
+          ADDRESS: string;
+        }>;
+      };
+      const results = (data.results ?? []).slice(0, 8).map((result) => ({
+        title: result.BUILDING && result.BUILDING !== "NIL" ? result.BUILDING : result.SEARCHVAL,
+        address: result.ADDRESS,
+        postal: result.POSTAL,
+        lat: result.LATITUDE,
+        lng: result.LONGITUDE,
+      }));
+
+      logger.info("matcher.search_completed", {
+        ...getRequestLogContext(request),
+        queryLength: query.length,
+        resultCount: results.length,
+      });
+
+      response.json({ results });
+    } catch (error) {
+      logger.error("matcher.search_failed", {
+        ...getRequestLogContext(request),
+        queryLength: query.length,
+        error,
+      });
+      response.status(502).json({ error: "Address search is unavailable right now. Try again." });
+    }
+  });
+
+  app.post("/matcher/submit-destination", async (request, response) => {
+    const address = typeof request.body?.address === "string" ? request.body.address.trim() : "";
+
+    if (!address) {
+      respondWithBadRequest(request, response, logger, "Address is required.");
+      return;
+    }
+
+    try {
+      const submission = await submitDestination(address);
+
+      logger.info("matcher.destination_submitted", {
+        ...getRequestLogContext(request),
+        sealedDestinationRef: submission.sealedDestinationRef,
+        routeDescriptorRef: submission.routeDescriptorRef,
+      });
+
+      response.json(submission);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not process destination.";
+      respondWithBadRequest(request, response, logger, message);
+    }
+  });
+
+  app.post("/matcher/compatibility", async (request, response) => {
+    const routeDescriptorRefs = Array.isArray(request.body?.routeDescriptorRefs)
+      ? request.body.routeDescriptorRefs.map(String)
+      : [];
+
+    try {
+      const edges = await scoreRouteDescriptors(routeDescriptorRefs);
+      const geohashByRef = computeLocationClusters(routeDescriptorRefs);
+      const scoreSummary = summarizeCompatibilityScores(edges);
+
+      logger.info("matcher.compatibility_scored", {
+        ...getRequestLogContext(request),
+        routeDescriptorRefCount: routeDescriptorRefs.length,
+        edgeCount: edges.length,
+        clusterCount: new Set(Object.values(geohashByRef)).size,
+        ...scoreSummary,
+      });
+
+      response.json({ edges, geohashByRef });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Compatibility scoring failed.";
+      logger.error("matcher.compatibility_failed", {
+        ...getRequestLogContext(request),
+        routeDescriptorRefCount: routeDescriptorRefs.length,
+        error,
+      });
+      response.status(500).json({ error: message });
+    }
+  });
+
+  app.post("/matcher/reveal-envelopes", (request, response) => {
+    const members: Array<{
+      userId?: unknown;
+      displayName?: unknown;
+      sealedDestinationRef?: unknown;
+      publicKey?: unknown;
+    }> = Array.isArray(request.body?.members) ? request.body.members : [];
+
+    try {
+      const envelopes = revealEnvelopes(
+        members.map((member) => ({
+          userId: String(member.userId),
+          displayName: String(member.displayName ?? ""),
+          sealedDestinationRef: String(member.sealedDestinationRef),
+          publicKey: String(member.publicKey),
+        })),
+      );
+
+      logger.info("matcher.envelopes_revealed", {
+        ...getRequestLogContext(request),
+        memberCount: members.length,
+        envelopeCount: envelopes.length,
+      });
+
+      response.json({ envelopes });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Reveal failed.";
+      logger.error("matcher.envelopes_reveal_failed", {
+        ...getRequestLogContext(request),
+        memberCount: members.length,
+        error,
+      });
+      response.status(500).json({ error: message });
+    }
+  });
+
+  app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
+    logger.error("request.failed", {
+      ...getRequestLogContext(request),
+      statusCode: response.statusCode >= 400 ? response.statusCode : 500,
+      error,
+    });
+
+    if (response.headersSent) {
+      return;
+    }
+
+    response.status(500).json({ error: "Internal server error." });
+  });
+
+  return { app, logger };
+}

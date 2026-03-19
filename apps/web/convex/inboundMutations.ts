@@ -1,3 +1,4 @@
+import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
 import { v } from "convex/values";
 import { findNewestVerificationMatchByBody } from "../lib/inbound-email";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -61,8 +62,8 @@ export const verifyEmailReply = internalMutation({
         userId: verification.userId,
         selfDeclaredGender: "prefer_not_to_say",
         sameGenderOnly: false,
-        minGroupSize: 2,
-        maxGroupSize: 4,
+        minGroupSize: MIN_GROUP_SIZE,
+        maxGroupSize: MAX_GROUP_SIZE,
       });
     }
   },

@@ -4,6 +4,7 @@ import type { RiderProfile } from "@hop/shared";
 import { useMutation } from "convex/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
+import { persistDestinationLabel } from "../lib/destination-storage";
 import {
   clampRange,
   getDefaultDateInput,
@@ -37,6 +38,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const [addressQuery, setAddressQuery] = useState("");
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [addressSearchError, setAddressSearchError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [status, setStatus] = useState<{ type: "info" | "error" | "success"; text: string } | null>(
     null,
@@ -52,6 +54,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   function handleAddressInput(text: string) {
     setAddressQuery(text);
     setDestinationAddress("");
+    setAddressSearchError(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (text.trim().length < 2) {
       setSuggestions([]);
@@ -63,12 +66,24 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         const response = await fetch(
           `${matcherBaseUrl}/matcher/search?q=${encodeURIComponent(text.trim())}`,
         );
-        if (!response.ok) return;
-        const data = (await response.json()) as { results: AddressSuggestion[] };
-        setSuggestions(data.results ?? []);
-        setShowSuggestions((data.results ?? []).length > 0);
-      } catch {
+        const data = (await response.json().catch(() => null)) as {
+          error?: string;
+          results?: AddressSuggestion[];
+        } | null;
+        if (!response.ok) {
+          throw new Error(data?.error ?? "Address search is unavailable right now. Try again.");
+        }
+        const results = data?.results ?? [];
+        setSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch (error) {
         setSuggestions([]);
+        setShowSuggestions(false);
+        setAddressSearchError(
+          error instanceof Error
+            ? error.message
+            : "Address search is unavailable right now. Try again.",
+        );
       }
     }, 300);
   }
@@ -119,11 +134,10 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         windowEnd,
         selfDeclaredGender: profile.selfDeclaredGender,
         sameGenderOnly: profile.sameGenderOnly,
-        minGroupSize: profile.minGroupSize,
-        maxGroupSize: profile.maxGroupSize,
         sealedDestinationRef: matcherPayload.sealedDestinationRef,
         routeDescriptorRef: matcherPayload.routeDescriptorRef,
       });
+      persistDestinationLabel(matcherPayload.sealedDestinationRef, trimmedDestinationAddress);
       setStatus({ type: "success", text: "Window saved." });
       window.location.href = "/dashboard";
     } catch (err) {
@@ -194,6 +208,11 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
                 style={{ color: "var(--color-success, #22c55e)", marginTop: 4 }}
               >
                 {destinationAddress}
+              </div>
+            ) : null}
+            {addressSearchError ? (
+              <div className="text-xs" style={{ color: "var(--danger)", marginTop: 4 }}>
+                {addressSearchError}
               </div>
             ) : null}
             {showSuggestions ? (

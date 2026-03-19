@@ -10,8 +10,6 @@ function availability(overrides: Partial<AvailabilityEntry> = {}): AvailabilityE
     windowEnd: new Date("2026-03-20T14:00:00.000Z").toISOString(),
     selfDeclaredGender: "woman",
     sameGenderOnly: false,
-    minGroupSize: 2,
-    maxGroupSize: 4,
     sealedDestinationRef: "dest_1",
     routeDescriptorRef: "route_1",
     createdAt: new Date().toISOString(),

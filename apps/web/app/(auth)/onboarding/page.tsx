@@ -27,8 +27,6 @@ export default function OnboardingPage() {
     name: "",
     selfDeclaredGender: "prefer_not_to_say" as SelfDeclaredGender,
     sameGenderOnly: false,
-    minGroupSize: 2,
-    maxGroupSize: 4,
   });
   const [acceptedTc, setAcceptedTc] = useState(false);
   const [confirmedTruthful, setConfirmedTruthful] = useState(false);
@@ -109,7 +107,7 @@ export default function OnboardingPage() {
           </span>
         </h1>
         <p style={{ marginTop: 8 }}>
-          Set your gender identity and matching preferences. You can change these anytime from your
+          Set your gender identity and privacy preferences. You can change these anytime from your
           dashboard.
         </p>
       </div>

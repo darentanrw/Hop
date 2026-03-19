@@ -5,7 +5,7 @@ export const PICKUP_ORIGIN_LAT = 1.3049;
 export const PICKUP_ORIGIN_LNG = 103.7734;
 export const ACK_WINDOW_MINUTES = 30;
 export const MIN_TIME_OVERLAP_MINUTES = 0;
-export const SMALL_GROUP_RELEASE_HOURS = 5;
+export const SMALL_GROUP_RELEASE_HOURS = 36;
 export const MAX_GROUP_SIZE = 4;
 export const MIN_GROUP_SIZE = 2;
 export const MAX_DETOUR_MINUTES = 12;
@@ -67,8 +67,6 @@ export interface RiderProfile {
   email?: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
-  minGroupSize: number;
-  maxGroupSize: number;
   successfulTrips?: number;
   cancelledTrips?: number;
   reportedCount?: number;
@@ -81,8 +79,6 @@ export interface AvailabilityEntry {
   windowEnd: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
-  minGroupSize: number;
-  maxGroupSize: number;
   sealedDestinationRef: string;
   routeDescriptorRef: string;
   createdAt: string;

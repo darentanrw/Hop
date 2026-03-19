@@ -1,5 +1,3 @@
-import { decodeStubDestinationRef } from "./matcher-stub";
-
 type AvailabilityDestination = {
   createdAt?: string;
   sealedDestinationRef: string;
@@ -19,14 +17,6 @@ type LockedGroupDestination = {
   userId: string;
 };
 
-function decodeLockedAddress(sealedDestinationRef: string) {
-  if (!sealedDestinationRef.startsWith("stub:destination:")) {
-    return undefined;
-  }
-
-  return decodeStubDestinationRef(sealedDestinationRef);
-}
-
 export function buildLockedGroupDestinations(
   members: GroupDestinationMember[],
   availabilityById: Map<string, AvailabilityDestination>,
@@ -37,15 +27,14 @@ export function buildLockedGroupDestinations(
       throw new Error(`Availability ${member.availabilityId} is missing its destination details.`);
     }
 
-    const destinationAddress = decodeLockedAddress(availability.sealedDestinationRef);
     const destinationLockedAt = availability.createdAt ?? new Date().toISOString();
 
     return {
       availabilityId: member.availabilityId,
-      destinationAddress,
+      destinationAddress: undefined,
       destinationLockedAt,
       destinationSubmittedAt: destinationLockedAt,
-      sortKey: (destinationAddress ?? availability.sealedDestinationRef).toLowerCase(),
+      sortKey: availability.sealedDestinationRef.toLowerCase(),
       userId: member.userId,
     };
   });

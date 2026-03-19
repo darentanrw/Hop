@@ -47,8 +47,6 @@ export default function ProfilePage() {
       await savePreferences({
         selfDeclaredGender: selectedGender,
         sameGenderOnly: riderProfile.sameGenderOnly,
-        minGroupSize: riderProfile.minGroupSize,
-        maxGroupSize: riderProfile.maxGroupSize,
       });
       setSaveStatus({ type: "success", message: "Gender updated successfully" });
       setTimeout(() => setSaveStatus(null), 2000);

@@ -42,9 +42,14 @@ async function searchAddresses(query: string): Promise<SearchResult[]> {
   const response = await fetch(
     `${matcherBaseUrl}/matcher/search?q=${encodeURIComponent(query.trim())}`,
   );
-  if (!response.ok) return [];
-  const data = (await response.json()) as { results: SearchResult[] };
-  return data.results ?? [];
+  const data = (await response.json().catch(() => null)) as {
+    error?: string;
+    results?: SearchResult[];
+  } | null;
+  if (!response.ok) {
+    throw new Error(data?.error ?? "Address search is unavailable right now. Try again.");
+  }
+  return data?.results ?? [];
 }
 
 async function submitAddressToMatcher(address: string): Promise<MatcherDestination> {
@@ -89,6 +94,7 @@ function AddressInput({
   const [query, setQuery] = useState(value);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   useEffect(() => {
@@ -98,6 +104,7 @@ function AddressInput({
   function handleInput(text: string) {
     setQuery(text);
     onChange("");
+    setSearchError(null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (text.trim().length < 2) {
       setResults([]);
@@ -105,9 +112,19 @@ function AddressInput({
       return;
     }
     debounceRef.current = setTimeout(async () => {
-      const hits = await searchAddresses(text);
-      setResults(hits);
-      setShowDropdown(hits.length > 0);
+      try {
+        const hits = await searchAddresses(text);
+        setResults(hits);
+        setShowDropdown(hits.length > 0);
+      } catch (error) {
+        setResults([]);
+        setShowDropdown(false);
+        setSearchError(
+          error instanceof Error
+            ? error.message
+            : "Address search is unavailable right now. Try again.",
+        );
+      }
     }, 300);
   }
 
@@ -138,6 +155,11 @@ function AddressInput({
       {value ? (
         <div className="text-xs" style={{ color: "var(--color-success)", marginTop: 2 }}>
           Selected
+        </div>
+      ) : null}
+      {searchError ? (
+        <div className="text-xs" style={{ color: "var(--danger)", marginTop: 2 }}>
+          {searchError}
         </div>
       ) : null}
       {showDropdown ? (
@@ -192,10 +214,7 @@ export function LocalQaPanel() {
   const snapshot = useQuery(api.admin.localQaSnapshot);
   const bootstrapLocalQaUser = useMutation(api.admin.bootstrapLocalQaUser);
   const seedLocalQaPool = useMutation(api.admin.seedLocalQaPool);
-  const createLocalQaGroup = useMutation(api.admin.createLocalQaGroup);
   const forceLocalQaBotAcknowledgements = useMutation(api.admin.forceLocalQaBotAcknowledgements);
-  const forceLockGroups = useMutation(api.admin.forceLockGroups);
-  const forceHardLockGroups = useMutation(api.admin.forceHardLockGroups);
   const deleteCurrentLocalQaGroup = useMutation(api.admin.deleteCurrentLocalQaGroup);
   const syncLifecycle = useMutation(api.trips.advanceCurrentGroupLifecycle);
   const runMatching = useAction(api.mutations.runMatching);
@@ -252,8 +271,6 @@ export function LocalQaPanel() {
   ).length;
   const canForceBotConfirmations =
     activeGroup?.status === "matched_pending_ack" && otherTokens.length > 0;
-  const canForceLock = activeGroup?.status === "tentative";
-  const canForceHardLock = activeGroup?.status === "semi_locked";
 
   function openGroupAs(userId: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -298,7 +315,7 @@ export function LocalQaPanel() {
                 </div>
                 <h2 style={{ marginBottom: 4 }}>Manual QA controls</h2>
                 <p className="text-sm text-muted">
-                  Seed test data, run matching, create demo groups, and push bot riders through the
+                  Seed live matcher destinations, run matching, and push bot riders through the
                   confirmation step.
                 </p>
               </div>
@@ -358,23 +375,6 @@ export function LocalQaPanel() {
 
                   <button
                     type="button"
-                    className="btn btn-secondary btn-block"
-                    onClick={() =>
-                      run(
-                        "seed",
-                        () => seedLocalQaPool({}),
-                        "Seeded a fresh local matching pool for manual testing.",
-                      )
-                    }
-                    disabled={busyAction !== null}
-                  >
-                    {busyAction === "seed"
-                      ? "Seeding availabilities..."
-                      : "Seed open availabilities"}
-                  </button>
-
-                  <button
-                    type="button"
                     className="btn btn-primary btn-block"
                     onClick={() =>
                       run(
@@ -387,6 +387,11 @@ export function LocalQaPanel() {
                   >
                     {busyAction === "matching" ? "Running matching..." : "Run matching now"}
                   </button>
+
+                  <p className="text-xs text-muted">
+                    Live QA seeding moved to the "Live location test" section below so every seeded
+                    availability uses real matcher descriptors.
+                  </p>
 
                   <button
                     type="button"
@@ -435,137 +440,6 @@ export function LocalQaPanel() {
                     {busyAction === "delete-group"
                       ? "Deleting testing group..."
                       : "Delete current testing group"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="card stack">
-                <h3>Rolling match lifecycle</h3>
-                <p className="text-xs text-muted">
-                  Test the tentative → semi_locked → locked flow. Create a rolling match group, then
-                  step through each lock phase.
-                </p>
-                <div className="stack-sm">
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-block"
-                    onClick={() =>
-                      run(
-                        "group-rolling",
-                        () => createLocalQaGroup({ scenario: "rolling_match" }),
-                        "Created a tentative group. Use the lock buttons to advance it.",
-                      )
-                    }
-                    disabled={busyAction !== null}
-                  >
-                    {busyAction === "group-rolling"
-                      ? "Creating tentative group..."
-                      : "Create tentative group"}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-block"
-                    onClick={() =>
-                      run(
-                        "force-lock",
-                        () => forceLockGroups({}),
-                        (result) => {
-                          const newStatus =
-                            typeof result === "object" &&
-                            result !== null &&
-                            "newStatus" in result &&
-                            typeof result.newStatus === "string"
-                              ? result.newStatus
-                              : "unknown";
-                          return `Group advanced to "${newStatus}".`;
-                        },
-                      )
-                    }
-                    disabled={busyAction !== null || !canForceLock}
-                  >
-                    {busyAction === "force-lock"
-                      ? "Locking..."
-                      : `Force T-3h lock${canForceLock ? "" : " (needs tentative group)"}`}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-block"
-                    onClick={() =>
-                      run(
-                        "force-hard-lock",
-                        () => forceHardLockGroups({}),
-                        "Group hard-locked. Booker assigned and addresses revealed.",
-                      )
-                    }
-                    disabled={busyAction !== null || !canForceHardLock}
-                  >
-                    {busyAction === "force-hard-lock"
-                      ? "Hard-locking..."
-                      : `Force T-30min hard lock${canForceHardLock ? "" : " (needs semi_locked group)"}`}
-                  </button>
-                </div>
-              </div>
-
-              <div className="card stack">
-                <h3>Create a demo group</h3>
-                <div className="qa-grid">
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      run(
-                        "group-matched",
-                        () => createLocalQaGroup({ scenario: "matched" }),
-                        "Created a matched QA group with your acknowledgement still pending.",
-                      )
-                    }
-                    disabled={busyAction !== null}
-                  >
-                    Matched group
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      run(
-                        "group-meetup",
-                        () => createLocalQaGroup({ scenario: "meetup" }),
-                        "Created a meetup-ready QA group.",
-                      )
-                    }
-                    disabled={busyAction !== null}
-                  >
-                    Meetup group
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      run(
-                        "group-trip",
-                        () => createLocalQaGroup({ scenario: "in_trip" }),
-                        "Created an in-trip QA group.",
-                      )
-                    }
-                    disabled={busyAction !== null}
-                  >
-                    In-trip group
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      run(
-                        "group-payment",
-                        () => createLocalQaGroup({ scenario: "payment" }),
-                        "Created a payment-ready QA group.",
-                      )
-                    }
-                    disabled={busyAction !== null}
-                  >
-                    Payment group
                   </button>
                 </div>
               </div>

@@ -117,6 +117,28 @@ describe("matcher core", () => {
     expect(edges).toHaveLength(0);
   });
 
+  test("compatibility scoring fails loudly when a route descriptor is missing", async () => {
+    mockClementiGeocode();
+    const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+
+    await expect(scoreRouteDescriptors([left.routeDescriptorRef, "route_missing"])).rejects.toThrow(
+      "Missing matcher route descriptor",
+    );
+  });
+
+  test("compatibility scoring fails loudly when live routing fails", async () => {
+    mockClementiGeocode();
+    const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+    mockClementi2Geocode();
+    const right = await submitDestination("456 Clementi Ave 4 Singapore 120124");
+
+    mockRoute.mockRejectedValueOnce(new Error("OneMap route API unavailable"));
+
+    await expect(
+      scoreRouteDescriptors([left.routeDescriptorRef, right.routeDescriptorRef]),
+    ).rejects.toThrow("Could not calculate live route compatibility");
+  });
+
   test("reveal envelopes are created per recipient", async () => {
     mockClementiGeocode();
     const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
@@ -140,6 +162,19 @@ describe("matcher core", () => {
 
     expect(envelopes).toHaveLength(4);
     expect(envelopes.every((envelope) => envelope.ciphertext.length > 20)).toBe(true);
+  });
+
+  test("reveal envelopes fail loudly when a destination record is missing", () => {
+    expect(() =>
+      revealEnvelopes([
+        {
+          userId: "user_a",
+          displayName: "Alice",
+          sealedDestinationRef: "dest_missing",
+          publicKey: generatePublicKey(),
+        },
+      ]),
+    ).toThrow("Missing matcher destination record");
   });
 
   test("countDistinctLocations groups same geohash6 cells", () => {

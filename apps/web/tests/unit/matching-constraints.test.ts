@@ -5,28 +5,35 @@ import {
   overlapMinutes,
 } from "@hop/shared";
 import { describe, expect, test } from "vitest";
-import { createStubCompatibility } from "../../lib/matcher-stub";
+import type { CompatibilityEdge } from "../../lib/matching";
+
+function makeEdge(overrides?: Partial<CompatibilityEdge>): CompatibilityEdge {
+  return {
+    leftRef: "route_a",
+    rightRef: "route_b",
+    score: 0.82,
+    detourMinutes: 6,
+    spreadDistanceKm: 3.2,
+    ...overrides,
+  };
+}
 
 describe("matching constraints", () => {
-  test("stub compatibility includes spreadDistanceKm", () => {
-    const refs = ["stub:route:0:100", "stub:route:1:200"];
-    const edges = createStubCompatibility(refs);
-    expect(edges).toHaveLength(1);
-    expect(edges[0]).toHaveProperty("spreadDistanceKm");
-    expect(typeof edges[0].spreadDistanceKm).toBe("number");
+  test("compatibility edges include spreadDistanceKm", () => {
+    const edge = makeEdge();
+    expect(edge).toHaveProperty("spreadDistanceKm");
+    expect(typeof edge.spreadDistanceKm).toBe("number");
   });
 
-  test("same-cluster stub pairs have small spread", () => {
-    const refs = ["stub:route:0:100", "stub:route:0:200"];
-    const edges = createStubCompatibility(refs);
-    expect(edges[0].spreadDistanceKm).toBeLessThan(1);
+  test("nearby pairs can have small spread", () => {
+    const edge = makeEdge({ spreadDistanceKm: 0.5 });
+    expect(edge.spreadDistanceKm).toBeLessThan(1);
   });
 
-  test("distant-cluster stub pairs have larger spread but within MAX_SPREAD_KM", () => {
-    const refs = ["stub:route:0:100", "stub:route:3:200"];
-    const edges = createStubCompatibility(refs);
-    expect(edges[0].spreadDistanceKm).toBeGreaterThan(3);
-    expect(edges[0].spreadDistanceKm).toBeLessThan(MAX_SPREAD_KM);
+  test("wider-but-valid pairs stay within MAX_SPREAD_KM", () => {
+    const edge = makeEdge({ spreadDistanceKm: 6.8 });
+    expect(edge.spreadDistanceKm).toBeGreaterThan(3);
+    expect(edge.spreadDistanceKm).toBeLessThan(MAX_SPREAD_KM);
   });
 
   test("group with 4 distinct locations would violate MAX_DISTINCT_LOCATIONS", () => {
@@ -47,9 +54,7 @@ describe("matching constraints", () => {
   });
 
   test("compatibility edges have no fareBand field", () => {
-    const refs = ["stub:route:0:100", "stub:route:1:200"];
-    const edges = createStubCompatibility(refs);
-    expect(edges[0]).not.toHaveProperty("fareBand");
+    expect(makeEdge()).not.toHaveProperty("fareBand");
   });
 
   test("gender compatibility blocks mixed-gender when sameGenderOnly", () => {

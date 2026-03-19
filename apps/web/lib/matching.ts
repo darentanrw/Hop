@@ -16,8 +16,6 @@ export type MatchingCandidate = {
   windowEnd: string;
   selfDeclaredGender: "woman" | "man" | "nonbinary" | "prefer_not_to_say";
   sameGenderOnly: boolean;
-  minGroupSize: number;
-  maxGroupSize: number;
   routeDescriptorRef: string;
   sealedDestinationRef: string;
   displayName: string;
@@ -42,11 +40,6 @@ export function pairKey(left: string, right: string) {
   return [left, right].sort().join("::");
 }
 
-function groupAllowedForMembers(members: MatchingCandidate[]) {
-  const size = members.length;
-  return members.every((member) => size >= member.minGroupSize && size <= member.maxGroupSize);
-}
-
 export function evaluateGroup(
   members: MatchingCandidate[],
   compatibilityMap: Map<string, CompatibilityEdge>,
@@ -66,10 +59,6 @@ export function evaluateGroup(
       if (!arePreferencesCompatible(left, right)) return null;
       pairScores.push(edge);
     }
-  }
-
-  if (!groupAllowedForMembers(members)) {
-    return null;
   }
 
   if (geohashByRef) {

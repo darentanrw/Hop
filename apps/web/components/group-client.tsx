@@ -74,6 +74,7 @@ type ActiveTripPayload = {
   }>;
   actions: {
     canAcknowledge: boolean;
+    canCancelTrip: boolean;
     canSubmitDestination: boolean;
     canShowQr: boolean;
     canScanQr: boolean;
@@ -214,6 +215,7 @@ export function GroupClient({
 
   const syncLifecycle = useMutation(api.trips.advanceCurrentGroupLifecycle);
   const updateAcknowledgement = useMutation(api.mutations.updateAcknowledgement);
+  const cancelTripParticipation = useMutation(api.mutations.cancelTripParticipation);
   const startMeetupCheckIn = useMutation(api.trips.startMeetupCheckIn);
   const scanGroupQrToken = useMutation(api.trips.scanGroupQrToken);
   const departGroup = useMutation(api.trips.departGroup);
@@ -817,8 +819,8 @@ export function GroupClient({
                 </div>
                 <h3 style={{ marginBottom: 4 }}>Open to +{spotsLeft}</h3>
                 <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-                  {group.stats.activeMemberCount} riders matched. New riders can join until 30 min
-                  before departure.
+                  {group.stats.activeMemberCount} riders matched. New riders can join until 3 h
+                  before departure, or until the group fills to 4.
                 </p>
               </div>
             );
@@ -973,6 +975,39 @@ export function GroupClient({
             }
           >
             Decline
+          </button>
+        </div>
+      ) : null}
+
+      {group.actions.canCancelTrip ? (
+        <div className="card stack-sm">
+          <h3>Leave this group</h3>
+          <p className="text-sm text-muted">
+            Need a different ride window? You can leave now, but this booking will be cancelled and
+            count against your credibility score.
+          </p>
+          <button
+            type="button"
+            className="btn btn-danger btn-block"
+            disabled={busy}
+            onClick={() => {
+              if (!confirm("Leave this group? Your booking window will be cancelled.")) {
+                return;
+              }
+
+              void runAction(async () => {
+                await cancelTripParticipation({
+                  groupId: group.group.id as Id<"groups">,
+                  ...qaArgs,
+                });
+                setStatus({
+                  type: "success",
+                  text: "You left the group. Create a new ride window if you still need a ride.",
+                });
+              });
+            }}
+          >
+            Leave group
           </button>
         </div>
       ) : null}

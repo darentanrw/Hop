@@ -43,8 +43,6 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
       await savePreferences({
         selfDeclaredGender: form.selfDeclaredGender,
         sameGenderOnly: form.sameGenderOnly,
-        minGroupSize: form.minGroupSize,
-        maxGroupSize: form.maxGroupSize,
       });
       setStatus({ type: "success", text: "Preferences saved." });
     } catch (err) {
@@ -205,44 +203,6 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                 <span>Only match with same gender</span>
               </label>
             )}
-
-            <div
-              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}
-            >
-              <div>
-                <label
-                  htmlFor="profile-min"
-                  style={{ display: "block", marginBottom: 6, fontSize: 12 }}
-                >
-                  Min Group
-                </label>
-                <input
-                  id="profile-min"
-                  type="number"
-                  min={2}
-                  max={4}
-                  value={form.minGroupSize}
-                  onChange={(e) => setForm((c) => ({ ...c, minGroupSize: Number(e.target.value) }))}
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="profile-max"
-                  style={{ display: "block", marginBottom: 6, fontSize: 12 }}
-                >
-                  Max Group
-                </label>
-                <input
-                  id="profile-max"
-                  type="number"
-                  min={2}
-                  max={4}
-                  value={form.maxGroupSize}
-                  onChange={(e) => setForm((c) => ({ ...c, maxGroupSize: Number(e.target.value) }))}
-                />
-              </div>
-            </div>
-
             <button
               type="submit"
               className="btn btn-primary btn-block"

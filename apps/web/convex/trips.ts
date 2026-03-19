@@ -107,7 +107,7 @@ async function reopenAvailability(ctx: MutationCtx, availabilityId: string) {
   }
 }
 
-async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
+export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
   const members = await listGroupMembers(ctx, group._id);
   const activeMembers = getActiveMembers(members);
   const now = Date.now();
@@ -308,6 +308,7 @@ function buildActions(
 ) {
   const currentStatus = group.status;
   const isBooker = group.bookerUserId === currentUserId;
+  const currentMemberIsActive = (currentUserMember?.participationStatus ?? "active") === "active";
   const canDepartNow =
     currentStatus === "depart_ready" ||
     (currentStatus === "meetup_checkin" &&
@@ -318,12 +319,14 @@ function buildActions(
       currentStatus === "matched_pending_ack" &&
       currentUserMember?.participationStatus !== "removed_no_ack" &&
       currentUserMember?.acknowledgementStatus !== "accepted",
+    canCancelTrip:
+      (currentStatus === "semi_locked" || currentStatus === "locked") && currentMemberIsActive,
     canSubmitDestination: false,
     canShowQr:
       (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") &&
       !isBooker &&
       Boolean(currentUserMember?.destinationLockedAt) &&
-      (currentUserMember?.participationStatus ?? "active") === "active",
+      currentMemberIsActive,
     canScanQr: (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") && isBooker,
     canStartCheckIn:
       (currentStatus === "group_confirmed" || currentStatus === "meetup_preparation") && isBooker,
