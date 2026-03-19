@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { emojiName } from "../lib/group-lifecycle";
 import { Countdown } from "./countdown";
 
 type ActiveTripPayload = {
@@ -27,6 +28,7 @@ type ActiveTripPayload = {
     bookerUserId: string | null;
     suggestedDropoffOrder: string[];
     finalCostCents: number | null;
+    receiptImageUrl: string | null;
     receiptSubmittedAt: string | null;
     paymentDueAt: string | null;
     reportCount: number;
@@ -40,6 +42,7 @@ type ActiveTripPayload = {
     qrToken: string | null;
     amountDueCents: number;
     paymentStatus: string;
+    paymentProofImageUrl: string | null;
   } | null;
   members: Array<{
     userId: string;
@@ -53,6 +56,7 @@ type ActiveTripPayload = {
     dropoffOrder: number | null;
     amountDueCents: number;
     paymentStatus: string;
+    paymentProofImageUrl: string | null;
     paymentSubmittedAt: string | null;
     paymentVerifiedAt: string | null;
     isBooker: boolean;
@@ -108,10 +112,14 @@ function friendlyStatus(status: string): string {
   const map: Record<string, string> = {
     matched_pending_ack: "Confirming",
     acknowledged: "Confirmed",
+    meetup_preparation: "Getting ready",
+    group_confirmed: "Confirmed",
     meetup_checkin: "Meeting up",
     depart_ready: "Ready to go",
     in_transit: "En route",
+    in_trip: "En route",
     payment_pending: "Settling up",
+    receipt_pending: "Settling up",
     completed: "Completed",
     cancelled: "Cancelled",
   };
@@ -129,10 +137,10 @@ function memberBadge(member: ActiveTripPayload["members"][number]) {
     return { label: "Proof sent", pillClass: "pill-accent" };
   }
   if (member.checkedInAt) {
-    return { label: "Checked in", pillClass: "pill-success" };
+    return { label: "Here ✓", pillClass: "pill-checkin" };
   }
   if (member.acknowledgementStatus === "accepted") {
-    return { label: "Confirmed", pillClass: "pill-success" };
+    return { label: "Confirmed", pillClass: "pill-accent" };
   }
   if (member.acknowledgementStatus === "declined") {
     return { label: "Declined", pillClass: "pill-danger" };
@@ -150,22 +158,30 @@ async function uploadFile(
   const uploadUrl = await generateUploadUrl({});
   const response = await fetch(uploadUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": file.type || "application/octet-stream",
-    },
+    headers: { "Content-Type": file.type || "application/octet-stream" },
     body: file,
   });
-
-  if (!response.ok) {
-    throw new Error("Could not upload the file.");
-  }
-
+  if (!response.ok) throw new Error("Could not upload the file.");
   const payload = (await response.json()) as { storageId?: Id<"_storage"> };
-  if (!payload.storageId) {
-    throw new Error("The upload did not return a storage id.");
-  }
-
+  if (!payload.storageId) throw new Error("The upload did not return a storage id.");
   return payload.storageId;
+}
+
+function ReceiptPreview({ src, alt }: { src: string; alt: string }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      style={{
+        width: "100%",
+        height: "auto",
+        display: "block",
+        borderRadius: 18,
+        border: "1px solid var(--border)",
+        background: "var(--surface-secondary)",
+      }}
+    />
+  );
 }
 
 export function GroupClient({
@@ -219,6 +235,8 @@ export function GroupClient({
   const [reportCategory, setReportCategory] = useState("non_payment");
   const [reportDescription, setReportDescription] = useState("");
   const [reportedUserId, setReportedUserId] = useState("");
+  const [justCheckedIn, setJustCheckedIn] = useState<{ emoji: string; name: string } | null>(null);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScanner | null>(null);
   const scannerBusyRef = useRef(false);
@@ -227,6 +245,7 @@ export function GroupClient({
   const groupRef = useRef(group);
   const qaArgsRef = useRef(qaArgs);
   const scannerFlashTimeoutRef = useRef<number | null>(null);
+  const prevCheckedInSet = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     void syncLifecycle(qaArgs);
@@ -236,19 +255,31 @@ export function GroupClient({
     return () => window.clearInterval(interval);
   }, [qaArgs, syncLifecycle]);
 
+  // Track newly checked-in riders for visual feedback
+  const members = group?.members;
+  useEffect(() => {
+    if (!members) return;
+    const nowCheckedIn = new Set(members.filter((m) => m.checkedInAt).map((m) => m.userId));
+    for (const member of members) {
+      if (member.checkedInAt && !prevCheckedInSet.current.has(member.userId)) {
+        setJustCheckedIn({ emoji: member.emoji, name: emojiName(member.emoji) });
+        const timer = setTimeout(() => setJustCheckedIn(null), 4000);
+        prevCheckedInSet.current = nowCheckedIn;
+        return () => clearTimeout(timer);
+      }
+    }
+    prevCheckedInSet.current = nowCheckedIn;
+  }, [members]);
+
   useEffect(() => {
     if (!group?.actions.canShowQr || !group.currentUserMember?.qrToken) {
       setQrCode("");
       return;
     }
-
     void QRCode.toDataURL(group.currentUserMember.qrToken, {
       margin: 1,
       width: 240,
-      color: {
-        dark: group.group.groupColor,
-        light: "#ffffff",
-      },
+      color: { dark: group.group.groupColor, light: "#ffffff" },
     }).then(setQrCode);
   }, [group]);
 
@@ -261,8 +292,13 @@ export function GroupClient({
   }, [qaArgs]);
 
   const activeMembers = useMemo(
-    () => group?.members.filter((member) => member.participationStatus === "active") ?? [],
+    () => group?.members.filter((m) => m.participationStatus === "active") ?? [],
     [group],
+  );
+
+  const everyoneCheckedIn = useMemo(
+    () => activeMembers.length > 0 && activeMembers.every((m) => Boolean(m.checkedInAt)),
+    [activeMembers],
   );
 
   const resetScannerFlash = useCallback(() => {
@@ -303,7 +339,6 @@ export function GroupClient({
   async function runAction(task: () => Promise<void>) {
     setBusy(true);
     setStatus(null);
-
     try {
       await task();
       await syncLifecycle(qaArgs);
@@ -318,9 +353,7 @@ export function GroupClient({
   }
 
   useEffect(() => {
-    if (!group?.actions.canScanQr && scannerOpen) {
-      stopLiveScanner();
-    }
+    if (!group?.actions.canScanQr && scannerOpen) stopLiveScanner();
   }, [group?.actions.canScanQr, scannerOpen, stopLiveScanner]);
 
   useEffect(() => {
@@ -341,7 +374,6 @@ export function GroupClient({
 
       const trimmedValue = rawValue.trim();
       if (!trimmedValue) return false;
-
       const now = Date.now();
       if (
         scannerBusyRef.current ||
@@ -350,7 +382,6 @@ export function GroupClient({
       ) {
         return false;
       }
-
       scannerBusyRef.current = true;
       setScannerBusy(true);
       lastScannedTokenRef.current = trimmedValue;
@@ -397,24 +428,16 @@ export function GroupClient({
   }, [resetScannerFlash, scannerOpen]);
 
   useEffect(() => {
-    if (!scannerOpen || !group?.actions.canScanQr || !videoRef.current) {
-      return;
-    }
-
+    if (!scannerOpen || !group?.actions.canScanQr || !videoRef.current) return;
     let cancelled = false;
     const scanner = new QrScanner(
       videoRef.current,
       (result) => {
         void submitScannedQrTokenRef.current(result.data);
       },
-      {
-        preferredCamera: "environment",
-        maxScansPerSecond: 12,
-        returnDetailedScanResult: true,
-      },
+      { preferredCamera: "environment", maxScansPerSecond: 12, returnDetailedScanResult: true },
     );
     scannerRef.current = scanner;
-
     void scanner
       .start()
       .then(() => {
@@ -429,29 +452,19 @@ export function GroupClient({
         });
       })
       .catch((error) => {
-        if (scannerRef.current === scanner) {
-          scannerRef.current = null;
-        }
+        if (scannerRef.current === scanner) scannerRef.current = null;
         scanner.destroy();
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         setScannerOpen(false);
         setScannerState("idle");
         setScannerStatus({
           type: "error",
-          text:
-            error instanceof Error
-              ? error.message
-              : "Camera access was blocked. Paste the rider token instead.",
+          text: error instanceof Error ? error.message : "Camera access was blocked.",
         });
       });
-
     return () => {
       cancelled = true;
-      if (scannerRef.current === scanner) {
-        scannerRef.current = null;
-      }
+      if (scannerRef.current === scanner) scannerRef.current = null;
       scanner.destroy();
     };
   }, [group?.actions.canScanQr, scannerOpen]);
@@ -477,12 +490,18 @@ export function GroupClient({
   }
 
   const currentUserIsBooker = group.group.bookerUserId === group.currentUserId;
+  const bookerEmoji =
+    group.members.find((m) => m.userId === group.group.bookerUserId)?.emoji ?? "🙂";
+  const riderPaymentProofs = activeMembers.filter(
+    (member) => !member.isBooker && Boolean(member.paymentProofImageUrl),
+  );
   const showDepartCard =
     currentUserIsBooker &&
     (group.group.status === "meetup_checkin" || group.group.status === "depart_ready");
 
-  const bookerEmoji =
-    group.members.find((m) => m.userId === group.group.bookerUserId)?.emoji ?? "🙂";
+  // Determine layout priority
+  const showDepartFirst = showDepartCard && everyoneCheckedIn;
+  const showScanFirst = group.actions.canScanQr && !everyoneCheckedIn;
 
   return (
     <div className="stack stagger">
@@ -490,6 +509,152 @@ export function GroupClient({
         <div className="notice notice-info qa-view-banner">
           Viewing this QA group as {group.currentUserMember?.emoji ?? "🙂"}{" "}
           {group.currentUserMember?.displayName ?? "this rider"}.
+        </div>
+      ) : null}
+
+      {/* ── Priority: Scan QR first (booker, during check-in) ── */}
+      {showScanFirst ? (
+        <div className="card stack-sm">
+          <div className="row-between">
+            <h3>Scan riders in</h3>
+            <span className="text-sm text-muted">
+              {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+            </span>
+          </div>
+
+          {/* Who's checked in – inline mini-roster */}
+          <div className="checkin-roster">
+            {activeMembers.map((member) => (
+              <div
+                key={member.userId}
+                className={`checkin-avatar ${member.checkedInAt ? "checkin-avatar-done" : ""}`}
+                title={`${emojiName(member.emoji)}${member.checkedInAt ? " — here" : ""}`}
+              >
+                {member.emoji}
+                {member.checkedInAt ? <span className="checkin-tick">✓</span> : null}
+              </div>
+            ))}
+          </div>
+
+          {/* Just checked in flash */}
+          {justCheckedIn ? (
+            <div className="checkin-flash">
+              <span style={{ fontSize: 28 }}>{justCheckedIn.emoji}</span>
+              <strong>{justCheckedIn.name} is here!</strong>
+            </div>
+          ) : null}
+
+          <div className="row" style={{ gap: 10 }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+              disabled={busy || scannerBusy || scannerState === "starting"}
+              onClick={startLiveScanner}
+            >
+              {scannerState === "live"
+                ? "Scanner on"
+                : scannerState === "starting"
+                  ? "Opening camera…"
+                  : "Open camera"}
+            </button>
+            {scannerState === "live" ? (
+              <button type="button" className="btn btn-secondary" onClick={stopLiveScanner}>
+                Stop
+              </button>
+            ) : null}
+          </div>
+
+          {scannerOpen ? (
+            <div className="scanner-shell" style={{ position: "relative" }}>
+              <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
+              <div
+                key={scannerFlashKey}
+                className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
+                aria-hidden="true"
+              >
+                <div
+                  className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
+                />
+              </div>
+              {justCheckedIn ? (
+                <div className="scanner-success-overlay">
+                  <span style={{ fontSize: 48 }}>{justCheckedIn.emoji}</span>
+                  <strong>{justCheckedIn.name} is here!</strong>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {scannerStatus ? (
+            <div
+              className={`notice ${
+                scannerStatus.type === "error"
+                  ? "notice-error"
+                  : scannerStatus.type === "success"
+                    ? "notice-success"
+                    : "notice-info"
+              }`}
+            >
+              {scannerStatus.text}
+            </div>
+          ) : null}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="text"
+              value={scanToken}
+              onChange={(e) => setScanToken(e.target.value)}
+              placeholder="Paste rider passphrase"
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ flexShrink: 0 }}
+              disabled={busy || scannerBusy || scanToken.trim().length < 4}
+              onClick={async () => {
+                const checkedIn = await submitScannedQrToken(scanToken);
+                if (checkedIn) {
+                  setScanToken("");
+                }
+              }}
+            >
+              {scannerBusy ? "Checking..." : "Check in"}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Priority: Depart first (all checked in) ── */}
+      {showDepartFirst ? (
+        <div
+          className="card stack-sm"
+          style={{
+            border: `1px solid ${group.group.groupColor}44`,
+            boxShadow: `0 8px 28px ${group.group.groupColor}22`,
+          }}
+        >
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>🚕</div>
+            <h3>Everyone's here!</h3>
+            <p className="text-sm text-muted" style={{ marginTop: 4, marginBottom: 16 }}>
+              All riders checked in. Ready when you are.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-block"
+            disabled={busy || !group.actions.canDepart}
+            onClick={() =>
+              runAction(async () => {
+                await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
+                setStatus({ type: "success", text: "Departed. Safe travels!" });
+              })
+            }
+          >
+            Depart now
+          </button>
         </div>
       ) : null}
 
@@ -501,7 +666,6 @@ export function GroupClient({
           boxShadow: `0 10px 36px ${group.group.groupColor}1a`,
         }}
       >
-        {/* Group name + status */}
         <div className="row-between" style={{ marginBottom: 20 }}>
           <span
             className="pill pill-sm"
@@ -516,12 +680,14 @@ export function GroupClient({
           <span className="pill pill-muted pill-sm">{friendlyStatus(group.group.status)}</span>
         </div>
 
-        {/* My identity */}
         <div className="group-identity-row">
           <div className="group-my-emoji">{group.currentUserMember?.emoji ?? "🙂"}</div>
           <div className="group-identity-labels">
             <span className="group-identity-you">You</span>
-            <span className="group-identity-role">{currentUserIsBooker ? "Booker" : "Rider"}</span>
+            <span className="group-identity-role">
+              {emojiName(group.currentUserMember?.emoji ?? "🙂")} ·{" "}
+              {currentUserIsBooker ? "Booker" : "Rider"}
+            </span>
           </div>
           {!currentUserIsBooker && (
             <div className="group-booker-hint">
@@ -533,7 +699,6 @@ export function GroupClient({
 
         <div className="divider" style={{ margin: "16px 0" }} />
 
-        {/* Logistics */}
         <div className="group-logistics">
           <div className="group-logistics-row">
             <span className="group-logistics-icon">📍</span>
@@ -552,24 +717,12 @@ export function GroupClient({
           <div className="group-logistics-row">
             <span className="group-logistics-icon">🏁</span>
             <div>
-              <div className="group-logistics-label">Destination</div>
+              <div className="group-logistics-label">Your destination</div>
               <div className="group-logistics-value">{group.group.pickupLabel}</div>
-            </div>
-          </div>
-          <div className="group-logistics-row">
-            <span className="group-logistics-icon">💰</span>
-            <div>
-              <div className="group-logistics-label">Fare</div>
-              <div className="group-logistics-value">
-                {group.group.finalCostCents !== null
-                  ? formatCurrency(group.group.finalCostCents)
-                  : group.group.estimatedFareBand}
-              </div>
             </div>
           </div>
         </div>
 
-        {/* Countdown rows */}
         {group.group.status === "matched_pending_ack" ? (
           <div className="group-countdown-row">
             <span className="text-sm text-muted">Confirm by</span>
@@ -591,52 +744,103 @@ export function GroupClient({
         ) : null}
       </div>
 
+      {group.group.receiptImageUrl ? (
+        <div className="card stack-sm">
+          <h3>{currentUserIsBooker ? "Fare receipt" : "Booker's fare receipt"}</h3>
+          <p className="text-sm text-muted">
+            {currentUserIsBooker
+              ? "This receipt is visible to everyone in the confirmed ride while settlement is open."
+              : "Review the uploaded fare receipt before sending payment."}
+          </p>
+          <div className="row-between">
+            <span className="pill pill-sm pill-success">
+              Final fare {formatCurrency(group.group.finalCostCents)}
+            </span>
+            {group.group.receiptSubmittedAt ? (
+              <span className="text-xs text-muted">
+                Uploaded {formatDateTime(group.group.receiptSubmittedAt)}
+              </span>
+            ) : null}
+          </div>
+          <ReceiptPreview
+            src={group.group.receiptImageUrl}
+            alt="Fare receipt uploaded by the booker"
+          />
+        </div>
+      ) : null}
+
       {/* ── Rider QR code ── */}
       {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
         <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
-          <h3>Your check-in QR</h3>
+          <h3>Your check-in code</h3>
           <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
           {qrCode ? (
             <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
           ) : null}
-          <div className="notice notice-info backup-code-notice" style={{ width: "100%" }}>
-            Backup code:{" "}
-            <code className="inline-token-code">{group.currentUserMember.qrToken}</code>
+
+          <div className="checkin-roster" style={{ justifyContent: "center" }}>
+            {activeMembers.map((member) => (
+              <div
+                key={member.userId}
+                className={`checkin-avatar ${member.checkedInAt ? "checkin-avatar-done" : ""}`}
+                title={`${emojiName(member.emoji)}${member.checkedInAt ? " — here" : " — not yet"}`}
+              >
+                {member.emoji}
+                {member.checkedInAt ? <span className="checkin-tick">✓</span> : null}
+              </div>
+            ))}
+          </div>
+
+          <div className="notice notice-info" style={{ width: "100%", textAlign: "left" }}>
+            Backup passphrase:{" "}
+            <code className="qr-passphrase">{group.currentUserMember.qrToken}</code>
           </div>
         </div>
       ) : null}
 
-      {/* ── Riders Card ── */}
-      <div className="card">
-        <div className="row-between" style={{ marginBottom: 12 }}>
-          <h3>Riders</h3>
-          <span className="text-sm text-muted">
-            {group.stats.checkedInCount}/{group.stats.activeMemberCount} checked in
-          </span>
+      {!currentUserIsBooker && group.currentUserMember?.paymentProofImageUrl ? (
+        <div className="card stack-sm">
+          <h3>Your payment proof</h3>
+          <p className="text-sm text-muted">
+            This is the receipt screenshot the booker can review when confirming your payment.
+          </p>
+          <ReceiptPreview
+            src={group.currentUserMember.paymentProofImageUrl}
+            alt="Your uploaded payment proof"
+          />
         </div>
-        <div className="stack-sm">
-          {group.members.map((member, index) => {
-            const badge = memberBadge(member);
-            const isMe = member.userId === group.currentUserId;
-            return (
-              <div className="member-item" key={member.userId}>
-                <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
-                <div className="member-info">
-                  <div className="member-name">
-                    {member.displayName}
-                    <span className="text-muted" style={{ fontWeight: 500 }}>
-                      {" "}
-                      · {member.isBooker ? "Booker" : "Rider"}
-                    </span>
-                    {isMe ? " · You" : ""}
+      ) : null}
+
+      {/* ── Riders (hidden when booker has everyone checked in) ── */}
+      {!showDepartFirst ? (
+        <div className="card">
+          <div className="row-between" style={{ marginBottom: 12 }}>
+            <h3>Riders</h3>
+            <span className="text-sm text-muted">
+              {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+            </span>
+          </div>
+          <div className="stack-sm">
+            {group.members.map((member, index) => {
+              const badge = memberBadge(member);
+              const isMe = member.userId === group.currentUserId;
+              return (
+                <div className="member-item" key={member.userId}>
+                  <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
+                  <div className="member-info">
+                    <div className="member-name">
+                      {emojiName(member.emoji)}
+                      {member.isBooker ? " · Booker" : ""}
+                      {isMe ? " · You" : ""}
+                    </div>
                   </div>
+                  <span className={`pill pill-sm ${badge.pillClass}`}>{badge.label}</span>
                 </div>
-                <span className={`pill pill-sm ${badge.pillClass}`}>{badge.label}</span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {/* ── Confirm / Decline ── */}
       {group.actions.canAcknowledge ? (
@@ -687,23 +891,33 @@ export function GroupClient({
           <div className="stack-sm">
             {group.dropoffPreview.map((member) => (
               <div className="row-between" key={member.userId}>
-                <span>
-                  {member.order}. {member.emoji}
-                </span>
-                <span className="text-sm text-muted">Drop-off</span>
+                <div className="row" style={{ gap: 10 }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 600,
+                      color: "var(--text-muted)",
+                      minWidth: 20,
+                    }}
+                  >
+                    {member.order}.
+                  </span>
+                  <span style={{ fontSize: 20 }}>{member.emoji}</span>
+                  <span style={{ fontSize: 14 }}>{emojiName(member.emoji)}</span>
+                </div>
               </div>
             ))}
           </div>
         </div>
       ) : null}
 
-      {/* ── Start check-in (booker) ── */}
+      {/* ── Start check-in (booker, before scanning) ── */}
       {group.actions.canStartCheckIn ? (
         <div className="card stack-sm">
           <h3>Start check-in</h3>
           <p className="text-sm text-muted">
-            Once everyone is at {group.group.meetingLocationLabel}, tap below to open check-in and
-            scan each rider.
+            Once everyone is at {group.group.meetingLocationLabel}, tap to open check-in and scan
+            each rider.
           </p>
           <button
             type="button"
@@ -724,84 +938,8 @@ export function GroupClient({
         </div>
       ) : null}
 
-      {/* ── Scan rider QR (booker) ── */}
-      {group.actions.canScanQr ? (
-        <div className="card stack-sm">
-          <h3>Scan riders</h3>
-          <p className="text-sm text-muted">
-            Point your camera at each rider's QR, or paste their code below.
-          </p>
-          <div className="row" style={{ gap: 10 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ flex: 1 }}
-              disabled={busy || scannerBusy || scannerState === "starting"}
-              onClick={startLiveScanner}
-            >
-              {scannerState === "live"
-                ? "Scanner on"
-                : scannerState === "starting"
-                  ? "Opening camera…"
-                  : "Open camera"}
-            </button>
-            {scannerState === "live" ? (
-              <button type="button" className="btn btn-secondary" onClick={() => stopLiveScanner()}>
-                Stop
-              </button>
-            ) : null}
-          </div>
-          {scannerOpen ? (
-            <div className="scanner-shell">
-              <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
-              <div
-                key={scannerFlashKey}
-                className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
-                aria-hidden="true"
-              >
-                <div
-                  className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
-                />
-              </div>
-            </div>
-          ) : null}
-          {scannerStatus ? (
-            <div
-              className={`notice ${
-                scannerStatus.type === "error"
-                  ? "notice-error"
-                  : scannerStatus.type === "success"
-                    ? "notice-success"
-                    : "notice-info"
-              }`}
-            >
-              {scannerStatus.text}
-            </div>
-          ) : null}
-          <input
-            type="text"
-            value={scanToken}
-            onChange={(event) => setScanToken(event.target.value)}
-            placeholder="Paste rider code"
-          />
-          <button
-            type="button"
-            className="btn btn-secondary btn-block"
-            disabled={busy || scannerBusy || scanToken.trim().length < 6}
-            onClick={async () => {
-              const checkedIn = await submitScannedQrToken(scanToken);
-              if (checkedIn) {
-                setScanToken("");
-              }
-            }}
-          >
-            Check in rider
-          </button>
-        </div>
-      ) : null}
-
-      {/* ── Depart (booker) ── */}
-      {showDepartCard ? (
+      {/* ── Depart (non-priority: shown lower when not everyone checked in) ── */}
+      {showDepartCard && !showDepartFirst ? (
         <div className="card stack-sm">
           <h3>Depart</h3>
           <p className="text-sm text-muted">
@@ -809,9 +947,7 @@ export function GroupClient({
             checked in will be removed.
           </p>
           {!group.actions.canDepart ? (
-            <div className="text-sm text-muted">
-              Waiting for all riders or the grace window to end.
-            </div>
+            <div className="text-sm text-muted">Waiting for all riders or the grace window.</div>
           ) : null}
           <button
             type="button"
@@ -841,13 +977,13 @@ export function GroupClient({
             min="0"
             step="0.01"
             value={receiptTotal}
-            onChange={(event) => setReceiptTotal(event.target.value)}
+            onChange={(e) => setReceiptTotal(e.target.value)}
             placeholder="Total fare (e.g. 24.80)"
           />
           <input
             type="file"
             accept="image/*"
-            onChange={(event) => setReceiptFile(event.target.files?.[0] ?? null)}
+            onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
           />
           <button
             type="button"
@@ -855,9 +991,7 @@ export function GroupClient({
             disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
             onClick={() =>
               runAction(async () => {
-                if (!receiptFile) {
-                  throw new Error("Attach the receipt photo first.");
-                }
+                if (!receiptFile) throw new Error("Attach the receipt photo first.");
                 const storageId = await uploadFile(receiptFile, generateUploadUrl);
                 await submitReceipt({
                   groupId: group.group.id as Id<"groups">,
@@ -887,7 +1021,7 @@ export function GroupClient({
           <input
             type="file"
             accept="image/*"
-            onChange={(event) => setPaymentFile(event.target.files?.[0] ?? null)}
+            onChange={(e) => setPaymentFile(e.target.files?.[0] ?? null)}
           />
           <button
             type="button"
@@ -895,9 +1029,7 @@ export function GroupClient({
             disabled={busy || !paymentFile}
             onClick={() =>
               runAction(async () => {
-                if (!paymentFile) {
-                  throw new Error("Attach your payment screenshot first.");
-                }
+                if (!paymentFile) throw new Error("Attach your payment screenshot first.");
                 const storageId = await uploadFile(paymentFile, generateUploadUrl);
                 await submitPaymentProof({
                   groupId: group.group.id as Id<"groups">,
@@ -923,46 +1055,58 @@ export function GroupClient({
           <h3>Verify payments</h3>
           <div className="stack-sm">
             {activeMembers
-              .filter((member) => !member.isBooker && member.amountDueCents > 0)
+              .filter((m) => !m.isBooker && m.amountDueCents > 0)
               .map((member) => (
-                <div className="row-between" key={`payment-${member.userId}`}>
-                  <div>
+                <div className="card stack-sm" key={`payment-${member.userId}`}>
+                  <div className="row-between">
                     <div className="member-name">
-                      {member.emoji} owes {formatCurrency(member.amountDueCents)}
+                      {member.emoji} {emojiName(member.emoji)} owes{" "}
+                      {formatCurrency(member.amountDueCents)}
                     </div>
                     <div className="text-xs text-muted">
                       {member.paymentStatus === "submitted"
-                        ? "Proof uploaded — tap to confirm."
+                        ? "Proof uploaded - tap to confirm."
                         : member.paymentStatus === "verified"
                           ? "Payment confirmed."
                           : "Waiting for payment."}
                     </div>
                   </div>
-                  {member.paymentStatus === "submitted" ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-sm"
-                      disabled={busy}
-                      onClick={() =>
-                        runAction(async () => {
-                          await verifyPayment({
-                            groupId: group.group.id as Id<"groups">,
-                            memberUserId: member.userId,
-                            ...qaArgs,
-                          });
-                          setStatus({ type: "success", text: "Payment confirmed." });
-                        })
-                      }
-                    >
-                      Confirm
-                    </button>
-                  ) : (
+                  {member.paymentProofImageUrl ? (
+                    <ReceiptPreview
+                      src={member.paymentProofImageUrl}
+                      alt={`${emojiName(member.emoji)} payment proof`}
+                    />
+                  ) : null}
+                  <div className="row-between">
                     <span
-                      className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : "pill-muted"}`}
+                      className={`pill pill-sm ${member.paymentStatus === "verified" ? "pill-success" : member.paymentProofImageUrl ? "pill-accent" : "pill-muted"}`}
                     >
-                      {member.paymentStatus === "verified" ? "Paid" : "Waiting"}
+                      {member.paymentStatus === "verified"
+                        ? "Paid"
+                        : member.paymentProofImageUrl
+                          ? "Proof uploaded"
+                          : "Waiting"}
                     </span>
-                  )}
+                    {member.paymentStatus === "submitted" ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={busy}
+                        onClick={() =>
+                          runAction(async () => {
+                            await verifyPayment({
+                              groupId: group.group.id as Id<"groups">,
+                              memberUserId: member.userId,
+                              ...qaArgs,
+                            });
+                            setStatus({ type: "success", text: "Payment confirmed." });
+                          })
+                        }
+                      >
+                        Confirm
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
           </div>
@@ -976,10 +1120,7 @@ export function GroupClient({
           <p className="text-sm text-muted">
             Report a no-show, non-payment, unsafe behaviour, or other concern.
           </p>
-          <select
-            value={reportCategory}
-            onChange={(event) => setReportCategory(event.target.value)}
-          >
+          <select value={reportCategory} onChange={(e) => setReportCategory(e.target.value)}>
             <option value="non_payment">Non-payment</option>
             <option value="no_show">No-show</option>
             <option value="unsafe_behavior">Unsafe behaviour</option>
@@ -987,23 +1128,20 @@ export function GroupClient({
             <option value="misconduct">Misconduct</option>
             <option value="other">Other</option>
           </select>
-          <select
-            value={reportedUserId}
-            onChange={(event) => setReportedUserId(event.target.value)}
-          >
+          <select value={reportedUserId} onChange={(e) => setReportedUserId(e.target.value)}>
             <option value="">Report the situation only</option>
             {activeMembers
-              .filter((member) => member.userId !== group.currentUserId)
-              .map((member) => (
-                <option key={`report-${member.userId}`} value={member.userId}>
-                  {member.emoji}
+              .filter((m) => m.userId !== group.currentUserId)
+              .map((m) => (
+                <option key={`report-${m.userId}`} value={m.userId}>
+                  {m.emoji} {emojiName(m.emoji)}
                 </option>
               ))}
           </select>
           <textarea
             rows={3}
             value={reportDescription}
-            onChange={(event) => setReportDescription(event.target.value)}
+            onChange={(e) => setReportDescription(e.target.value)}
             placeholder="What happened?"
           />
           <button
