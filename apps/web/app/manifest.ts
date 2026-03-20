@@ -1,11 +1,12 @@
 import type { MetadataRoute } from "next";
+import { siteMetadata } from "../lib/site-metadata";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
     name: "Hop",
     short_name: "Hop",
-    description: "Privacy-first campus rideshare for NUS",
+    description: siteMetadata.description,
     scope: "/",
     start_url: "/dashboard",
     display: "standalone",

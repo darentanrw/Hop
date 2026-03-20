@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Sora } from "next/font/google";
 import { ConvexClientProvider } from "../components/ConvexClientProvider";
 import { ThemeProvider } from "../components/theme-provider";
+import { getSiteUrl, siteMetadata, socialImageSize } from "../lib/site-metadata";
 
 const sora = Sora({
   subsets: ["latin"],
@@ -20,9 +21,37 @@ const jakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  applicationName: "Hop",
-  title: "Hop",
-  description: "Privacy-first campus rideshare for NUS",
+  metadataBase: getSiteUrl(),
+  applicationName: siteMetadata.applicationName,
+  title: {
+    default: siteMetadata.title,
+    template: "%s | Hop",
+  },
+  description: siteMetadata.description,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Hop",
+    url: "/",
+    title: siteMetadata.title,
+    description: siteMetadata.description,
+    images: [
+      {
+        url: "/opengraph-image",
+        width: socialImageSize.width,
+        height: socialImageSize.height,
+        alt: siteMetadata.ogImageAlt,
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteMetadata.title,
+    description: siteMetadata.description,
+    images: ["/twitter-image"],
+  },
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },
