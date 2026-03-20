@@ -1,16 +1,4 @@
 import type React from "react";
-import { siteMetadata } from "./site-metadata";
-
-const featurePillStyle: React.CSSProperties = {
-  borderRadius: 999,
-  border: "1px solid rgba(181, 247, 241, 0.22)",
-  background: "rgba(7, 15, 35, 0.5)",
-  padding: "14px 22px",
-  color: "#dffdf9",
-  fontSize: 26,
-  fontWeight: 600,
-  letterSpacing: "-0.02em",
-};
 
 export function SocialPreviewImage() {
   return (
@@ -64,138 +52,51 @@ export function SocialPreviewImage() {
         style={{
           display: "flex",
           flexDirection: "column",
-          justifyContent: "space-between",
+          justifyContent: "center",
           width: "100%",
-          padding: "64px 68px",
+          padding: "72px 78px",
         }}
       >
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 20,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 84,
-                height: 84,
-                borderRadius: 28,
-                background: "linear-gradient(135deg, #44d4c8 0%, #9af1e8 100%)",
-                color: "#08111f",
-                fontSize: 40,
-                fontWeight: 800,
-                letterSpacing: "-0.06em",
-                boxShadow: "0 22px 60px rgba(68, 212, 200, 0.22)",
-              }}
-            >
-              H
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 46,
-                  fontWeight: 800,
-                  letterSpacing: "-0.05em",
-                }}
-              >
-                Hop
-              </span>
-              <span
-                style={{
-                  fontSize: 22,
-                  color: "#98a8c8",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.22em",
-                }}
-              >
-                NUS Campus Rideshare
-              </span>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              borderRadius: 999,
-              border: "1px solid rgba(68, 212, 200, 0.24)",
-              background: "rgba(10, 18, 40, 0.55)",
-              padding: "14px 22px",
-              color: "#b5f7f1",
-              fontSize: 24,
-              fontWeight: 600,
-            }}
-          >
-            Privacy First
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
             flexDirection: "column",
-            gap: 24,
-            maxWidth: 940,
+            gap: 20,
+            maxWidth: 760,
           }}
         >
-          <div
+          <span
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
+              fontSize: 28,
+              fontWeight: 700,
+              color: "#8cebe1",
+              textTransform: "uppercase",
+              letterSpacing: "0.22em",
             }}
           >
-            <span
-              style={{
-                fontSize: 78,
-                fontWeight: 800,
-                lineHeight: 1.02,
-                letterSpacing: "-0.06em",
-              }}
-            >
-              Get home with Hop
-            </span>
-            <span
-              style={{
-                fontSize: 32,
-                lineHeight: 1.35,
-                color: "#d6deef",
-                letterSpacing: "-0.03em",
-              }}
-            >
-              {siteMetadata.description}
-            </span>
-          </div>
-
-          <div
+            Hop
+          </span>
+          <span
             style={{
-              display: "flex",
-              gap: 18,
-              flexWrap: "wrap",
+              fontSize: 92,
+              fontWeight: 800,
+              lineHeight: 0.98,
+              letterSpacing: "-0.07em",
             }}
           >
-            <div style={featurePillStyle}>Private matching</div>
-            <div style={featurePillStyle}>Verified NUS sign-in</div>
-            <div style={featurePillStyle}>Ride-day updates</div>
-          </div>
+            Ride-Sharing Home for NUS Students
+          </span>
+          <span
+            style={{
+              fontSize: 34,
+              lineHeight: 1.3,
+              color: "#d6deef",
+              letterSpacing: "-0.03em",
+              maxWidth: 700,
+            }}
+          >
+            Addresses and identities remain private.
+          </span>
         </div>
       </div>
     </div>
