@@ -7,6 +7,8 @@ import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { type DestinationLabelCache, loadDestinationLabelCache } from "../lib/destination-storage";
+import { resolveGroupDestinationLabel } from "../lib/group-destination-label";
 import { emojiName } from "../lib/group-lifecycle";
 import { Countdown } from "./countdown";
 
@@ -39,7 +41,9 @@ type ActiveTripPayload = {
     userId: string;
     displayName: string;
     emoji: string;
+    destinationAddress: string | null;
     destinationLockedAt: string | null;
+    sealedDestinationRef: string | null;
     qrToken: string | null;
     amountDueCents: number;
     paymentStatus: string;
@@ -250,14 +254,24 @@ export function GroupClient({
   const [reportedUserId, setReportedUserId] = useState("");
   const [redelegateTarget, setRedelegateTarget] = useState("");
   const [justCheckedIn, setJustCheckedIn] = useState<{ emoji: string; name: string } | null>(null);
+  const [showCheckedInQr, setShowCheckedInQr] = useState(false);
   const [tab, setTab] = useState<"ride" | "chat" | "report">("ride");
   const [chatDraft, setChatDraft] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [destinationLabels, setDestinationLabels] = useState<DestinationLabelCache>({});
 
   const chatGroupId = group?.group.id as Id<"groups"> | undefined;
   const canChat = group?.actions.canChat ?? false;
   const canReport = group?.actions.canReport ?? false;
   const showTabs = canChat || canReport;
+  const currentUserDestinationLabel = useMemo(
+    () => resolveGroupDestinationLabel(group?.currentUserMember, destinationLabels),
+    [destinationLabels, group?.currentUserMember],
+  );
+
+  useEffect(() => {
+    setDestinationLabels(loadDestinationLabelCache());
+  }, []);
   const chatMessages = useQuery(
     api.chat.listMessages,
     chatGroupId && canChat ? { groupId: chatGroupId, ...qaArgs } : "skip",
@@ -339,11 +353,25 @@ export function GroupClient({
     () => activeMembers.length > 0 && activeMembers.every((m) => Boolean(m.checkedInAt)),
     [activeMembers],
   );
+  const everyoneConfirmed = useMemo(
+    () =>
+      activeMembers.length > 0 &&
+      activeMembers.every((m) => m.acknowledgementStatus === "accepted"),
+    [activeMembers],
+  );
   const currentUserActiveMember = useMemo(
     () => activeMembers.find((member) => member.userId === group?.currentUserId) ?? null,
     [activeMembers, group?.currentUserId],
   );
   const currentUserCheckedIn = Boolean(currentUserActiveMember?.checkedInAt);
+  const showStartCheckInCard = Boolean(group?.actions.canStartCheckIn && everyoneConfirmed);
+  const showRiderQrCode = Boolean(qrCode && (!currentUserCheckedIn || showCheckedInQr));
+
+  useEffect(() => {
+    if (!currentUserCheckedIn) {
+      setShowCheckedInQr(false);
+    }
+  }, [currentUserCheckedIn]);
 
   const resetScannerFlash = useCallback(() => {
     if (scannerFlashTimeoutRef.current !== null) {
@@ -586,68 +614,138 @@ export function GroupClient({
 
       {tab === "ride" || !showTabs ? (
         <>
-          {/* ── Priority: Upload receipt first (booker) ── */}
-          {group.actions.canUploadReceipt ? (
-            <div className="card stack-sm receipt-upload-priority">
-              <div className="row-between receipt-upload-header">
-                <div>
-                  <h3>Upload receipt</h3>
-                  <p className="text-sm text-muted">
-                    Do this first so riders can quickly settle payment.
-                  </p>
-                </div>
-                <span className="pill pill-sm pill-accent">Booker action</span>
+          {/* ── Hero Card ── */}
+          <div
+            className="card group-hero-card"
+            style={{
+              border: `1px solid ${group.group.groupColor}33`,
+              boxShadow: `0 10px 36px ${group.group.groupColor}1a`,
+            }}
+          >
+            <div className="row-between" style={{ marginBottom: 20 }}>
+              <span
+                className="pill pill-sm"
+                style={{
+                  background: `${group.group.groupColor}22`,
+                  color: group.group.groupColor,
+                  border: `1px solid ${group.group.groupColor}44`,
+                }}
+              >
+                {group.group.groupName}
+              </span>
+              <span className="pill pill-muted pill-sm">{friendlyStatus(group.group.status)}</span>
+            </div>
+
+            <div className="group-identity-row">
+              <div className="group-my-emoji">{group.currentUserMember?.emoji ?? "🙂"}</div>
+              <div className="group-identity-labels">
+                <span className="group-identity-you">You</span>
+                <span className="group-identity-role">
+                  {emojiName(group.currentUserMember?.emoji ?? "🙂")} ·{" "}
+                  {currentUserIsBooker ? "Booker" : "Rider"}
+                </span>
               </div>
-              <label className="receipt-upload-label" htmlFor="receipt-total-input">
-                Final fare
-              </label>
-              <input
-                id="receipt-total-input"
-                type="number"
-                min="0"
-                step="0.01"
-                value={receiptTotal}
-                onChange={(e) => setReceiptTotal(e.target.value)}
-                placeholder="Total fare (e.g. 24.80)"
-              />
-              <label className="receipt-upload-label" htmlFor="receipt-file-input">
-                Receipt photo
-              </label>
-              <input
-                id="receipt-file-input"
-                type="file"
-                accept="image/*"
-                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-              />
-              {receiptFile ? (
-                <div className="text-xs text-muted">Attached: {receiptFile.name}</div>
-              ) : null}
+              {!currentUserIsBooker && (
+                <div className="group-booker-hint">
+                  <span className="group-booker-label">Booker</span>
+                  <span className="group-booker-emoji">{bookerEmoji}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="divider" style={{ margin: "16px 0" }} />
+
+            <div className="group-logistics">
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">📍</span>
+                <div>
+                  <div className="group-logistics-label">Meet at</div>
+                  <div className="group-logistics-value">{group.group.meetingLocationLabel}</div>
+                </div>
+              </div>
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">🕐</span>
+                <div>
+                  <div className="group-logistics-label">Time</div>
+                  <div className="group-logistics-value">
+                    {formatDateTime(group.group.meetingTime)}
+                  </div>
+                </div>
+              </div>
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">🏁</span>
+                <div>
+                  <div className="group-logistics-label">Your destination</div>
+                  <div className="group-logistics-value">{currentUserDestinationLabel}</div>
+                </div>
+              </div>
+              <div className="group-logistics-row">
+                <span className="group-logistics-icon">💰</span>
+                <div>
+                  <div className="group-logistics-label">Fare</div>
+                  <div className="group-logistics-value">
+                    {group.group.finalCostCents !== null
+                      ? formatCurrency(group.group.finalCostCents)
+                      : "TBD after trip"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {group.group.status === "matched_pending_ack" ? (
+              <div className="group-countdown-row">
+                <span className="text-sm text-muted">Confirm by</span>
+                <Countdown deadline={group.group.confirmationDeadline} />
+              </div>
+            ) : null}
+            {(group.group.status === "meetup_checkin" || group.group.status === "depart_ready") &&
+            group.group.graceDeadline ? (
+              <div className="group-countdown-row">
+                <span className="text-sm text-muted">Departs in</span>
+                <Countdown deadline={group.group.graceDeadline} />
+              </div>
+            ) : null}
+            {group.group.status === "payment_pending" && group.group.paymentDueAt ? (
+              <div className="group-countdown-row">
+                <span className="text-sm text-muted">Pay by</span>
+                <Countdown deadline={group.group.paymentDueAt} />
+              </div>
+            ) : null}
+          </div>
+
+          {/* ── Depart first (all checked in) ── */}
+          {showDepartFirst ? (
+            <div
+              className="card stack-sm"
+              style={{
+                border: `1px solid ${group.group.groupColor}44`,
+                boxShadow: `0 8px 28px ${group.group.groupColor}22`,
+              }}
+            >
+              <div style={{ textAlign: "center", padding: "8px 0" }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>🚕</div>
+                <h3>Everyone's here!</h3>
+                <p className="text-sm text-muted" style={{ marginTop: 4, marginBottom: 16 }}>
+                  All riders checked in. Ready when you are.
+                </p>
+              </div>
               <button
                 type="button"
                 className="btn btn-primary btn-block"
-                disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
+                disabled={busy || !group.actions.canDepart}
                 onClick={() =>
                   runAction(async () => {
-                    if (!receiptFile) throw new Error("Attach the receipt photo first.");
-                    const storageId = await uploadFile(receiptFile, generateUploadUrl);
-                    await submitReceipt({
-                      groupId: group.group.id as Id<"groups">,
-                      totalCostCents: Math.round(Number(receiptTotal) * 100),
-                      storageId,
-                      ...qaArgs,
-                    });
-                    setReceiptFile(null);
-                    setReceiptTotal("");
-                    setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
+                    await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
+                    setStatus({ type: "success", text: "Departed. Safe travels!" });
                   })
                 }
               >
-                Submit receipt
+                Depart now
               </button>
             </div>
           ) : null}
 
-          {/* ── Priority: Scan QR first (booker, during check-in) ── */}
+          {/* ── Scan riders in (booker, during check-in) ── */}
           {showScanFirst ? (
             <div className="card stack-sm">
               <div className="row-between">
@@ -657,7 +755,6 @@ export function GroupClient({
                 </span>
               </div>
 
-              {/* Who's checked in – inline mini-roster */}
               <div className="checkin-roster">
                 {activeMembers.map((member) => (
                   <div
@@ -671,7 +768,6 @@ export function GroupClient({
                 ))}
               </div>
 
-              {/* Just checked in flash */}
               {justCheckedIn ? (
                 <div className="checkin-flash">
                   <span style={{ fontSize: 28 }}>{justCheckedIn.emoji}</span>
@@ -772,136 +868,93 @@ export function GroupClient({
             </div>
           ) : null}
 
-          {/* ── Priority: Depart first (all checked in) ── */}
-          {showDepartFirst ? (
-            <div
-              className="card stack-sm"
-              style={{
-                border: `1px solid ${group.group.groupColor}44`,
-                boxShadow: `0 8px 28px ${group.group.groupColor}22`,
-              }}
-            >
-              <div style={{ textAlign: "center", padding: "8px 0" }}>
-                <div style={{ fontSize: 40, marginBottom: 8 }}>🚕</div>
-                <h3>Everyone's here!</h3>
-                <p className="text-sm text-muted" style={{ marginTop: 4, marginBottom: 16 }}>
-                  All riders checked in. Ready when you are.
-                </p>
-              </div>
+          {/* ── Start check-in (booker, after everyone confirms) ── */}
+          {showStartCheckInCard ? (
+            <div className="card stack-sm">
+              <h3>Start check-in</h3>
+              <p className="text-sm text-muted">
+                Once everyone is at {group.group.meetingLocationLabel}, tap to open check-in and
+                scan each rider.
+              </p>
               <button
                 type="button"
                 className="btn btn-primary btn-block"
-                disabled={busy || !group.actions.canDepart}
+                disabled={busy}
                 onClick={() =>
                   runAction(async () => {
-                    await departGroup({ groupId: group.group.id as Id<"groups">, ...qaArgs });
-                    setStatus({ type: "success", text: "Departed. Safe travels!" });
+                    await startMeetupCheckIn({
+                      groupId: group.group.id as Id<"groups">,
+                      ...qaArgs,
+                    });
+                    setStatus({ type: "success", text: "Check-in is open." });
                   })
                 }
               >
-                Depart now
+                Start check-in
               </button>
             </div>
           ) : null}
 
-          {/* ── Hero Card ── */}
-          <div
-            className="card group-hero-card"
-            style={{
-              border: `1px solid ${group.group.groupColor}33`,
-              boxShadow: `0 10px 36px ${group.group.groupColor}1a`,
-            }}
-          >
-            <div className="row-between" style={{ marginBottom: 20 }}>
-              <span
-                className="pill pill-sm"
-                style={{
-                  background: `${group.group.groupColor}22`,
-                  color: group.group.groupColor,
-                  border: `1px solid ${group.group.groupColor}44`,
-                }}
+          {/* ── Upload receipt (booker) ── */}
+          {group.actions.canUploadReceipt ? (
+            <div className="card stack-sm receipt-upload-priority">
+              <div className="row-between receipt-upload-header">
+                <div>
+                  <h3>Upload receipt</h3>
+                  <p className="text-sm text-muted">
+                    Do this first so riders can quickly settle payment.
+                  </p>
+                </div>
+                <span className="pill pill-sm pill-accent">Booker action</span>
+              </div>
+              <label className="receipt-upload-label" htmlFor="receipt-total-input">
+                Final fare
+              </label>
+              <input
+                id="receipt-total-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={receiptTotal}
+                onChange={(e) => setReceiptTotal(e.target.value)}
+                placeholder="Total fare (e.g. 24.80)"
+              />
+              <label className="receipt-upload-label" htmlFor="receipt-file-input">
+                Receipt photo
+              </label>
+              <input
+                id="receipt-file-input"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+              />
+              {receiptFile ? (
+                <div className="text-xs text-muted">Attached: {receiptFile.name}</div>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
+                onClick={() =>
+                  runAction(async () => {
+                    if (!receiptFile) throw new Error("Attach the receipt photo first.");
+                    const storageId = await uploadFile(receiptFile, generateUploadUrl);
+                    await submitReceipt({
+                      groupId: group.group.id as Id<"groups">,
+                      totalCostCents: Math.round(Number(receiptTotal) * 100),
+                      storageId,
+                      ...qaArgs,
+                    });
+                    setReceiptFile(null);
+                    setReceiptTotal("");
+                    setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
+                  })
+                }
               >
-                {group.group.groupName}
-              </span>
-              <span className="pill pill-muted pill-sm">{friendlyStatus(group.group.status)}</span>
+                Submit receipt
+              </button>
             </div>
-
-            <div className="group-identity-row">
-              <div className="group-my-emoji">{group.currentUserMember?.emoji ?? "🙂"}</div>
-              <div className="group-identity-labels">
-                <span className="group-identity-you">You</span>
-                <span className="group-identity-role">
-                  {emojiName(group.currentUserMember?.emoji ?? "🙂")} ·{" "}
-                  {currentUserIsBooker ? "Booker" : "Rider"}
-                </span>
-              </div>
-              {!currentUserIsBooker && (
-                <div className="group-booker-hint">
-                  <span className="group-booker-label">Booker</span>
-                  <span className="group-booker-emoji">{bookerEmoji}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="divider" style={{ margin: "16px 0" }} />
-
-            <div className="group-logistics">
-              <div className="group-logistics-row">
-                <span className="group-logistics-icon">📍</span>
-                <div>
-                  <div className="group-logistics-label">Meet at</div>
-                  <div className="group-logistics-value">{group.group.meetingLocationLabel}</div>
-                </div>
-              </div>
-              <div className="group-logistics-row">
-                <span className="group-logistics-icon">🕐</span>
-                <div>
-                  <div className="group-logistics-label">Time</div>
-                  <div className="group-logistics-value">
-                    {formatDateTime(group.group.meetingTime)}
-                  </div>
-                </div>
-              </div>
-              <div className="group-logistics-row">
-                <span className="group-logistics-icon">🏁</span>
-                <div>
-                  <div className="group-logistics-label">Your destination</div>
-                  <div className="group-logistics-value">{group.group.pickupLabel}</div>
-                </div>
-              </div>
-              <div className="group-logistics-row">
-                <span className="group-logistics-icon">💰</span>
-                <div>
-                  <div className="group-logistics-label">Fare</div>
-                  <div className="group-logistics-value">
-                    {group.group.finalCostCents !== null
-                      ? formatCurrency(group.group.finalCostCents)
-                      : "TBD after trip"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {group.group.status === "matched_pending_ack" ? (
-              <div className="group-countdown-row">
-                <span className="text-sm text-muted">Confirm by</span>
-                <Countdown deadline={group.group.confirmationDeadline} />
-              </div>
-            ) : null}
-            {(group.group.status === "meetup_checkin" || group.group.status === "depart_ready") &&
-            group.group.graceDeadline ? (
-              <div className="group-countdown-row">
-                <span className="text-sm text-muted">Departs in</span>
-                <Countdown deadline={group.group.graceDeadline} />
-              </div>
-            ) : null}
-            {group.group.status === "payment_pending" && group.group.paymentDueAt ? (
-              <div className="group-countdown-row">
-                <span className="text-sm text-muted">Pay by</span>
-                <Countdown deadline={group.group.paymentDueAt} />
-              </div>
-            ) : null}
-          </div>
+          ) : null}
 
           {/* ── Forming banner (tentative — rolling matching) ── */}
           {group.group.status === "tentative"
@@ -1014,13 +1067,20 @@ export function GroupClient({
             >
               <h3>Your check-in code</h3>
               {currentUserCheckedIn ? (
-                <div className="notice notice-success rider-qr-collapsed-summary">
-                  Checked in. Your QR code is now collapsed.
-                </div>
+                <button
+                  type="button"
+                  className="notice notice-success rider-qr-collapsed-summary rider-qr-toggle"
+                  aria-expanded={showCheckedInQr}
+                  onClick={() => setShowCheckedInQr((current) => !current)}
+                >
+                  {showCheckedInQr
+                    ? "You're checked in! Click to hide the QR code."
+                    : "You're checked in! Click to see the QR code."}
+                </button>
               ) : (
                 <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
               )}
-              {!currentUserCheckedIn && qrCode ? (
+              {showRiderQrCode ? (
                 <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
               ) : null}
 
@@ -1257,33 +1317,6 @@ export function GroupClient({
                 }}
               >
                 Reassign booker
-              </button>
-            </div>
-          ) : null}
-
-          {/* ── Start check-in (booker, before scanning) ── */}
-          {group.actions.canStartCheckIn ? (
-            <div className="card stack-sm">
-              <h3>Start check-in</h3>
-              <p className="text-sm text-muted">
-                Once everyone is at {group.group.meetingLocationLabel}, tap to open check-in and
-                scan each rider.
-              </p>
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                disabled={busy}
-                onClick={() =>
-                  runAction(async () => {
-                    await startMeetupCheckIn({
-                      groupId: group.group.id as Id<"groups">,
-                      ...qaArgs,
-                    });
-                    setStatus({ type: "success", text: "Check-in is open." });
-                  })
-                }
-              >
-                Start check-in
               </button>
             </div>
           ) : null}

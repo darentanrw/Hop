@@ -298,6 +298,9 @@ async function buildTripPayload(
     .collect();
 
   const currentUserMember = members.find((member) => member.userId === currentUserId) ?? null;
+  const currentUserAvailability = currentUserMember
+    ? await ctx.db.get(currentUserMember.availabilityId as Id<"availabilities">)
+    : null;
   const isCurrentGroupMember = Boolean(currentUserMember);
   const activeMembers = getActiveMembers(members);
   const checkedInMembers = activeMembers.filter((member) => Boolean(member.checkedInAt));
@@ -369,7 +372,9 @@ async function buildTripPayload(
           userId: currentUserMemberWithPaymentProof.member.userId,
           displayName: currentUserMemberWithPaymentProof.member.displayName,
           emoji: currentUserMemberWithPaymentProof.member.emoji ?? "🙂",
+          destinationAddress: currentUserMemberWithPaymentProof.member.destinationAddress ?? null,
           destinationLockedAt: currentUserMemberWithPaymentProof.member.destinationLockedAt ?? null,
+          sealedDestinationRef: currentUserAvailability?.sealedDestinationRef ?? null,
           qrToken: currentUserMemberWithPaymentProof.member.qrToken ?? null,
           amountDueCents: currentUserMemberWithPaymentProof.member.amountDueCents ?? 0,
           paymentStatus: currentUserMemberWithPaymentProof.member.paymentStatus ?? "none",
