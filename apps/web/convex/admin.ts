@@ -1,26 +1,13 @@
 import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
 import { v } from "convex/values";
 import { selectBookerUserId } from "../lib/group-lifecycle";
+import { isMembershipInActiveRide } from "../lib/ride-eligibility";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAdmin } from "./adminAccess";
 
 const LOCAL_QA_BOT_PREFIX = "local-qa-bot-";
-const ACTIVE_GROUP_STATUSES = new Set([
-  "tentative",
-  "semi_locked",
-  "locked",
-  "matched_pending_ack",
-  "group_confirmed",
-  "meetup_preparation",
-  "meetup_checkin",
-  "depart_ready",
-  "in_trip",
-  "receipt_pending",
-  "payment_pending",
-  "reported",
-]);
 
 const defaultPreferences = {
   selfDeclaredGender: "prefer_not_to_say" as const,
@@ -151,12 +138,26 @@ async function createQaAvailability(
 }
 
 async function findActiveGroupForUser(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
-  const groups = await ctx.db.query("groups").collect();
+  const memberships = await ctx.db
+    .query("groupMembers")
+    .withIndex("userId", (q) => q.eq("userId", userId))
+    .collect();
+  const pairs = await Promise.all(
+    memberships.map(async (membership) => ({
+      membership,
+      group: await ctx.db.get(membership.groupId),
+    })),
+  );
+
   return (
-    groups
+    pairs
       .filter(
-        (group) => ACTIVE_GROUP_STATUSES.has(group.status) && group.memberUserIds.includes(userId),
+        ({ membership, group }) =>
+          group !== null &&
+          (group.status === "reported" || isMembershipInActiveRide(membership, group)),
       )
+      .map(({ group }) => group)
+      .filter((group): group is GroupDoc => Boolean(group))
       .sort((left, right) => right._creationTime - left._creationTime)[0] ?? null
   );
 }

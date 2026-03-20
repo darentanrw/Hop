@@ -339,6 +339,11 @@ export function GroupClient({
     () => activeMembers.length > 0 && activeMembers.every((m) => Boolean(m.checkedInAt)),
     [activeMembers],
   );
+  const currentUserActiveMember = useMemo(
+    () => activeMembers.find((member) => member.userId === group?.currentUserId) ?? null,
+    [activeMembers, group?.currentUserId],
+  );
+  const currentUserCheckedIn = Boolean(currentUserActiveMember?.checkedInAt);
 
   const resetScannerFlash = useCallback(() => {
     if (scannerFlashTimeoutRef.current !== null) {
@@ -435,6 +440,7 @@ export function GroupClient({
           ...currentQaArgs,
         });
         await syncLifecycle(currentQaArgs);
+        setScanToken("");
         setScannerStatus({ type: "success", text: "Checked in successfully." });
         triggerScannerSuccessFlash();
         return true;
@@ -580,6 +586,67 @@ export function GroupClient({
 
       {tab === "ride" || !showTabs ? (
         <>
+          {/* ── Priority: Upload receipt first (booker) ── */}
+          {group.actions.canUploadReceipt ? (
+            <div className="card stack-sm receipt-upload-priority">
+              <div className="row-between receipt-upload-header">
+                <div>
+                  <h3>Upload receipt</h3>
+                  <p className="text-sm text-muted">
+                    Do this first so riders can quickly settle payment.
+                  </p>
+                </div>
+                <span className="pill pill-sm pill-accent">Booker action</span>
+              </div>
+              <label className="receipt-upload-label" htmlFor="receipt-total-input">
+                Final fare
+              </label>
+              <input
+                id="receipt-total-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={receiptTotal}
+                onChange={(e) => setReceiptTotal(e.target.value)}
+                placeholder="Total fare (e.g. 24.80)"
+              />
+              <label className="receipt-upload-label" htmlFor="receipt-file-input">
+                Receipt photo
+              </label>
+              <input
+                id="receipt-file-input"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+              />
+              {receiptFile ? (
+                <div className="text-xs text-muted">Attached: {receiptFile.name}</div>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
+                onClick={() =>
+                  runAction(async () => {
+                    if (!receiptFile) throw new Error("Attach the receipt photo first.");
+                    const storageId = await uploadFile(receiptFile, generateUploadUrl);
+                    await submitReceipt({
+                      groupId: group.group.id as Id<"groups">,
+                      totalCostCents: Math.round(Number(receiptTotal) * 100),
+                      storageId,
+                      ...qaArgs,
+                    });
+                    setReceiptFile(null);
+                    setReceiptTotal("");
+                    setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
+                  })
+                }
+              >
+                Submit receipt
+              </button>
+            </div>
+          ) : null}
+
           {/* ── Priority: Scan QR first (booker, during check-in) ── */}
           {showScanFirst ? (
             <div className="card stack-sm">
@@ -634,8 +701,19 @@ export function GroupClient({
               </div>
 
               {scannerOpen ? (
-                <div className="scanner-shell" style={{ position: "relative" }}>
-                  <video ref={videoRef} className="scanner-preview" autoPlay muted playsInline />
+                <div
+                  className={`scanner-shell ${scannerState === "starting" ? "scanner-shell-starting" : ""} ${scannerFlashActive ? "scanner-shell-success" : ""}`}
+                >
+                  <video
+                    ref={videoRef}
+                    className={`scanner-preview ${scannerState === "starting" ? "scanner-preview-starting" : ""}`}
+                    autoPlay
+                    muted
+                    playsInline
+                  />
+                  {scannerState === "starting" ? (
+                    <div className="scanner-starting-scrim">Starting camera...</div>
+                  ) : null}
                   <div
                     key={scannerFlashKey}
                     className={`scanner-overlay ${scannerFlashActive ? "scanner-overlay-success" : ""}`}
@@ -645,7 +723,7 @@ export function GroupClient({
                       className={`scanner-frame ${scannerFlashActive ? "scanner-frame-success" : ""}`}
                     />
                   </div>
-                  {justCheckedIn ? (
+                  {scannerFlashActive && justCheckedIn ? (
                     <div className="scanner-success-overlay">
                       <span style={{ fontSize: 48 }}>{justCheckedIn.emoji}</span>
                       <strong>{justCheckedIn.name} is here!</strong>
@@ -931,10 +1009,18 @@ export function GroupClient({
 
           {/* ── Rider QR code ── */}
           {group.actions.canShowQr && group.currentUserMember?.qrToken ? (
-            <div className="card stack-sm" style={{ alignItems: "center", textAlign: "center" }}>
+            <div
+              className={`card stack-sm rider-qr-card ${currentUserCheckedIn ? "rider-qr-card-collapsed" : ""}`}
+            >
               <h3>Your check-in code</h3>
-              <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
-              {qrCode ? (
+              {currentUserCheckedIn ? (
+                <div className="notice notice-success rider-qr-collapsed-summary">
+                  Checked in. Your QR code is now collapsed.
+                </div>
+              ) : (
+                <p className="text-sm text-muted">Show this to the booker when you arrive.</p>
+              )}
+              {!currentUserCheckedIn && qrCode ? (
                 <img src={qrCode} alt="Your check-in QR code" width={220} height={220} />
               ) : null}
 
@@ -951,10 +1037,12 @@ export function GroupClient({
                 ))}
               </div>
 
-              <div className="notice notice-info" style={{ width: "100%", textAlign: "left" }}>
-                Backup passphrase:{" "}
-                <code className="qr-passphrase">{group.currentUserMember.qrToken}</code>
-              </div>
+              {!currentUserCheckedIn ? (
+                <div className="notice notice-info" style={{ width: "100%", textAlign: "left" }}>
+                  Backup passphrase:{" "}
+                  <code className="qr-passphrase">{group.currentUserMember.qrToken}</code>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1225,52 +1313,6 @@ export function GroupClient({
                 }
               >
                 Depart now
-              </button>
-            </div>
-          ) : null}
-
-          {/* ── Upload receipt (booker) ── */}
-          {group.actions.canUploadReceipt ? (
-            <div className="card stack-sm">
-              <h3>Upload receipt</h3>
-              <p className="text-sm text-muted">
-                Enter the final fare and attach a photo of the receipt. Hop will split it
-                automatically.
-              </p>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={receiptTotal}
-                onChange={(e) => setReceiptTotal(e.target.value)}
-                placeholder="Total fare (e.g. 24.80)"
-              />
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
-              />
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                disabled={busy || !receiptFile || Number(receiptTotal) <= 0}
-                onClick={() =>
-                  runAction(async () => {
-                    if (!receiptFile) throw new Error("Attach the receipt photo first.");
-                    const storageId = await uploadFile(receiptFile, generateUploadUrl);
-                    await submitReceipt({
-                      groupId: group.group.id as Id<"groups">,
-                      totalCostCents: Math.round(Number(receiptTotal) * 100),
-                      storageId,
-                      ...qaArgs,
-                    });
-                    setReceiptFile(null);
-                    setReceiptTotal("");
-                    setStatus({ type: "success", text: "Receipt uploaded. Shares calculated." });
-                  })
-                }
-              >
-                Submit receipt
               </button>
             </div>
           ) : null}

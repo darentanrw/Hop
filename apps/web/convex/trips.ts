@@ -3,7 +3,7 @@ import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
-import { ACTIVE_GROUP_STATUSES, checkRideEligibility } from "../lib/ride-eligibility";
+import { checkRideEligibility, isMembershipInActiveRide } from "../lib/ride-eligibility";
 import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
 import { internal } from "./_generated/api";
@@ -69,12 +69,22 @@ function getActiveMembers(members: GroupMemberDoc[]) {
 }
 
 async function findActiveGroupForUser(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
-  const groups = await ctx.db.query("groups").collect();
+  const memberships = await ctx.db
+    .query("groupMembers")
+    .withIndex("userId", (q) => q.eq("userId", userId))
+    .collect();
+  const pairs = await Promise.all(
+    memberships.map(async (membership) => ({
+      membership,
+      group: await ctx.db.get(membership.groupId),
+    })),
+  );
+
   return (
-    groups
-      .filter(
-        (group) => ACTIVE_GROUP_STATUSES.has(group.status) && group.memberUserIds.includes(userId),
-      )
+    pairs
+      .filter(({ membership, group }) => isMembershipInActiveRide(membership, group))
+      .map(({ group }) => group)
+      .filter((group): group is GroupDoc => Boolean(group))
       .sort((left, right) => right._creationTime - left._creationTime)[0] ?? null
   );
 }

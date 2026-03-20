@@ -1074,10 +1074,23 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   position: relative;
   overflow: hidden;
   border-radius: var(--radius-lg);
-  background: radial-gradient(circle at top, rgba(68, 212, 200, 0.16), transparent 48%),
-    linear-gradient(180deg, rgba(8, 12, 24, 0.72), rgba(8, 12, 24, 0.9));
-  border: 1px solid rgba(68, 212, 200, 0.2);
+  background: radial-gradient(
+      circle at top,
+      rgba(68, 212, 200, 0.22),
+      rgba(68, 212, 200, 0.07) 44%,
+      transparent 70%
+    ), linear-gradient(180deg, rgba(8, 12, 24, 0.26), rgba(8, 12, 24, 0.38));
+  border: 1px solid rgba(68, 212, 200, 0.28);
   min-height: 260px;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+
+.scanner-shell-starting {
+  box-shadow: inset 0 0 0 1px rgba(68, 212, 200, 0.18);
+}
+
+.scanner-shell-success {
+  animation: scannerShellSuccessFlash 720ms var(--ease-out-expo);
 }
 
 .scanner-preview {
@@ -1085,6 +1098,31 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   width: 100%;
   aspect-ratio: 3 / 4;
   object-fit: cover;
+  background: linear-gradient(180deg, rgba(184, 236, 219, 0.9), rgba(209, 243, 232, 0.9));
+  transition: opacity 0.24s ease;
+}
+
+.scanner-preview-starting {
+  opacity: 0;
+}
+
+.scanner-starting-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: #0d5f42;
+  background: linear-gradient(
+    180deg,
+    rgba(230, 252, 242, 0.96),
+    rgba(202, 245, 227, 0.96) 55%,
+    rgba(193, 241, 220, 0.96)
+  );
 }
 
 .scanner-overlay {
@@ -1096,9 +1134,9 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(8, 12, 24, 0.18),
-    rgba(8, 12, 24, 0.02) 30%,
-    rgba(8, 12, 24, 0.16)
+    rgba(8, 12, 24, 0.06),
+    rgba(8, 12, 24, 0.01) 35%,
+    rgba(8, 12, 24, 0.08)
   );
 }
 
@@ -1111,7 +1149,7 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   aspect-ratio: 1;
   border-radius: 28px;
   border: 2px solid rgba(68, 212, 200, 0.95);
-  box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.38);
+  box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.2);
 }
 
 .scanner-frame-success {
@@ -1122,27 +1160,27 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   0% {
     background: linear-gradient(
       180deg,
-      rgba(8, 12, 24, 0.18),
-      rgba(8, 12, 24, 0.02) 30%,
-      rgba(8, 12, 24, 0.16)
+      rgba(8, 12, 24, 0.06),
+      rgba(8, 12, 24, 0.01) 35%,
+      rgba(8, 12, 24, 0.08)
     );
   }
 
-  18% {
+  24% {
     background: linear-gradient(
       180deg,
-      rgba(68, 212, 115, 0.3),
-      rgba(68, 212, 115, 0.08) 30%,
-      rgba(68, 212, 115, 0.26)
+      rgba(67, 197, 109, 0.24),
+      rgba(67, 197, 109, 0.07) 35%,
+      rgba(67, 197, 109, 0.22)
     );
   }
 
   100% {
     background: linear-gradient(
       180deg,
-      rgba(8, 12, 24, 0.18),
-      rgba(8, 12, 24, 0.02) 30%,
-      rgba(8, 12, 24, 0.16)
+      rgba(8, 12, 24, 0.06),
+      rgba(8, 12, 24, 0.01) 35%,
+      rgba(8, 12, 24, 0.08)
     );
   }
 }
@@ -1150,17 +1188,34 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
 @keyframes scannerFrameSuccessFlash {
   0% {
     border-color: rgba(68, 212, 200, 0.95);
-    box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.38);
+    box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.2);
   }
 
-  18% {
+  24% {
     border-color: rgba(126, 255, 164, 1);
-    box-shadow: 0 0 0 999px rgba(43, 190, 104, 0.42), 0 0 28px rgba(126, 255, 164, 0.55);
+    box-shadow: 0 0 0 999px rgba(43, 190, 104, 0.28), 0 0 28px rgba(126, 255, 164, 0.6);
   }
 
   100% {
     border-color: rgba(68, 212, 200, 0.95);
-    box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.38);
+    box-shadow: 0 0 0 999px rgba(8, 12, 24, 0.2);
+  }
+}
+
+@keyframes scannerShellSuccessFlash {
+  0% {
+    border-color: rgba(68, 212, 200, 0.28);
+    box-shadow: none;
+  }
+
+  24% {
+    border-color: rgba(126, 255, 164, 0.95);
+    box-shadow: 0 0 0 2px rgba(76, 220, 128, 0.22);
+  }
+
+  100% {
+    border-color: rgba(68, 212, 200, 0.28);
+    box-shadow: none;
   }
 }
 
@@ -1710,10 +1765,16 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: rgba(8, 12, 24, 0.72);
+  background: linear-gradient(
+    180deg,
+    rgba(15, 104, 67, 0.46),
+    rgba(20, 125, 80, 0.34) 55%,
+    rgba(18, 96, 63, 0.44)
+  );
   border-radius: var(--radius-lg);
-  animation: fadeIn 0.2s ease both;
+  animation: fadeIn 0.2s ease both, pulse 0.55s ease-out both;
   pointer-events: none;
+  backdrop-filter: saturate(120%) blur(1px);
 }
 
 .scanner-success-overlay strong {
@@ -1731,6 +1792,35 @@ s /* --- Compact Riders Grid (no drop-off) --- */ .riders-grid {
   color: var(--accent);
   word-break: break-all;
   overflow-wrap: break-word;
+}
+
+.rider-qr-card {
+  align-items: center;
+  text-align: center;
+}
+
+.rider-qr-collapsed-summary {
+  width: 100%;
+  text-align: left;
+}
+
+.receipt-upload-priority {
+  border: 1px solid rgba(68, 212, 200, 0.3);
+  background: linear-gradient(180deg, rgba(68, 212, 200, 0.08), rgba(68, 212, 200, 0.02));
+  box-shadow: 0 12px 30px rgba(68, 212, 200, 0.08);
+}
+
+.receipt-upload-header {
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.receipt-upload-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* code elements generally */
