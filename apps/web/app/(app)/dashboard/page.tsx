@@ -1,17 +1,16 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { fetchAction, fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchQuery } from "convex/nextjs";
 import Link from "next/link";
 import { AvailabilityList } from "../../../components/availability-list";
+import { DashboardBackgroundSync } from "../../../components/dashboard-background-sync";
 import { DashboardStatusCard } from "../../../components/dashboard-status-card";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { api } from "../../../convex/_generated/api";
+import { getDashboardNotice } from "../../../lib/dashboard-notice";
 
 export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
   if (!token) return null;
-
-  await fetchAction(api.mutations.runMatching, {}, { token });
-  await fetchMutation(api.trips.advanceCurrentGroupLifecycle, {}, { token });
 
   const [riderProfile, availabilities, group, eligibility] = await Promise.all([
     fetchQuery(api.queries.getRiderProfile, {}, { token }),
@@ -19,19 +18,19 @@ export default async function DashboardPage() {
     fetchQuery(api.trips.getActiveTrip, {}, { token }),
     fetchQuery(api.trips.getRideEligibility, {}, { token }),
   ]);
+  const dashboardNotice = getDashboardNotice({
+    hasActiveTrip: Boolean(group),
+    eligibility,
+  });
 
   if (!riderProfile) return null;
 
   return (
     <div className="stack-lg stagger">
-      {eligibility?.hasActiveGroup ? (
-        <div className="notice notice-error">
-          You already have an active ride. Finish it before scheduling another.
-        </div>
-      ) : eligibility?.unpaidCount ? (
-        <div className="notice notice-error">
-          You have an outstanding payment from a previous ride. Settle up before scheduling another.
-        </div>
+      <DashboardBackgroundSync />
+
+      {dashboardNotice ? (
+        <div className="notice notice-error">{dashboardNotice}</div>
       ) : (
         <DashboardStatusCard initialGroup={group} initialAvailabilities={availabilities ?? []} />
       )}

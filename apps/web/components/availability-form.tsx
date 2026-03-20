@@ -2,6 +2,7 @@
 
 import type { RiderProfile } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import { persistDestinationLabel } from "../lib/destination-storage";
@@ -30,6 +31,7 @@ type AvailabilityFormProps = {
 export function AvailabilityForm({ profile }: AvailabilityFormProps) {
   const createAvailability = useMutation(api.mutations.createAvailability);
   const eligibility = useQuery(api.trips.getRideEligibility, {});
+  const router = useRouter();
   const initialDate = getDefaultDateInput();
   const defaultRange = getDefaultRange(initialDate);
   const [dateInput, setDateInput] = useState(initialDate);
@@ -152,7 +154,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
       });
       persistDestinationLabel(matcherPayload.sealedDestinationRef, trimmedDestinationAddress);
       setStatus({ type: "success", text: "Window saved." });
-      window.location.href = "/dashboard";
+      router.replace("/dashboard");
     } catch (err) {
       setStatus({
         type: "error",
