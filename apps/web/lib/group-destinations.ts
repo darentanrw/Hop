@@ -1,4 +1,4 @@
-import { decodeStubDestinationRef } from "./matcher-stub";
+import { sortOpaqueDestinationEntries } from "@hop/shared";
 
 type AvailabilityDestination = {
   createdAt?: string;
@@ -19,14 +19,6 @@ type LockedGroupDestination = {
   userId: string;
 };
 
-function decodeLockedAddress(sealedDestinationRef: string) {
-  if (!sealedDestinationRef.startsWith("stub:destination:")) {
-    return undefined;
-  }
-
-  return decodeStubDestinationRef(sealedDestinationRef);
-}
-
 export function buildLockedGroupDestinations(
   members: GroupDestinationMember[],
   availabilityById: Map<string, AvailabilityDestination>,
@@ -37,28 +29,34 @@ export function buildLockedGroupDestinations(
       throw new Error(`Availability ${member.availabilityId} is missing its destination details.`);
     }
 
-    const destinationAddress = decodeLockedAddress(availability.sealedDestinationRef);
     const destinationLockedAt = availability.createdAt ?? new Date().toISOString();
 
     return {
       availabilityId: member.availabilityId,
-      destinationAddress,
+      destinationAddress: undefined,
       destinationLockedAt,
       destinationSubmittedAt: destinationLockedAt,
-      sortKey: (destinationAddress ?? availability.sealedDestinationRef).toLowerCase(),
+      sealedDestinationRef: availability.sealedDestinationRef,
+      stableId: member.userId,
+      secondaryStableId: member.availabilityId,
       userId: member.userId,
     };
   });
 
-  const ordered = [...sortable].sort(
-    (left, right) =>
-      left.sortKey.localeCompare(right.sortKey) ||
-      left.userId.localeCompare(right.userId) ||
-      left.availabilityId.localeCompare(right.availabilityId),
-  );
+  const ordered = sortOpaqueDestinationEntries(sortable);
 
-  return ordered.map<LockedGroupDestination>(({ sortKey: _sortKey, ...member }, index) => ({
-    ...member,
-    dropoffOrder: index + 1,
-  }));
+  return ordered.map<LockedGroupDestination>(
+    (
+      {
+        sealedDestinationRef: _sealedDestinationRef,
+        stableId: _stableId,
+        secondaryStableId: _secondaryStableId,
+        ...member
+      },
+      index,
+    ) => ({
+      ...member,
+      dropoffOrder: index + 1,
+    }),
+  );
 }

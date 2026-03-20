@@ -211,7 +211,8 @@ export function PwaCoachmark() {
         userAgent: navigator.userAgent,
       });
 
-      setNotificationStatus("You're all set — Hop will send ride-day alerts to this device.");
+      setNotificationStatus(null);
+      dismissNotifications();
     } catch (error) {
       console.error("Unable to enable Hop notifications", error);
       setNotificationStatus("Could not finish notification setup.");

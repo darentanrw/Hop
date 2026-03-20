@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   clearCachedToken,
+  clearRouteCaches,
   geocodeAddress,
   getAuthToken,
   getDrivingRoute,
@@ -12,6 +13,7 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("fetch", mockFetch);
   clearCachedToken();
+  clearRouteCaches();
   vi.stubEnv("ONEMAP_EMAIL", "test@example.com");
   vi.stubEnv("ONEMAP_PASSWORD", "testpassword");
 });
@@ -47,13 +49,40 @@ describe("OneMap client", () => {
   });
 
   test("geocodeAddress returns null when no results", async () => {
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ found: 0, results: [] }),
     });
 
     const result = await geocodeAddress("nonexistent place");
     expect(result).toBeNull();
+  });
+
+  test("geocodeAddress retries with cleaned candidates and postal fallback", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ found: 0, results: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          found: 1,
+          results: [
+            {
+              LATITUDE: "1.3151",
+              LONGITUDE: "103.7649",
+              POSTAL: "120123",
+              BUILDING: "BLK 123",
+            },
+          ],
+        }),
+      });
+
+    const result = await geocodeAddress("Blk 123 Clementi Ave 3, Singapore 120123");
+    expect(result).not.toBeNull();
+    expect(result?.postalCode).toBe("120123");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
   test("getAuthToken fetches and caches token", async () => {
@@ -92,12 +121,20 @@ describe("OneMap client", () => {
             total_distance: 12500,
             total_time: 900,
           },
+          route_geometry: [
+            [103.7734, 1.3049],
+            [103.8198, 1.3521],
+          ],
         }),
       });
 
     const route = await getDrivingRoute(1.3049, 103.7734, 1.3521, 103.8198);
     expect(route.distanceMeters).toBe(12500);
     expect(route.timeSeconds).toBe(900);
+    expect(route.polyline).toEqual([
+      [1.3049, 103.7734],
+      [1.3521, 103.8198],
+    ]);
   });
 
   test("haversineKm computes distance between two known points", () => {

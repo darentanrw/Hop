@@ -11,12 +11,14 @@ import {
 function pair(membership: Partial<MembershipLike>, group: Partial<GroupLike> | null) {
   return {
     membership: {
+      userId: "user-1",
       participationStatus: "active" as string | undefined,
       amountDueCents: 0,
+      paymentStatus: "none",
       paymentVerifiedAt: null as string | null,
       ...membership,
     },
-    group: group ? { status: "closed", ...group } : null,
+    group: group ? { status: "closed", bookerUserId: "booker-1", ...group } : null,
   };
 }
 
@@ -68,7 +70,9 @@ describe("checkRideEligibility", () => {
 
   it("blocks for every active group status", () => {
     for (const status of ACTIVE_GROUP_STATUSES) {
-      const result = checkRideEligibility([pair({}, { status })]);
+      const membership =
+        status === "payment_pending" ? { amountDueCents: 500, paymentStatus: "owed" } : {};
+      const result = checkRideEligibility([pair(membership, { status })]);
       expect(result.hasActiveGroup).toBe(true);
       expect(result.blocked).toBe(true);
     }
@@ -109,11 +113,64 @@ describe("checkRideEligibility", () => {
   it("does not count unpaid balance if payment is verified", () => {
     const result = checkRideEligibility([
       pair(
-        { amountDueCents: 500, paymentVerifiedAt: "2026-03-20T00:00:00Z" },
+        {
+          amountDueCents: 500,
+          paymentStatus: "verified",
+          paymentVerifiedAt: "2026-03-20T00:00:00Z",
+        },
         { status: "payment_pending" },
       ),
     ]);
     expect(result.unpaidCount).toBe(0);
+  });
+
+  it("releases a verified rider from active-ride blocking during payment pending", () => {
+    const result = checkRideEligibility([
+      pair(
+        {
+          amountDueCents: 500,
+          paymentStatus: "verified",
+          paymentVerifiedAt: "2026-03-20T00:00:00Z",
+        },
+        { status: "payment_pending" },
+      ),
+    ]);
+    expect(result).toEqual({ blocked: false, hasActiveGroup: false, unpaidCount: 0 });
+  });
+
+  it("keeps an unpaid rider blocked during payment pending", () => {
+    const result = checkRideEligibility([
+      pair({ amountDueCents: 500, paymentStatus: "submitted" }, { status: "payment_pending" }),
+    ]);
+    expect(result).toEqual({ blocked: true, hasActiveGroup: true, unpaidCount: 1 });
+  });
+
+  it("keeps the booker blocked during payment pending until the group closes", () => {
+    const result = checkRideEligibility([
+      pair(
+        {
+          userId: "booker-1",
+          amountDueCents: 0,
+          paymentStatus: "not_required",
+        },
+        { status: "payment_pending", bookerUserId: "booker-1" },
+      ),
+    ]);
+    expect(result).toEqual({ blocked: true, hasActiveGroup: true, unpaidCount: 0 });
+  });
+
+  it("releases a zero-balance rider once settlement no longer requires them", () => {
+    const result = checkRideEligibility([
+      pair(
+        {
+          userId: "rider-2",
+          amountDueCents: 0,
+          paymentStatus: "none",
+        },
+        { status: "payment_pending", bookerUserId: "booker-1" },
+      ),
+    ]);
+    expect(result).toEqual({ blocked: false, hasActiveGroup: false, unpaidCount: 0 });
   });
 
   it("does not count unpaid balance in cancelled groups", () => {

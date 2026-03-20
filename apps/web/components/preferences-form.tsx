@@ -20,6 +20,10 @@ export function PreferencesForm({ profile }: { profile: RiderProfile }) {
   const [expanded, setExpanded] = useState(false);
   const showSameGenderToggle = form.selfDeclaredGender !== "prefer_not_to_say";
 
+  if (!showSameGenderToggle) {
+    return null;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -29,8 +33,6 @@ export function PreferencesForm({ profile }: { profile: RiderProfile }) {
       await savePreferences({
         selfDeclaredGender: form.selfDeclaredGender,
         sameGenderOnly: form.sameGenderOnly,
-        minGroupSize: form.minGroupSize,
-        maxGroupSize: form.maxGroupSize,
       });
       setForm(form);
       setStatus({ type: "success", text: "Preferences saved." });
@@ -105,32 +107,6 @@ export function PreferencesForm({ profile }: { profile: RiderProfile }) {
               <span>Only match with same gender</span>
             </label>
           </div>
-
-          <div className="grid-2">
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label htmlFor="pref-min">Min group</label>
-              <input
-                id="pref-min"
-                type="number"
-                min={2}
-                max={4}
-                value={form.minGroupSize}
-                onChange={(e) => setForm((c) => ({ ...c, minGroupSize: Number(e.target.value) }))}
-              />
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label htmlFor="pref-max">Max group</label>
-              <input
-                id="pref-max"
-                type="number"
-                min={2}
-                max={4}
-                value={form.maxGroupSize}
-                onChange={(e) => setForm((c) => ({ ...c, maxGroupSize: Number(e.target.value) }))}
-              />
-            </div>
-          </div>
-
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
             {busy ? "Saving..." : "Save preferences"}
           </button>

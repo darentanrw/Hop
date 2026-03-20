@@ -151,6 +151,7 @@ const schema = defineSchema({
     groupName: v.optional(v.string()),
     groupColor: v.optional(v.string()),
     bookerUserId: v.optional(v.string()),
+    bookerRedelegatedAt: v.optional(v.string()),
     suggestedDropoffOrder: v.optional(v.array(v.string())),
     departedAt: v.optional(v.string()),
     finalCostCents: v.optional(v.number()),
@@ -161,7 +162,6 @@ const schema = defineSchema({
     generalAreaLabels: v.optional(v.array(v.string())),
     reportCount: v.optional(v.number()),
     rewardedUserIds: v.optional(v.array(v.string())),
-    bookerRedelegatedAt: v.optional(v.string()),
   }),
   groupMembers: defineTable({
     groupId: v.id("groups"),

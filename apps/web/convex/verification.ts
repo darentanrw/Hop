@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { Resend } from "resend";
+import { buildReplyVerificationEmail } from "../lib/notification-email";
 import { internal } from "./_generated/api";
 import { api } from "./_generated/api";
 import { action, internalMutation } from "./_generated/server";
@@ -179,16 +180,7 @@ export const sendVerificationEmail = action({
         to: user.email,
         ...(replyTo && { replyTo }),
         subject: "Verify your Hop account",
-        html: [
-          '<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px">',
-          "<h2>Verify your email</h2>",
-          "<p>To complete your Hop sign-up, reply to this email with the following passphrase:</p>",
-          `<p style="font-size:20px;font-weight:bold;text-align:center;margin:24px 0;letter-spacing:2px">${passphrase}</p>`,
-          "<p><strong>Reply with the exact passphrase above.</strong> Capitalization does not matter, and extra signature or quoted reply text is okay.</p>",
-          "<p>Keep the same hyphens and word order when you reply so we can verify it securely.</p>",
-          "<p style='color:#888;font-size:12px'>Hop — privacy-first campus rideshare</p>",
-          "</div>",
-        ].join(""),
+        html: buildReplyVerificationEmail(passphrase),
       });
       if (error) throw new Error(`Failed to send email: ${JSON.stringify(error)}`);
     } else if (process.env.NODE_ENV !== "production") {

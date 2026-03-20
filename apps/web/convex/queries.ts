@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalQuery, query } from "./_generated/server";
+import { requireAdmin } from "./adminAccess";
 
 async function getRiderProfileInternal(ctx: QueryCtx) {
   const userId = await getAuthUserId(ctx);
@@ -20,8 +21,6 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
     email: user.email,
     selfDeclaredGender: preference.selfDeclaredGender,
     sameGenderOnly: preference.sameGenderOnly,
-    minGroupSize: preference.minGroupSize,
-    maxGroupSize: preference.maxGroupSize,
     successfulTrips: user.successfulTrips ?? 0,
     cancelledTrips: user.cancelledTrips ?? 0,
     reportedCount: user.reportedCount ?? 0,
@@ -139,8 +138,7 @@ export const getPendingVerificationByEmail = query({
 export const adminSnapshot = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) return null;
+    await requireAdmin(ctx);
     const users = await ctx.db.query("users").collect();
     const availabilities = await ctx.db.query("availabilities").collect();
     const groups = await ctx.db.query("groups").collect();
@@ -162,10 +160,6 @@ export const getMatchingCandidates = internalQuery({
     const openAvailabilities = availabilities.filter(
       (availability) => availability.status === "open",
     );
-    if (openAvailabilities.length < 2) {
-      return [];
-    }
-
     const users = await ctx.db.query("users").collect();
     const userById = new Map(users.map((user) => [user._id, user]));
 
@@ -176,8 +170,6 @@ export const getMatchingCandidates = internalQuery({
       windowEnd: availability.windowEnd,
       selfDeclaredGender: availability.selfDeclaredGender,
       sameGenderOnly: availability.sameGenderOnly,
-      minGroupSize: availability.minGroupSize,
-      maxGroupSize: availability.maxGroupSize,
       routeDescriptorRef: availability.routeDescriptorRef,
       sealedDestinationRef: availability.sealedDestinationRef,
       displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
@@ -253,8 +245,10 @@ export const getSemiLockedGroupRouteRefs = internalQuery({
   args: {},
   handler: async (ctx) => {
     const groups = await ctx.db.query("groups").collect();
-    const semiLocked = groups.filter((g) => g.status === "semi_locked");
-    const allAvailIds = semiLocked.flatMap((g) => g.availabilityIds);
+    const joinableGroups = groups.filter(
+      (g) => g.status === "semi_locked" || g.status === "tentative",
+    );
+    const allAvailIds = joinableGroups.flatMap((g) => g.availabilityIds);
     const refs: string[] = [];
     for (const id of allAvailIds) {
       const avail = await ctx.db.get(id as Id<"availabilities">);

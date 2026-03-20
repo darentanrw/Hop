@@ -88,8 +88,8 @@ export function LoginForm() {
             </div>
             <h3 style={{ marginTop: 4 }}>Skip OTP for manual testing</h3>
             <p className="text-sm text-muted">
-              Start a local QA session instantly, then use the dashboard controls to seed rides,
-              create demo groups, and trigger matching.
+              Start a local QA session instantly, then use the dashboard controls to seed live rides
+              and trigger matching.
             </p>
           </div>
           <button

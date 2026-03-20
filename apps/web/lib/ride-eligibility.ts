@@ -15,13 +15,16 @@ export const ACTIVE_GROUP_STATUSES = new Set([
 const TERMINAL_STATUSES = new Set(["cancelled", "closed", "dissolved"]);
 
 export interface MembershipLike {
+  userId?: string;
   participationStatus?: string;
   amountDueCents?: number;
+  paymentStatus?: string;
   paymentVerifiedAt?: string | null;
 }
 
 export interface GroupLike {
   status: string;
+  bookerUserId?: string | null;
 }
 
 export interface RideEligibility {
@@ -64,9 +67,7 @@ export function checkRideEligibility(
   for (const { membership, group } of pairs) {
     if (!group) continue;
 
-    const isActive =
-      ACTIVE_GROUP_STATUSES.has(group.status) &&
-      (membership.participationStatus ?? "active") === "active";
+    const isActive = isMembershipInActiveRide(membership, group);
 
     if (isActive) {
       hasActiveGroup = true;
@@ -74,6 +75,7 @@ export function checkRideEligibility(
 
     const hasUnpaidBalance =
       (membership.amountDueCents ?? 0) > 0 &&
+      membership.paymentStatus !== "verified" &&
       !membership.paymentVerifiedAt &&
       !TERMINAL_STATUSES.has(group.status);
 
@@ -87,4 +89,41 @@ export function checkRideEligibility(
     hasActiveGroup,
     unpaidCount,
   };
+}
+
+export function isMembershipInActiveRide(
+  membership: MembershipLike,
+  group: GroupLike | null,
+): boolean {
+  if (!group) {
+    return false;
+  }
+
+  if ((membership.participationStatus ?? "active") !== "active") {
+    return false;
+  }
+
+  if (!ACTIVE_GROUP_STATUSES.has(group.status)) {
+    return false;
+  }
+
+  if (group.status !== "payment_pending") {
+    return true;
+  }
+
+  const canResolveBooker =
+    typeof membership.userId === "string" && typeof group.bookerUserId === "string";
+  const isBooker = canResolveBooker && membership.userId === group.bookerUserId;
+  if (isBooker) {
+    return true;
+  }
+
+  const amountDueCents = membership.amountDueCents ?? 0;
+  const paymentSettled =
+    membership.paymentStatus === "verified" ||
+    membership.paymentStatus === "not_required" ||
+    Boolean(membership.paymentVerifiedAt) ||
+    (canResolveBooker && amountDueCents <= 0);
+
+  return !paymentSettled;
 }

@@ -1,9 +1,16 @@
 import crypto from "node:crypto";
-import type { AddressEnvelope, CompatibilityEdge } from "@hop/shared";
+import type {
+  AddressEnvelope,
+  CompatibilityEdge,
+  MatcherSimulatorPreviewGroup,
+  MatcherSimulatorPreviewRequest,
+  MatcherSimulatorPreviewResponse,
+} from "@hop/shared";
 import {
   GEOHASH_PRECISION,
   MAX_DETOUR_MINUTES,
   MAX_SPREAD_KM,
+  PICKUP_ORIGIN_LABEL,
   PICKUP_ORIGIN_LAT,
   PICKUP_ORIGIN_LNG,
 } from "@hop/shared";
@@ -17,6 +24,8 @@ type DestinationRecord = {
   iv: string;
   authTag: string;
   normalizedAddress: string;
+  maskedLocationLabel: string;
+  postalCode: string;
   lat: number;
   lng: number;
   geohash6: string;
@@ -35,7 +44,9 @@ type MatcherStore = {
   descriptors: Map<string, DescriptorRecord>;
 };
 
-const globalStore = globalThis as typeof globalThis & { __hopMatcherStore?: MatcherStore };
+const globalStore = globalThis as typeof globalThis & {
+  __hopMatcherStore?: MatcherStore;
+};
 
 function getStore() {
   if (!globalStore.__hopMatcherStore) {
@@ -61,6 +72,14 @@ function base64(input: Buffer) {
 
 function normalizeAddress(address: string) {
   return address.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function buildMaskedLocationLabel(postalCode: string, geohash5: string) {
+  const postalSector = postalCode.trim().slice(0, 2);
+  if (postalSector) {
+    return `Postal sector ${postalSector}`;
+  }
+  return `Area ${geohash5.toUpperCase()}`;
 }
 
 function sealAddress(address: string) {
@@ -118,6 +137,8 @@ export async function submitDestination(address: string) {
     sealedDestinationRef,
     routeDescriptorRef,
     normalizedAddress,
+    maskedLocationLabel: buildMaskedLocationLabel(geocoded.postalCode, geohash5),
+    postalCode: geocoded.postalCode,
     lat,
     lng,
     geohash6,
@@ -132,12 +153,47 @@ export async function submitDestination(address: string) {
   };
 }
 
+export function clearMatcherStore() {
+  const store = getStore();
+  store.destinations.clear();
+  store.descriptors.clear();
+}
+
+const SCORING_CONCURRENCY = 8;
+
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<T[]> {
+  const results: T[] = [];
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      results[index] = await tasks[index]();
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+  return results;
+}
+
 export async function scoreRouteDescriptors(
   routeDescriptorRefs: string[],
   timeOverlapByPair?: Map<string, number>,
 ): Promise<CompatibilityEdge[]> {
   const store = getStore();
-  const edges: CompatibilityEdge[] = [];
+
+  type EligiblePair = {
+    leftRef: string;
+    rightRef: string;
+    left: DescriptorRecord;
+    right: DescriptorRecord;
+    spreadDistanceKm: number;
+  };
+
+  const eligiblePairs: EligiblePair[] = [];
 
   for (let index = 0; index < routeDescriptorRefs.length; index += 1) {
     for (
@@ -151,7 +207,10 @@ export async function scoreRouteDescriptors(
       const right = store.descriptors.get(rightRef);
 
       if (!left || !right) {
-        continue;
+        const missingRefs = [left ? null : leftRef, right ? null : rightRef].filter(Boolean);
+        throw new Error(
+          `Missing matcher route descriptor${missingRefs.length === 1 ? "" : "s"}: ${missingRefs.join(", ")}.`,
+        );
       }
 
       const geohash6Match = areGeohashNeighbors(left.geohash6, right.geohash6);
@@ -166,54 +225,67 @@ export async function scoreRouteDescriptors(
         continue;
       }
 
-      let detourMinutes: number;
-      try {
-        const [routeToLeft, routeToRight, routeLeftToRight, routeRightToLeft] = await Promise.all([
-          getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, left.lat, left.lng),
-          getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, right.lat, right.lng),
-          getDrivingRoute(left.lat, left.lng, right.lat, right.lng),
-          getDrivingRoute(right.lat, right.lng, left.lat, left.lng),
-        ]);
-
-        const longestSingleTrip = Math.max(routeToLeft.timeSeconds, routeToRight.timeSeconds);
-        const sequentialTrip = Math.min(
-          routeToLeft.timeSeconds + routeLeftToRight.timeSeconds,
-          routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
-        );
-        detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
-      } catch {
-        detourMinutes = spreadDistanceKm * 1.5;
-      }
-
-      if (detourMinutes > MAX_DETOUR_MINUTES) {
-        continue;
-      }
-
-      const routeOverlap = Math.max(0, 1 - detourMinutes / MAX_DETOUR_MINUTES);
-      const destinationProximity = Math.max(0, 1 - spreadDistanceKm / MAX_SPREAD_KM);
-
-      const pairKeyStr = [leftRef, rightRef].sort().join("::");
-      const timeOverlapNorm = timeOverlapByPair
-        ? Math.min(1, (timeOverlapByPair.get(pairKeyStr) ?? 60) / 120)
-        : 0.5;
-
-      const score = Number(
-        (0.55 * routeOverlap + 0.3 * destinationProximity + 0.15 * timeOverlapNorm).toFixed(2),
-      );
-
-      edges.push({
+      eligiblePairs.push({
         leftRef,
         rightRef,
-        routeOverlap: Number(routeOverlap.toFixed(2)),
-        destinationProximity: Number(destinationProximity.toFixed(2)),
-        score,
-        detourMinutes: Number(detourMinutes.toFixed(1)),
-        spreadDistanceKm: Number(spreadDistanceKm.toFixed(2)),
+        left,
+        right,
+        spreadDistanceKm,
       });
     }
   }
 
-  return edges;
+  const tasks = eligiblePairs.map((pair) => async (): Promise<CompatibilityEdge | null> => {
+    const { leftRef, rightRef, left, right, spreadDistanceKm } = pair;
+
+    let detourMinutes: number;
+    try {
+      const [routeToLeft, routeToRight, routeLeftToRight, routeRightToLeft] = await Promise.all([
+        getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, left.lat, left.lng),
+        getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, right.lat, right.lng),
+        getDrivingRoute(left.lat, left.lng, right.lat, right.lng),
+        getDrivingRoute(right.lat, right.lng, left.lat, left.lng),
+      ]);
+
+      const longestSingleTrip = Math.max(routeToLeft.timeSeconds, routeToRight.timeSeconds);
+      const sequentialTrip = Math.min(
+        routeToLeft.timeSeconds + routeLeftToRight.timeSeconds,
+        routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
+      );
+      detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
+    } catch {
+      return null;
+    }
+
+    if (detourMinutes > MAX_DETOUR_MINUTES) {
+      return null;
+    }
+
+    const routeOverlap = Math.max(0, 1 - detourMinutes / MAX_DETOUR_MINUTES);
+    const destinationProximity = Math.max(0, 1 - spreadDistanceKm / MAX_SPREAD_KM);
+
+    const pairKeyStr = [leftRef, rightRef].sort().join("::");
+    const timeOverlapNorm = timeOverlapByPair
+      ? Math.min(1, (timeOverlapByPair.get(pairKeyStr) ?? 60) / 120)
+      : 0.5;
+
+    const score = Number(
+      (0.55 * routeOverlap + 0.3 * destinationProximity + 0.15 * timeOverlapNorm).toFixed(2),
+    );
+
+    return {
+      leftRef,
+      rightRef,
+      routeOverlap: Number(routeOverlap.toFixed(2)),
+      destinationProximity: Number(destinationProximity.toFixed(2)),
+      score,
+      detourMinutes: Number(detourMinutes.toFixed(1)),
+      spreadDistanceKm: Number(spreadDistanceKm.toFixed(2)),
+    };
+  });
+
+  const results = await runWithConcurrency(tasks, SCORING_CONCURRENCY);
+  return results.filter((edge): edge is CompatibilityEdge => edge !== null);
 }
 
 export function countDistinctLocations(members: Array<{ geohash6: string }>): number {
@@ -288,7 +360,7 @@ export function revealEnvelopes(
     for (const sender of members) {
       const destinationRecord = store.destinations.get(sender.sealedDestinationRef);
       if (!destinationRecord) {
-        continue;
+        throw new Error(`Missing matcher destination record for ${sender.sealedDestinationRef}.`);
       }
 
       const plaintextAddress = unsealAddress(destinationRecord);
@@ -319,4 +391,166 @@ export function revealEnvelopes(
   }
 
   return envelopes;
+}
+
+function getDestinationRecord(sealedDestinationRef: string) {
+  const record = getStore().destinations.get(sealedDestinationRef);
+  if (!record) {
+    throw new Error(`Missing matcher destination record for ${sealedDestinationRef}.`);
+  }
+  return record;
+}
+
+function getPreviewPolyline(
+  polyline: Array<[number, number]>,
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): Array<[number, number]> {
+  if (polyline.length > 0) return polyline;
+  return [
+    [from.lat, from.lng],
+    [to.lat, to.lng],
+  ];
+}
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items];
+  const result: T[][] = [];
+  for (let i = 0; i < items.length; i++) {
+    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+    for (const perm of permutations(rest)) {
+      result.push([items[i], ...perm]);
+    }
+  }
+  return result;
+}
+
+type PreviewRider = {
+  riderId: string;
+  routeDescriptorRef: string;
+  sealedDestinationRef: string;
+  alias: string;
+  maskedLocationLabel: string;
+  coordinate: { lat: number; lng: number };
+};
+
+async function computeRouteForOrder(
+  riders: PreviewRider[],
+): Promise<{ totalTime: number; totalDistance: number }> {
+  let from = { lat: PICKUP_ORIGIN_LAT, lng: PICKUP_ORIGIN_LNG };
+  let totalTime = 0;
+  let totalDistance = 0;
+
+  for (const rider of riders) {
+    const route = await getDrivingRoute(
+      from.lat,
+      from.lng,
+      rider.coordinate.lat,
+      rider.coordinate.lng,
+    );
+    totalTime += route.timeSeconds;
+    totalDistance += route.distanceMeters;
+    from = rider.coordinate;
+  }
+
+  return { totalTime, totalDistance };
+}
+
+async function findOptimalOrder(members: PreviewRider[]): Promise<PreviewRider[]> {
+  if (members.length <= 1) return members;
+
+  const perms = permutations(members);
+  let bestOrder = members;
+  let bestTime = Number.POSITIVE_INFINITY;
+
+  for (const perm of perms) {
+    const { totalTime } = await computeRouteForOrder(perm);
+    if (totalTime < bestTime) {
+      bestTime = totalTime;
+      bestOrder = perm;
+    }
+  }
+
+  return bestOrder;
+}
+
+export async function buildSimulatorPreview(
+  request: MatcherSimulatorPreviewRequest,
+): Promise<MatcherSimulatorPreviewResponse> {
+  const riderPreviews = request.riders.map((rider) => {
+    const destination = getDestinationRecord(rider.sealedDestinationRef);
+    return {
+      riderId: rider.riderId,
+      routeDescriptorRef: rider.routeDescriptorRef,
+      sealedDestinationRef: rider.sealedDestinationRef,
+      alias: rider.alias,
+      maskedLocationLabel: destination.maskedLocationLabel,
+      coordinate: {
+        lat: destination.lat,
+        lng: destination.lng,
+      },
+    };
+  });
+
+  const riderById = new Map(riderPreviews.map((rider) => [rider.riderId, rider]));
+  const groups = [];
+
+  for (const group of request.groups) {
+    const memberRiders = group.members
+      .map((m) => riderById.get(m.riderId))
+      .filter((r): r is PreviewRider => r !== undefined);
+
+    if (memberRiders.length !== group.members.length) {
+      const missing = group.members.find((m) => !riderById.has(m.riderId));
+      throw new Error(`Missing matcher preview rider for ${missing?.riderId}.`);
+    }
+
+    const optimizedOrder = await findOptimalOrder(memberRiders);
+
+    let from = {
+      lat: PICKUP_ORIGIN_LAT,
+      lng: PICKUP_ORIGIN_LNG,
+      label: PICKUP_ORIGIN_LABEL,
+    };
+    const legs: MatcherSimulatorPreviewGroup["legs"] = [];
+    let totalDistanceMeters = 0;
+    let totalTimeSeconds = 0;
+
+    for (const rider of optimizedOrder) {
+      const route = await getDrivingRoute(
+        from.lat,
+        from.lng,
+        rider.coordinate.lat,
+        rider.coordinate.lng,
+      );
+      totalDistanceMeters += route.distanceMeters;
+      totalTimeSeconds += route.timeSeconds;
+      legs.push({
+        fromLabel: from.label,
+        toLabel: rider.alias,
+        from: { lat: from.lat, lng: from.lng },
+        to: rider.coordinate,
+        polyline: getPreviewPolyline(route.polyline, from, rider.coordinate),
+        distanceMeters: route.distanceMeters,
+        timeSeconds: route.timeSeconds,
+      });
+      from = {
+        lat: rider.coordinate.lat,
+        lng: rider.coordinate.lng,
+        label: rider.alias,
+      };
+    }
+
+    groups.push({
+      groupId: group.groupId,
+      legs,
+      totalDistanceMeters,
+      totalTimeSeconds,
+    });
+  }
+
+  return {
+    riders: riderPreviews,
+    groups,
+  };
 }

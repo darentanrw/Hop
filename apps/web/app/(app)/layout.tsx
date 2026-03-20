@@ -19,6 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const riderProfile = await fetchQuery(api.queries.getRiderProfile, {}, { token });
   if (!riderProfile) redirect("/onboarding");
+  const adminAccess = await fetchQuery(api.admin.adminAccess, {}, { token });
 
   return (
     <>
@@ -26,7 +27,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <TopBarContent />
         <ClientKeyRegistrar />
         <PwaCoachmark />
-        <LocalQaPanel />
+        {adminAccess.isAdmin ? <LocalQaPanel /> : null}
         {children}
       </div>
       <BottomNav />

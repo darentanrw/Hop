@@ -33,6 +33,7 @@ export function buildActions(
 ) {
   const currentStatus = group.status;
   const isBooker = group.bookerUserId === currentUserId;
+  const currentMemberIsActive = (currentUserMember?.participationStatus ?? "active") === "active";
   const canDepartNow =
     currentStatus === "depart_ready" ||
     (currentStatus === "meetup_checkin" &&
@@ -43,12 +44,14 @@ export function buildActions(
       currentStatus === "matched_pending_ack" &&
       currentUserMember?.participationStatus !== "removed_no_ack" &&
       currentUserMember?.acknowledgementStatus !== "accepted",
+    canCancelTrip:
+      (currentStatus === "semi_locked" || currentStatus === "locked") && currentMemberIsActive,
     canSubmitDestination: false,
     canShowQr:
       (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") &&
       !isBooker &&
       Boolean(currentUserMember?.destinationLockedAt) &&
-      (currentUserMember?.participationStatus ?? "active") === "active",
+      currentMemberIsActive,
     canScanQr: (currentStatus === "meetup_checkin" || currentStatus === "depart_ready") && isBooker,
     canStartCheckIn:
       (currentStatus === "group_confirmed" || currentStatus === "meetup_preparation") && isBooker,
@@ -68,7 +71,7 @@ export function buildActions(
       !isBooker &&
       currentStatus === "meetup_checkin" &&
       Boolean(options?.bookerAbsentWindowPassed) &&
-      (currentUserMember?.participationStatus ?? "active") === "active",
+      currentMemberIsActive,
     canReport: currentStatus !== "matched_pending_ack" && Boolean(currentUserMember),
   };
 }

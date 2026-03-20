@@ -10,6 +10,7 @@
 
 import type * as ResendOTP from "../ResendOTP.js";
 import type * as admin from "../admin.js";
+import type * as adminAccess from "../adminAccess.js";
 import type * as auth from "../auth.js";
 import type * as chat from "../chat.js";
 import type * as crons from "../crons.js";
@@ -33,6 +34,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   ResendOTP: typeof ResendOTP;
   admin: typeof admin;
+  adminAccess: typeof adminAccess;
   auth: typeof auth;
   chat: typeof chat;
   crons: typeof crons;

@@ -22,8 +22,6 @@ function makeCandidate(
     windowEnd: SOON_END,
     selfDeclaredGender: "prefer_not_to_say",
     sameGenderOnly: false,
-    minGroupSize: 2,
-    maxGroupSize: 4,
     routeDescriptorRef: `route_${overrides.userId}`,
     sealedDestinationRef: `dest_${overrides.userId}`,
     displayName: overrides.userId,
@@ -42,6 +40,8 @@ function makeEdge(
     score: 0.85,
     detourMinutes: 5,
     spreadDistanceKm: 1.2,
+    routeOverlap: 10,
+    destinationProximity: 0.3,
     ...overrides,
   };
 }
@@ -278,7 +278,7 @@ describe("formGroups — small group release gate uses shared window", () => {
 
     const edges = [makeEdge("route_a", "route_b")];
 
-    // Consensus start is 4h away (< SMALL_GROUP_RELEASE_HOURS=5), so this forms.
+    // Consensus start is 4h away (< SMALL_GROUP_RELEASE_HOURS=36), so this forms.
     const groups = formGroups([riderA, riderB], edges);
     expect(groups).toHaveLength(1);
     expect(groups[0].members).toHaveLength(2);
@@ -286,19 +286,19 @@ describe("formGroups — small group release gate uses shared window", () => {
 
   test("pair is blocked when consensus start exceeds SMALL_GROUP_RELEASE_HOURS", () => {
     const now = Date.now();
-    // Rider A: 4h from now, Rider B: 6h from now
-    // Shared window starts at 6h → exceeds SMALL_GROUP_RELEASE_HOURS (5)
+    // Rider A: 34h from now, Rider B: 37h from now
+    // Shared window starts at 37h → exceeds SMALL_GROUP_RELEASE_HOURS (36)
     const riderA = makeCandidate({
       userId: "alice",
       routeDescriptorRef: "route_a",
-      windowStart: new Date(now + 4 * 3_600_000).toISOString(),
-      windowEnd: new Date(now + 7 * 3_600_000).toISOString(),
+      windowStart: new Date(now + 34 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 38 * 3_600_000).toISOString(),
     });
     const riderB = makeCandidate({
       userId: "bob",
       routeDescriptorRef: "route_b",
-      windowStart: new Date(now + 6 * 3_600_000).toISOString(),
-      windowEnd: new Date(now + 8 * 3_600_000).toISOString(),
+      windowStart: new Date(now + 37 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 40 * 3_600_000).toISOString(),
     });
 
     const edges = [makeEdge("route_a", "route_b")];

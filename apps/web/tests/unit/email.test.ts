@@ -37,7 +37,11 @@ async function loadModule(envOverrides: Record<string, string | undefined> = {})
 
 describe("sendOtpEmail", () => {
   test("sends via Resend when API key is configured", async () => {
-    await loadModule({ AUTH_RESEND_KEY: "re_test_123", RESEND_FROM_EMAIL: "Test <test@hop.sg>" });
+    await loadModule({
+      AUTH_RESEND_KEY: "re_test_123",
+      RESEND_FROM_EMAIL: "Test <test@hop.sg>",
+      SITE_URL: "https://hop.example",
+    });
 
     await sendOtpEmail("student@u.nus.edu", "123456");
 
@@ -47,6 +51,8 @@ describe("sendOtpEmail", () => {
     expect(call.from).toBe("Test <test@hop.sg>");
     expect(call.subject).toBe("Your Hop verification code");
     expect(call.html).toContain("123456");
+    expect(call.html).toContain("Open Hop");
+    expect(call.html).toContain('href="https://hop.example/"');
   });
 
   test("uses default from address when RESEND_FROM_EMAIL is not set", async () => {

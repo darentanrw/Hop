@@ -1,26 +1,31 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { Id } from "./_generated/dataModel";
+import { isMembershipInActiveRide } from "../lib/ride-eligibility";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
-const ACTIVE_GROUP_STATUSES = new Set([
-  "matched_pending_ack",
-  "group_confirmed",
-  "meetup_preparation",
-  "meetup_checkin",
-  "depart_ready",
-  "in_trip",
-  "receipt_pending",
-  "payment_pending",
-  "reported",
-]);
+type GroupDoc = Doc<"groups">;
 
 async function findActiveGroupForUser(ctx: QueryCtx | MutationCtx, userId: Id<"users">) {
-  const groups = await ctx.db.query("groups").collect();
+  const memberships = await ctx.db
+    .query("groupMembers")
+    .withIndex("userId", (q) => q.eq("userId", userId))
+    .collect();
+  const pairs = await Promise.all(
+    memberships.map(async (membership) => ({
+      membership,
+      group: await ctx.db.get(membership.groupId),
+    })),
+  );
+
   return (
-    groups
+    pairs
       .filter(
-        (group) => ACTIVE_GROUP_STATUSES.has(group.status) && group.memberUserIds.includes(userId),
+        ({ membership, group }) =>
+          group !== null &&
+          (group.status === "reported" || isMembershipInActiveRide(membership, group)),
       )
+      .map(({ group }) => group)
+      .filter((group): group is GroupDoc => Boolean(group))
       .sort((left, right) => right._creationTime - left._creationTime)[0] ?? null
   );
 }

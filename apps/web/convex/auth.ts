@@ -1,7 +1,7 @@
 import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
 import { convexAuth } from "@convex-dev/auth/server";
 import type { AuthProviderConfig } from "@convex-dev/auth/server";
-import { getEmailDomain } from "@hop/shared";
+import { MAX_GROUP_SIZE, MIN_GROUP_SIZE, getEmailDomain } from "@hop/shared";
 import { resolveManagedVerificationFlags } from "../lib/auth-state";
 import { ResendOTP } from "./ResendOTP";
 import type { MutationCtx } from "./_generated/server";
@@ -11,8 +11,8 @@ const localQaEnabled = process.env.ENABLE_LOCAL_QA === "true";
 const defaultPreferences = {
   selfDeclaredGender: "prefer_not_to_say" as const,
   sameGenderOnly: false,
-  minGroupSize: 2,
-  maxGroupSize: 4,
+  minGroupSize: MIN_GROUP_SIZE,
+  maxGroupSize: MAX_GROUP_SIZE,
 };
 
 const providers: AuthProviderConfig[] = [ResendOTP];

@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
 import { resolveQaActingUserId } from "./localQa";
 

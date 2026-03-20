@@ -27,19 +27,17 @@ import {
   getGroupTheme,
   selectBookerUserId,
 } from "../lib/group-lifecycle";
-import {
-  createStubCompatibility,
-  createStubGeohashMap,
-  createStubRevealEnvelopes,
-} from "../lib/matcher-stub";
+import { getMatcherBaseUrl } from "../lib/matcher-base-url";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
+import { buildLoginUrl, buildNotificationEmail } from "../lib/notification-email";
 import { checkRideEligibility } from "../lib/ride-eligibility";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalAction, internalMutation, mutation } from "./_generated/server";
 import { resolveQaActingUserId } from "./localQa";
+import { syncLifecycleForGroup } from "./trips";
 
 type RevealEnvelope = {
   recipientUserId: string;
@@ -62,16 +60,6 @@ type RevealContext = {
   }>;
   requesterEnvelopes: RevealEnvelope[];
 };
-
-function buildNotificationEmail(title: string, body: string) {
-  return [
-    '<div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:24px">',
-    `<h2 style="margin:0 0 12px">${title}</h2>`,
-    `<p style="margin:0 0 12px;line-height:1.5">${body}</p>`,
-    '<p style="margin:0;color:#667085;font-size:12px">Hop keeps your ride group updated automatically.</p>',
-    "</div>",
-  ].join("");
-}
 
 async function scheduleLifecycleNotifications(
   ctx: MutationCtx,
@@ -98,33 +86,36 @@ async function scheduleLifecycleNotifications(
 // formGroups, evaluateGroup, and related helpers are in ../lib/matching.ts
 
 async function fetchCompatibility(routeDescriptorRefs: string[]) {
-  if ((process.env.MATCHER_MODE ?? "stub") !== "live") {
+  try {
+    const matcherBaseUrl = getMatcherBaseUrl();
+    const response = await fetch(`${matcherBaseUrl}/matcher/compatibility`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routeDescriptorRefs }),
+      cache: "no-store",
+    });
+
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      edges?: CompatibilityEdge[];
+      geohashByRef?: Record<string, string>;
+    } | null;
+
+    if (!response.ok) {
+      throw new Error(payload?.error ?? "Unable to fetch matcher compatibility.");
+    }
+
     return {
-      edges: createStubCompatibility(routeDescriptorRefs),
-      geohashByRef: createStubGeohashMap(routeDescriptorRefs),
+      edges: payload?.edges ?? [],
+      geohashByRef: new Map(Object.entries(payload?.geohashByRef ?? {})),
     };
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? error.message
+        : "Matcher service is unavailable for compatibility scoring.",
+    );
   }
-
-  const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
-  const response = await fetch(`${matcherBaseUrl}/matcher/compatibility`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ routeDescriptorRefs }),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Unable to fetch matcher compatibility.");
-  }
-
-  const payload = (await response.json()) as {
-    edges: CompatibilityEdge[];
-    geohashByRef?: Record<string, string>;
-  };
-  return {
-    edges: payload.edges,
-    geohashByRef: new Map(Object.entries(payload.geohashByRef ?? {})),
-  };
 }
 
 async function fetchRevealEnvelopes(
@@ -135,24 +126,156 @@ async function fetchRevealEnvelopes(
     publicKey: string;
   }>,
 ) {
-  if ((process.env.MATCHER_MODE ?? "stub") !== "live") {
-    return await createStubRevealEnvelopes(members);
+  try {
+    const matcherBaseUrl = getMatcherBaseUrl();
+    const response = await fetch(`${matcherBaseUrl}/matcher/reveal-envelopes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ members }),
+      cache: "no-store",
+    });
+
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      envelopes?: RevealEnvelope[];
+    } | null;
+
+    if (!response.ok) {
+      throw new Error(payload?.error ?? "Unable to reveal addresses.");
+    }
+
+    return payload?.envelopes ?? [];
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : "Matcher service is unavailable for reveal.",
+    );
+  }
+}
+
+function geohashMapToRecord(geohashByRef?: Map<string, string>) {
+  const geohashRecord: Record<string, string> = {};
+  if (!geohashByRef) {
+    return geohashRecord;
   }
 
-  const matcherBaseUrl = process.env.MATCHER_BASE_URL ?? "http://localhost:4001";
-  const response = await fetch(`${matcherBaseUrl}/matcher/reveal-envelopes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ members }),
-    cache: "no-store",
+  for (const [key, value] of geohashByRef) {
+    geohashRecord[key] = value;
+  }
+
+  return geohashRecord;
+}
+
+function buildRegularCandidates(candidates: MatchingCandidate[], lockHorizon: number) {
+  return candidates.flatMap((candidate) => {
+    const end = new Date(candidate.windowEnd).getTime();
+    if (end <= lockHorizon) {
+      return [];
+    }
+
+    const start = Math.max(new Date(candidate.windowStart).getTime(), lockHorizon);
+    if (end <= start) {
+      return [];
+    }
+
+    return [
+      {
+        ...candidate,
+        windowStart: new Date(start).toISOString(),
+      },
+    ];
   });
+}
 
-  if (!response.ok) {
-    throw new Error("Unable to reveal addresses.");
+function buildRushedCandidates(candidates: MatchingCandidate[], lockHorizon: number) {
+  return candidates.flatMap((candidate) => {
+    const start = new Date(candidate.windowStart).getTime();
+    if (start >= lockHorizon) {
+      return [];
+    }
+
+    const end = Math.min(new Date(candidate.windowEnd).getTime(), lockHorizon);
+    if (end <= start) {
+      return [];
+    }
+
+    return [
+      {
+        ...candidate,
+        windowEnd: new Date(end).toISOString(),
+      },
+    ];
+  });
+}
+
+async function attemptAutomaticLateJoins(ctx: ActionCtx, candidates: MatchingCandidate[]) {
+  let joined = 0;
+
+  for (const candidate of candidates) {
+    const availability = (await ctx.runQuery(internal.queries.getAvailabilityById, {
+      availabilityId: candidate.availabilityId as Id<"availabilities">,
+    })) as {
+      _id: Id<"availabilities">;
+      userId: Id<"users">;
+      windowStart: string;
+      windowEnd: string;
+      routeDescriptorRef: string;
+      sealedDestinationRef: string;
+      selfDeclaredGender: "woman" | "man" | "nonbinary" | "prefer_not_to_say";
+      sameGenderOnly: boolean;
+      status: string;
+    } | null;
+
+    if (!availability || availability.status !== "open") {
+      continue;
+    }
+
+    const existingRefs = (await ctx.runQuery(
+      internal.queries.getSemiLockedGroupRouteRefs,
+      {},
+    )) as string[];
+    if (existingRefs.length === 0) {
+      continue;
+    }
+
+    const allRefs = [...new Set([...existingRefs, availability.routeDescriptorRef])];
+    const { edges, geohashByRef } = await fetchCompatibility(allRefs);
+
+    const result = (await ctx.runMutation(internal.mutations.attemptLateJoin, {
+      userId: availability.userId,
+      availabilityId: availability._id,
+      windowStart: candidate.windowStart,
+      windowEnd: candidate.windowEnd,
+      routeDescriptorRef: availability.routeDescriptorRef,
+      sealedDestinationRef: availability.sealedDestinationRef,
+      selfDeclaredGender: availability.selfDeclaredGender,
+      sameGenderOnly: availability.sameGenderOnly,
+      compatibilityEdges: edges.map((e) => ({
+        leftRef: e.leftRef,
+        rightRef: e.rightRef,
+        detourMinutes: e.detourMinutes,
+        spreadDistanceKm: e.spreadDistanceKm,
+      })),
+      geohashByRef: geohashMapToRecord(geohashByRef),
+    })) as { joined: boolean };
+
+    if (result.joined) {
+      joined += 1;
+    }
   }
 
-  const payload = (await response.json()) as { envelopes: RevealEnvelope[] };
-  return payload.envelopes;
+  return joined;
+}
+
+async function createGroupsForCandidates(ctx: ActionCtx, candidates: MatchingCandidate[]) {
+  if (candidates.length < 2) {
+    return 0;
+  }
+
+  const { edges, geohashByRef } = await fetchCompatibility(
+    candidates.map((entry) => entry.routeDescriptorRef),
+  );
+  const selectedGroups = formGroups(candidates, edges, geohashByRef);
+  return await createGroupsFromSelection(ctx, selectedGroups);
 }
 
 export const confirmAliasAndVerify = mutation({
@@ -206,8 +329,6 @@ export const savePreferences = mutation({
       v.literal("prefer_not_to_say"),
     ),
     sameGenderOnly: v.boolean(),
-    minGroupSize: v.number(),
-    maxGroupSize: v.number(),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -217,11 +338,17 @@ export const savePreferences = mutation({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .first();
     if (existing) {
-      await ctx.db.patch(existing._id, args);
+      await ctx.db.patch(existing._id, {
+        ...args,
+        minGroupSize: MIN_GROUP_SIZE,
+        maxGroupSize: MAX_GROUP_SIZE,
+      });
     } else {
       await ctx.db.insert("preferences", {
         userId,
         ...args,
+        minGroupSize: MIN_GROUP_SIZE,
+        maxGroupSize: MAX_GROUP_SIZE,
       });
     }
     return { userId };
@@ -238,8 +365,6 @@ export const completeOnboarding = mutation({
       v.literal("prefer_not_to_say"),
     ),
     sameGenderOnly: v.boolean(),
-    minGroupSize: v.number(),
-    maxGroupSize: v.number(),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -253,11 +378,17 @@ export const completeOnboarding = mutation({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .first();
     if (existingPref) {
-      await ctx.db.patch(existingPref._id, prefArgs);
+      await ctx.db.patch(existingPref._id, {
+        ...prefArgs,
+        minGroupSize: MIN_GROUP_SIZE,
+        maxGroupSize: MAX_GROUP_SIZE,
+      });
     } else {
       await ctx.db.insert("preferences", {
         userId,
         ...prefArgs,
+        minGroupSize: MIN_GROUP_SIZE,
+        maxGroupSize: MAX_GROUP_SIZE,
       });
     }
     const existingName = user.name?.trim();
@@ -281,8 +412,6 @@ export const createAvailability = mutation({
       v.literal("prefer_not_to_say"),
     ),
     sameGenderOnly: v.boolean(),
-    minGroupSize: v.number(),
-    maxGroupSize: v.number(),
     sealedDestinationRef: v.string(),
     routeDescriptorRef: v.string(),
   },
@@ -323,6 +452,8 @@ export const createAvailability = mutation({
     return await ctx.db.insert("availabilities", {
       userId,
       ...args,
+      minGroupSize: MIN_GROUP_SIZE,
+      maxGroupSize: MAX_GROUP_SIZE,
       createdAt: new Date().toISOString(),
       status: "open",
     });
@@ -381,6 +512,8 @@ export const updateAcknowledgement = mutation({
       acknowledgedAt: new Date().toISOString(),
     });
 
+    await syncLifecycleForGroup(ctx, group);
+
     return { ok: true };
   },
 });
@@ -397,8 +530,8 @@ export const cancelTripParticipation = mutation({
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
 
-    // Can only cancel while match is pending acknowledgement
-    const CANCELLABLE_STATUSES = new Set(["matched_pending_ack"]);
+    // Riders can still back out while a group is semi-locked, locked, or waiting on acknowledgement.
+    const CANCELLABLE_STATUSES = new Set(["semi_locked", "locked", "matched_pending_ack"]);
     if (!CANCELLABLE_STATUSES.has(group.status)) {
       throw new Error("Cannot cancel trip in current status");
     }
@@ -434,7 +567,7 @@ export const cancelTripParticipation = mutation({
         cancelledTrips: (user.cancelledTrips ?? 0) + 1,
       });
     }
-    // Keep the parent group document in sync (cancellation only allowed in matched_pending_ack).
+    // Keep the parent group document in sync after the rider leaves.
     const groupPatch: Partial<{
       memberUserIds: typeof group.memberUserIds;
       availabilityIds: typeof group.availabilityIds;
@@ -698,8 +831,14 @@ export const createTentativeGroup = internalMutation({
 
     const bookerUserId = selectBookerUserId(args.memberUserIds, credibilityScores);
 
+    const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
+    const sharedStart = new Date(args.windowStart).getTime();
+    const isFullGroup = args.groupSize >= MAX_GROUP_SIZE;
+    const isLastMinuteGroup = !isFullGroup && sharedStart <= lockHorizon;
+    const shouldLockNow = isFullGroup || isLastMinuteGroup;
+
     const groupId = await ctx.db.insert("groups", {
-      status: "tentative",
+      status: shouldLockNow ? "matched_pending_ack" : "semi_locked",
       pickupOriginId: PICKUP_ORIGIN_ID,
       pickupLabel: PICKUP_ORIGIN_LABEL,
       windowStart: args.windowStart,
@@ -764,14 +903,24 @@ export const createTentativeGroup = internalMutation({
       args.members.map((member) => ({
         userId: member.userId as Id<"users">,
         groupId,
-        kind: "match_found",
-        eventKey: `${groupId}:match_found:${member.userId}`,
+        kind: shouldLockNow ? "group_locked" : "group_semi_locked",
+        eventKey: `${groupId}:${shouldLockNow ? "group_locked" : "group_semi_locked"}:${member.userId}`,
         title: `You are matched in ${theme.name}`,
-        body: `Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`,
-        emailSubject: `Confirm your Hop ride in ${theme.name}`,
+        body: isFullGroup
+          ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
+          : isLastMinuteGroup
+            ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
+            : `Your group is open to ${MAX_GROUP_SIZE - args.groupSize} more rider${MAX_GROUP_SIZE - args.groupSize > 1 ? "s" : ""} until 3 hours before departure or until the group fills.`,
+        emailSubject: shouldLockNow
+          ? `Confirm your Hop ride in ${theme.name}`
+          : `${theme.name} is open to more riders`,
         emailHtml: buildNotificationEmail(
           `You are matched in ${theme.name}`,
-          `Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`,
+          isFullGroup
+            ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
+            : isLastMinuteGroup
+              ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
+              : `Your group is open to ${MAX_GROUP_SIZE - args.groupSize} more rider${MAX_GROUP_SIZE - args.groupSize > 1 ? "s" : ""} until 3 hours before departure or until the group fills.`,
         ),
       })),
     );
@@ -867,40 +1016,70 @@ export const runMatching = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const candidates = (await ctx.runQuery(
+    let candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
       {},
     )) as MatchingCandidate[];
-    if (candidates.length < 2) {
-      return { created: 0 };
-    }
-
-    const { edges, geohashByRef } = await fetchCompatibility(
-      candidates.map((entry) => entry.routeDescriptorRef),
+    const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
+    const joined = await attemptAutomaticLateJoins(
+      ctx,
+      buildRegularCandidates(candidates, lockHorizon),
     );
-    const selectedGroups = formGroups(candidates, edges, geohashByRef);
-    const created = await createGroupsFromSelection(ctx, selectedGroups);
-    return { created };
+
+    candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    let created = await createGroupsForCandidates(
+      ctx,
+      buildRegularCandidates(candidates, lockHorizon),
+    );
+
+    candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    created += await createGroupsForCandidates(ctx, buildRushedCandidates(candidates, lockHorizon));
+
+    if (created === 0 && candidates.length < 2) {
+      return { created: 0, joined };
+    }
+    return { created, joined };
   },
 });
 
 export const runMatchingCron = internalAction({
   args: {},
   handler: async (ctx) => {
-    const candidates = (await ctx.runQuery(
+    let candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
       {},
     )) as MatchingCandidate[];
-    if (candidates.length < 2) {
-      return { created: 0 };
-    }
-
-    const { edges, geohashByRef } = await fetchCompatibility(
-      candidates.map((entry) => entry.routeDescriptorRef),
+    const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
+    const joined = await attemptAutomaticLateJoins(
+      ctx,
+      buildRegularCandidates(candidates, lockHorizon),
     );
-    const selectedGroups = formGroups(candidates, edges, geohashByRef);
-    const created = await createGroupsFromSelection(ctx, selectedGroups);
-    return { created };
+
+    candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    let created = await createGroupsForCandidates(
+      ctx,
+      buildRegularCandidates(candidates, lockHorizon),
+    );
+
+    candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    created += await createGroupsForCandidates(ctx, buildRushedCandidates(candidates, lockHorizon));
+
+    if (created === 0 && candidates.length < 2) {
+      return { created: 0, joined };
+    }
+    return { created, joined };
   },
 });
 
@@ -992,16 +1171,19 @@ export const lockGroups = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const lockHorizon = now + LOCK_HOURS_BEFORE * 3_600_000;
+    const loginUrl = buildLoginUrl();
 
     const groups = await ctx.db.query("groups").collect();
-    const tentativeGroups = groups.filter(
-      (g) => g.status === "tentative" && new Date(g.windowStart).getTime() <= lockHorizon,
+    const joinableGroups = groups.filter(
+      (g) =>
+        (g.status === "tentative" || g.status === "semi_locked") &&
+        new Date(g.windowStart).getTime() <= lockHorizon,
     );
 
     let lockedCount = 0;
-    let semiLockedCount = 0;
+    let dissolvedCount = 0;
 
-    for (const group of tentativeGroups) {
+    for (const group of joinableGroups) {
       const members = await ctx.db
         .query("groupMembers")
         .withIndex("groupId", (q) => q.eq("groupId", group._id))
@@ -1010,57 +1192,50 @@ export const lockGroups = internalMutation({
 
       const activeCount = activeMembers.length;
 
-      if (activeCount >= MAX_GROUP_SIZE) {
-        const bookerUserId = selectBookerUserId(activeMembers.map((m) => m.userId));
-        await ctx.db.patch(group._id, {
-          status: "matched_pending_ack",
-          groupSize: activeCount,
-          confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
-          bookerUserId: bookerUserId ?? group.bookerUserId,
-        });
-        lockedCount += 1;
-
-        await scheduleLifecycleNotifications(
-          ctx,
-          activeMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "group_locked",
-            eventKey: `${group._id}:locked:${member.userId}`,
-            title: `${group.groupName ?? "Your group"} is locked`,
-            body: "Your ride group is full. Confirm within 30 minutes to lock in your spot.",
-            emailSubject: `${group.groupName ?? "Your Hop group"} is locked — confirm now`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Your group"} is locked`,
-              "Your ride group is full. Confirm within 30 minutes to lock in your spot.",
-            ),
-          })),
-        );
-      } else {
-        const spotsLeft = MAX_GROUP_SIZE - activeCount;
-        await ctx.db.patch(group._id, { status: "semi_locked", groupSize: activeCount });
-        semiLockedCount += 1;
-
-        await scheduleLifecycleNotifications(
-          ctx,
-          activeMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "group_semi_locked",
-            eventKey: `${group._id}:semi_locked:${member.userId}`,
-            title: `${group.groupName ?? "Your group"} is forming`,
-            body: `${activeCount} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
-            emailSubject: `${group.groupName ?? "Your Hop group"} is forming`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Your group"} is forming`,
-              `${activeCount} riders matched. Open to ${spotsLeft} more until 30 min before departure.`,
-            ),
-          })),
-        );
+      if (activeCount < MIN_GROUP_SIZE) {
+        await ctx.db.patch(group._id, { status: "dissolved" });
+        for (const member of members) {
+          const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+          if (availability?.status === "matched") {
+            await ctx.db.patch(availability._id, { status: "open" });
+          }
+        }
+        dissolvedCount += 1;
+        continue;
       }
+
+      const bookerUserId = selectBookerUserId(activeMembers.map((m) => m.userId));
+      await ctx.db.patch(group._id, {
+        status: "matched_pending_ack",
+        groupSize: activeCount,
+        confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
+        bookerUserId: bookerUserId ?? group.bookerUserId,
+      });
+      lockedCount += 1;
+
+      await scheduleLifecycleNotifications(
+        ctx,
+        activeMembers.map((member) => ({
+          userId: member.userId as Id<"users">,
+          groupId: group._id,
+          kind: "group_locked",
+          eventKey: `${group._id}:locked:${member.userId}`,
+          title: "Your group is locked",
+          body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+          emailSubject: "Your Hop group is locked — confirm in 30 minutes",
+          emailHtml: buildNotificationEmail(
+            "Your group is locked",
+            "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+            {
+              href: loginUrl,
+              label: "Log in to confirm ride",
+            },
+          ),
+        })),
+      );
     }
 
-    return { lockedCount, semiLockedCount };
+    return { lockedCount, dissolvedCount };
   },
 });
 
@@ -1069,6 +1244,7 @@ export const hardLockGroups = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const hardLockHorizon = now + HARD_LOCK_MINUTES_BEFORE * 60_000;
+    const loginUrl = buildLoginUrl();
 
     const groups = await ctx.db.query("groups").collect();
     const semiLockedGroups = groups.filter(
@@ -1115,12 +1291,16 @@ export const hardLockGroups = internalMutation({
           groupId: group._id,
           kind: "group_hard_locked",
           eventKey: `${group._id}:hard_locked:${member.userId}`,
-          title: `${group.groupName ?? "Your group"} is locked`,
-          body: "All groups finalized. Confirm your ride — booker will book once everyone checks in.",
-          emailSubject: `${group.groupName ?? "Your Hop group"} is locked — confirm now`,
+          title: "Your group is locked",
+          body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+          emailSubject: "Your Hop group is locked — confirm in 30 minutes",
           emailHtml: buildNotificationEmail(
-            `${group.groupName ?? "Your group"} is locked`,
-            "All groups finalized. Confirm your ride — booker will book once everyone checks in.",
+            "Your group is locked",
+            "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+            {
+              href: loginUrl,
+              label: "Log in to confirm ride",
+            },
           ),
         })),
       );
@@ -1166,11 +1346,6 @@ export const lateJoinGroup = action({
     const allRefs = [...new Set([...existingRefs, availability.routeDescriptorRef])];
     const { edges, geohashByRef } = await fetchCompatibility(allRefs);
 
-    const geohashRecord: Record<string, string> = {};
-    if (geohashByRef) {
-      for (const [key, value] of geohashByRef) geohashRecord[key] = value;
-    }
-
     return (await ctx.runMutation(internal.mutations.attemptLateJoin, {
       userId,
       availabilityId,
@@ -1186,7 +1361,7 @@ export const lateJoinGroup = action({
         detourMinutes: e.detourMinutes,
         spreadDistanceKm: e.spreadDistanceKm,
       })),
-      geohashByRef: geohashRecord,
+      geohashByRef: geohashMapToRecord(geohashByRef),
     })) as { joined: boolean; reason?: string; groupId?: string };
   },
 });
@@ -1253,7 +1428,7 @@ export const attemptLateJoin = internalMutation({
     const joiner = { windowStart: args.windowStart, windowEnd: args.windowEnd };
     const groups = await ctx.db.query("groups").collect();
     const candidateGroups = groups.filter((g) => {
-      if (g.status !== "semi_locked") return false;
+      if (g.status !== "semi_locked" && g.status !== "tentative") return false;
       return overlapMinutes(joiner, g) > MIN_TIME_OVERLAP_MINUTES;
     });
 
@@ -1286,19 +1461,7 @@ export const attemptLateJoin = internalMutation({
       );
 
       const newSize = activeMembers.length + 1;
-
-      const sizeOk =
-        activeAvailabilities.every((avail) => {
-          if (!avail) return true;
-          return (
-            newSize >= (avail.minGroupSize ?? MIN_GROUP_SIZE) &&
-            newSize <= (avail.maxGroupSize ?? MAX_GROUP_SIZE)
-          );
-        }) &&
-        joinerAvailability != null &&
-        newSize >= (joinerAvailability.minGroupSize ?? MIN_GROUP_SIZE) &&
-        newSize <= (joinerAvailability.maxGroupSize ?? MAX_GROUP_SIZE);
-      if (!sizeOk) continue;
+      if (!joinerAvailability || newSize > MAX_GROUP_SIZE) continue;
 
       const genderOk = activeAvailabilities.every((avail) => {
         if (!avail) return true;
@@ -1343,7 +1506,7 @@ export const attemptLateJoin = internalMutation({
     }
 
     if (!targetGroup) {
-      return { joined: false, reason: "No compatible semi-locked groups found." };
+      return { joined: false, reason: "No compatible open groups found." };
     }
 
     const user = await ctx.db.get(args.userId);
@@ -1407,6 +1570,9 @@ export const attemptLateJoin = internalMutation({
     const updatedGraceDeadline = new Date(
       new Date(updatedMeetingTime).getTime() + MEETUP_GRACE_MINUTES * 60_000,
     ).toISOString();
+    const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
+    const shouldLockNow =
+      newMemberUserIds.length >= MAX_GROUP_SIZE || new Date(sharedStart).getTime() <= lockHorizon;
 
     await ctx.db.patch(targetGroup._id, {
       groupSize: newMemberUserIds.length,
@@ -1435,9 +1601,9 @@ export const attemptLateJoin = internalMutation({
       availabilityId: args.availabilityId as string,
       displayName,
       emoji: getEmojiForMember(targetGroup._id, newMemberUserIds.length - 1),
-      accepted: true,
-      acknowledgementStatus: "accepted",
-      acknowledgedAt: new Date().toISOString(),
+      accepted: null,
+      acknowledgementStatus: "pending",
+      acknowledgedAt: null,
       participationStatus: "active",
       destinationAddress: newMemberDest.destinationAddress,
       destinationSubmittedAt: newMemberDest.destinationSubmittedAt,
@@ -1449,11 +1615,44 @@ export const attemptLateJoin = internalMutation({
       paymentStatus: "none",
     });
 
-    await scheduleLifecycleNotifications(
-      ctx,
-      targetActiveMembers
-        .filter((m) => m.userId !== args.userId)
-        .map((member) => ({
+    if (shouldLockNow) {
+      const bookerUserId = selectBookerUserId(newMemberUserIds);
+      const loginUrl = buildLoginUrl();
+      await ctx.db.patch(targetGroup._id, {
+        status: "matched_pending_ack",
+        groupSize: newMemberUserIds.length,
+        confirmationDeadline: new Date(Date.now() + ACK_WINDOW_MINUTES * 60_000).toISOString(),
+        bookerUserId: bookerUserId ?? targetGroup.bookerUserId,
+      });
+
+      await scheduleLifecycleNotifications(
+        ctx,
+        [...targetActiveMembers.map((member) => member.userId), args.userId as string].map(
+          (userId) => ({
+            userId: userId as Id<"users">,
+            groupId: targetGroup._id,
+            kind: "group_locked",
+            eventKey: `${targetGroup._id}:late_join_locked:${userId}`,
+            title: "Your group is locked",
+            body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+            emailSubject: "Your Hop group is locked — confirm in 30 minutes",
+            emailHtml: buildNotificationEmail(
+              "Your group is locked",
+              "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+              {
+                href: loginUrl,
+                label: "Log in to confirm ride",
+              },
+            ),
+          }),
+        ),
+      );
+    } else {
+      await ctx.db.patch(targetGroup._id, { status: "semi_locked" });
+
+      await scheduleLifecycleNotifications(
+        ctx,
+        targetActiveMembers.map((member) => ({
           userId: member.userId as Id<"users">,
           groupId: targetGroup._id,
           kind: "late_join",
@@ -1466,7 +1665,8 @@ export const attemptLateJoin = internalMutation({
             `${displayName} joined ${targetGroup.groupName ?? "your group"}.`,
           ),
         })),
-    );
+      );
+    }
 
     return { joined: true, groupId: targetGroup._id };
   },

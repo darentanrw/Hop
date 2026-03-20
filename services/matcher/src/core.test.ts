@@ -11,6 +11,8 @@ vi.mock("./onemap", async (importOriginal) => {
 });
 
 import {
+  buildSimulatorPreview,
+  clearMatcherStore,
   countDistinctLocations,
   revealEnvelopes,
   scoreRouteDescriptors,
@@ -60,15 +62,16 @@ function mockChangiGeocode() {
 
 function mockNearbyRoutes() {
   mockRoute
-    .mockResolvedValueOnce({ distanceMeters: 8000, timeSeconds: 720 }) // NUS → Clementi1
-    .mockResolvedValueOnce({ distanceMeters: 8200, timeSeconds: 740 }) // NUS → Clementi2
-    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60 }) // Clementi1 → Clementi2
-    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 65 }); // Clementi2 → Clementi1
+    .mockResolvedValueOnce({ distanceMeters: 8000, timeSeconds: 720, polyline: [] }) // NUS → Clementi1
+    .mockResolvedValueOnce({ distanceMeters: 8200, timeSeconds: 740, polyline: [] }) // NUS → Clementi2
+    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60, polyline: [] }) // Clementi1 → Clementi2
+    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 65, polyline: [] }); // Clementi2 → Clementi1
 }
 
 beforeEach(() => {
   mockRoute.mockReset();
   mockGeocode.mockReset();
+  clearMatcherStore();
 });
 
 afterEach(() => {
@@ -117,6 +120,27 @@ describe("matcher core", () => {
     expect(edges).toHaveLength(0);
   });
 
+  test("compatibility scoring fails loudly when a route descriptor is missing", async () => {
+    mockClementiGeocode();
+    const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+
+    await expect(scoreRouteDescriptors([left.routeDescriptorRef, "route_missing"])).rejects.toThrow(
+      "Missing matcher route descriptor",
+    );
+  });
+
+  test("compatibility scoring skips pairs when live routing fails", async () => {
+    mockClementiGeocode();
+    const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+    mockClementi2Geocode();
+    const right = await submitDestination("456 Clementi Ave 4 Singapore 120124");
+
+    mockRoute.mockRejectedValueOnce(new Error("OneMap route API unavailable"));
+
+    const edges = await scoreRouteDescriptors([left.routeDescriptorRef, right.routeDescriptorRef]);
+    expect(edges).toHaveLength(0);
+  });
+
   test("reveal envelopes are created per recipient", async () => {
     mockClementiGeocode();
     const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
@@ -142,6 +166,19 @@ describe("matcher core", () => {
     expect(envelopes.every((envelope) => envelope.ciphertext.length > 20)).toBe(true);
   });
 
+  test("reveal envelopes fail loudly when a destination record is missing", () => {
+    expect(() =>
+      revealEnvelopes([
+        {
+          userId: "user_a",
+          displayName: "Alice",
+          sealedDestinationRef: "dest_missing",
+          publicKey: generatePublicKey(),
+        },
+      ]),
+    ).toThrow("Missing matcher destination record");
+  });
+
   test("countDistinctLocations groups same geohash6 cells", () => {
     expect(
       countDistinctLocations([
@@ -160,5 +197,81 @@ describe("matcher core", () => {
         { geohash6: "w21z73" },
       ]),
     ).toBe(1);
+  });
+
+  test("buildSimulatorPreview returns masked metadata and route legs", async () => {
+    mockClementiGeocode();
+    const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+    mockClementi2Geocode();
+    const right = await submitDestination("456 Clementi Ave 4 Singapore 120124");
+
+    mockRoute.mockImplementation(
+      async (startLat: number, _startLng: number, _endLat: number, _endLng: number) => {
+        if (Math.abs(startLat - 1.3049) < 0.001) {
+          return {
+            distanceMeters: 8000,
+            timeSeconds: 720,
+            polyline: [
+              [1.3049, 103.7734],
+              [1.3151, 103.7649],
+            ],
+          };
+        }
+        return {
+          distanceMeters: 300,
+          timeSeconds: 60,
+          polyline: [
+            [1.3151, 103.7649],
+            [1.3155, 103.7655],
+          ],
+        };
+      },
+    );
+
+    const preview = await buildSimulatorPreview({
+      riders: [
+        {
+          riderId: "sim_rider_1",
+          routeDescriptorRef: left.routeDescriptorRef,
+          sealedDestinationRef: left.sealedDestinationRef,
+          alias: "Rider 1",
+        },
+        {
+          riderId: "sim_rider_2",
+          routeDescriptorRef: right.routeDescriptorRef,
+          sealedDestinationRef: right.sealedDestinationRef,
+          alias: "Rider 2",
+        },
+      ],
+      groups: [
+        {
+          groupId: "sim_group_1",
+          members: [
+            {
+              riderId: "sim_rider_1",
+              routeDescriptorRef: left.routeDescriptorRef,
+              sealedDestinationRef: left.sealedDestinationRef,
+              alias: "Rider 1",
+            },
+            {
+              riderId: "sim_rider_2",
+              routeDescriptorRef: right.routeDescriptorRef,
+              sealedDestinationRef: right.sealedDestinationRef,
+              alias: "Rider 2",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(preview.riders).toHaveLength(2);
+    expect(preview.riders[0].maskedLocationLabel).toBe("Postal sector 12");
+    expect(JSON.stringify(preview)).not.toContain("Clementi Ave");
+    expect(preview.groups[0]).toMatchObject({
+      groupId: "sim_group_1",
+      totalDistanceMeters: 8300,
+      totalTimeSeconds: 780,
+    });
+    expect(preview.groups[0].legs).toHaveLength(2);
   });
 });
