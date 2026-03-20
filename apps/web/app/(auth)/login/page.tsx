@@ -21,8 +21,8 @@ export default function LoginPage() {
           </svg>
           Back
         </Link>
-        <h1>Welcome to Hop</h1>
-        <p style={{ marginTop: 8 }}>Sign in with your NUS email to get started.</p>
+        <h1>Sign in to Hop</h1>
+        <p style={{ marginTop: 8 }}>Use your NUS email to continue.</p>
       </div>
       <div className="auth-body">
         <LoginForm />
