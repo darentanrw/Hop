@@ -1119,36 +1119,100 @@ export function GroupClient({
             </div>
           ) : null}
 
-          {/* ── Riders (hidden when booker has everyone checked in) ── */}
-          {!showDepartFirst ? (
-            <div className="card">
-              <div className="row-between" style={{ marginBottom: 12 }}>
-                <h3>Riders</h3>
-                <span className="text-sm text-muted">
-                  {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
-                </span>
-              </div>
-              <div className="stack-sm">
-                {group.members.map((member, index) => {
-                  const badge = memberBadge(member);
-                  const isMe = member.userId === group.currentUserId;
+          {/* ── Riders / Drop-off timeline ── */}
+          {!showDepartFirst
+            ? (() => {
+                const memberById = new Map(group.members.map((member) => [member.userId, member]));
+                const orderedDropoffs = [...group.dropoffPreview]
+                  .sort(
+                    (a, b) =>
+                      (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER),
+                  )
+                  .map((preview) => {
+                    const member = memberById.get(preview.userId);
+                    return member ? { member, order: preview.order } : null;
+                  })
+                  .filter(
+                    (
+                      entry,
+                    ): entry is {
+                      member: ActiveTripPayload["members"][number];
+                      order: number | null;
+                    } => Boolean(entry),
+                  );
+
+                if (orderedDropoffs.length > 0) {
                   return (
-                    <div className="member-item" key={member.userId}>
-                      <div className={`rider-avatar rider-avatar-${index % 4}`}>{member.emoji}</div>
-                      <div className="member-info">
-                        <div className="member-name">
-                          {emojiName(member.emoji)}
-                          {member.isBooker ? " · Booker" : ""}
-                          {isMe ? " · You" : ""}
-                        </div>
+                    <div className="card stack-sm">
+                      <div className="row-between">
+                        <h3>Drop-off order</h3>
+                        <span className="text-sm text-muted">
+                          {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+                        </span>
                       </div>
-                      <span className={`pill pill-sm ${badge.pillClass}`}>{badge.label}</span>
+                      <div className="dropoff-timeline">
+                        <div className="dropoff-stop dropoff-stop-origin">
+                          <div className="dropoff-stop-circle">📍</div>
+                          <div className="dropoff-stop-label">Pickup</div>
+                        </div>
+                        {orderedDropoffs.map(({ member, order }, index) => {
+                          const isMe = member.userId === group.currentUserId;
+                          const badge = memberBadge(member);
+                          return (
+                            <div
+                              key={member.userId}
+                              className={`dropoff-stop${isMe ? " dropoff-stop-you" : ""}`}
+                            >
+                              <div className={`dropoff-stop-circle rider-avatar-${index % 4}`}>
+                                {member.emoji}
+                              </div>
+                              <div className="dropoff-stop-label">
+                                {isMe ? "You" : emojiName(member.emoji)}
+                                {member.isBooker ? " · B" : ""}
+                              </div>
+                              <div className="dropoff-stop-sublabel">
+                                {order ? `#${order} · ${badge.label}` : badge.label}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   );
-                })}
-              </div>
-            </div>
-          ) : null}
+                }
+
+                return (
+                  <div className="card stack-sm">
+                    <div className="row-between">
+                      <h3>Riders</h3>
+                      <span className="text-sm text-muted">
+                        {group.stats.checkedInCount}/{group.stats.activeMemberCount} here
+                      </span>
+                    </div>
+                    <div className="riders-grid">
+                      {group.members.map((member, index) => {
+                        const badge = memberBadge(member);
+                        const isMe = member.userId === group.currentUserId;
+                        return (
+                          <div className="rider-chip" key={member.userId}>
+                            <div
+                              className={`rider-chip-emoji rider-avatar-${index % 4}${isMe ? " rider-chip-you" : ""}`}
+                            >
+                              {member.emoji}
+                            </div>
+                            <div className="rider-chip-label">
+                              {isMe ? "You" : emojiName(member.emoji)}
+                              {member.isBooker ? " · B" : ""}
+                            </div>
+                            <div className="rider-chip-badge">{badge.label}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
 
           {/* ── Confirm / Decline ── */}
           {group.actions.canAcknowledge ? (
@@ -1222,33 +1286,6 @@ export function GroupClient({
               >
                 Leave group
               </button>
-            </div>
-          ) : null}
-
-          {/* ── Drop-off order preview ── */}
-          {group.dropoffPreview.length > 0 ? (
-            <div className="card stack-sm">
-              <h3>Drop-off order</h3>
-              <div className="stack-sm">
-                {group.dropoffPreview.map((member) => (
-                  <div className="row-between" key={member.userId}>
-                    <div className="row" style={{ gap: 10 }}>
-                      <span
-                        style={{
-                          fontFamily: "var(--font-display)",
-                          fontWeight: 600,
-                          color: "var(--text-muted)",
-                          minWidth: 20,
-                        }}
-                      >
-                        {member.order}.
-                      </span>
-                      <span style={{ fontSize: 20 }}>{member.emoji}</span>
-                      <span style={{ fontSize: 14 }}>{emojiName(member.emoji)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           ) : null}
 
