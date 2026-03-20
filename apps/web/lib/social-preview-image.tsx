@@ -95,7 +95,7 @@ export function SocialPreviewImage() {
               maxWidth: 700,
             }}
           >
-            Addresses and identities remain private.
+            Match with students headed your way. Addresses and identities remain private.
           </span>
         </div>
       </div>
