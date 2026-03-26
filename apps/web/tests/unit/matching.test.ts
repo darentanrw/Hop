@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import type { CompatibilityEdge, MatchingCandidate } from "../../lib/matching";
 import { evaluateGroup, formGroups, pairKey } from "../../lib/matching";
 
@@ -404,3 +404,142 @@ describe("evaluateGroup — constraint validation", () => {
     expect(result?.maxDetourMinutes).toBe(5);
   });
 });
+
+describe("party size — passenger seats (max 4 per car)", () => {
+  test("forms one group from party 3 + party 1 (4 seats)", () => {
+    const a = makeCandidate({ userId: "alice", routeDescriptorRef: "route_x", partySize: 3 });
+    const b = makeCandidate({ userId: "bob", routeDescriptorRef: "route_y", partySize: 1 });
+    const edges = [makeEdge("route_x", "route_y")];
+    const groups = formGroups([a, b], edges);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.members).toHaveLength(2);
+  });
+
+  test("forms one group from party 2 + party 2 (4 seats)", () => {
+    const a = makeCandidate({ userId: "a", routeDescriptorRef: "r1", partySize: 2 });
+    const b = makeCandidate({ userId: "b", routeDescriptorRef: "r2", partySize: 2 });
+    const groups = formGroups([a, b], [makeEdge("r1", "r2")]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.members).toHaveLength(2);
+  });
+
+  test("does not combine 3-seat and 2-seat bookings in one group (5 seats)", () => {
+    const a = makeCandidate({ userId: "alice", routeDescriptorRef: "route_x", partySize: 3 });
+    const b = makeCandidate({ userId: "bob", routeDescriptorRef: "route_y", partySize: 2 });
+    const edges = [makeEdge("route_x", "route_y")];
+    const groups = formGroups([a, b], edges);
+    for (const g of groups) {
+      const ids = new Set(g.members.map((m) => m.userId));
+      expect(ids.has("alice") && ids.has("bob")).toBe(false);
+    }
+  });
+
+  test("party 3 + party 1 with shared route ref matches without matcher edges", () => {
+    const a = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_shared",
+      partySize: 3,
+    });
+    const b = makeCandidate({
+      userId: "bob",
+      routeDescriptorRef: "route_shared",
+      partySize: 1,
+    });
+    const groups = formGroups([a, b], []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.members).toHaveLength(2);
+  });
+});
+
+describe("matching — full-car gate and same-destination fallbacks", () => {
+  test("evaluateGroup uses a synthetic perfect edge when two members share routeDescriptorRef and the map is empty", () => {
+    const members = [
+      makeCandidate({
+        userId: "alice",
+        routeDescriptorRef: "route_same",
+        partySize: 3,
+      }),
+      makeCandidate({
+        userId: "bob",
+        routeDescriptorRef: "route_same",
+        partySize: 1,
+      }),
+    ];
+    const result = evaluateGroup(members, new Map());
+    expect(result).not.toBeNull();
+    expect(result?.averageScore).toBe(1);
+    expect(result?.minimumScore).toBe(1);
+    expect(result?.maxDetourMinutes).toBe(0);
+  });
+
+  test("evaluateGroup still rejects shared routeDescriptorRef when the map edge exceeds detour limit", () => {
+    const members = [
+      makeCandidate({ userId: "alice", routeDescriptorRef: "route_same" }),
+      makeCandidate({ userId: "bob", routeDescriptorRef: "route_same" }),
+    ];
+    const bad = makeEdge("route_same", "route_same", { detourMinutes: 20, spreadDistanceKm: 0 });
+    const map = new Map([[pairKey("route_same", "route_same"), bad]]);
+    expect(evaluateGroup(members, map)).toBeNull();
+  });
+
+  test("party 3 + party 1 with different refs bypasses the 36h small-group gate", () => {
+    const now = Date.now();
+    const window = {
+      windowStart: new Date(now + 40 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 42 * 3_600_000).toISOString(),
+    };
+    const a = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_x",
+      partySize: 3,
+      ...window,
+    });
+    const b = makeCandidate({
+      userId: "bob",
+      routeDescriptorRef: "route_y",
+      partySize: 1,
+      ...window,
+    });
+    const groups = formGroups([a, b], [makeEdge("route_x", "route_y")]);
+    expect(groups).toHaveLength(1);
+    expect(sumSeats(groups[0]?.members ?? [])).toBe(4);
+  });
+
+  test("default party size 1+1 stays blocked when shared window starts beyond SMALL_GROUP_RELEASE_HOURS", () => {
+    const now = Date.now();
+    const window = {
+      windowStart: new Date(now + 40 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 42 * 3_600_000).toISOString(),
+    };
+    const a = makeCandidate({ userId: "alice", routeDescriptorRef: "route_a", ...window });
+    const b = makeCandidate({ userId: "bob", routeDescriptorRef: "route_b", ...window });
+    const groups = formGroups([a, b], [makeEdge("route_a", "route_b")]);
+    expect(groups).toHaveLength(0);
+  });
+
+  test("party 3 + party 1 same destination forms with no edges and a far-future window", () => {
+    const now = Date.now();
+    const window = {
+      windowStart: new Date(now + 40 * 3_600_000).toISOString(),
+      windowEnd: new Date(now + 42 * 3_600_000).toISOString(),
+    };
+    const a = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_z",
+      partySize: 3,
+      ...window,
+    });
+    const b = makeCandidate({
+      userId: "bob",
+      routeDescriptorRef: "route_z",
+      partySize: 1,
+      ...window,
+    });
+    const groups = formGroups([a, b], []);
+    expect(groups).toHaveLength(1);
+  });
+});
+
+function sumSeats(members: MatchingCandidate[]) {
+  return members.reduce((s, m) => s + (m.partySize ?? 1), 0);
+}

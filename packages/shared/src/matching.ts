@@ -2,12 +2,15 @@ import {
   type CompatibilityEdge,
   MAX_DETOUR_MINUTES,
   MAX_DISTINCT_LOCATIONS,
+  MAX_GROUP_SIZE,
   MAX_SPREAD_KM,
+  MIN_GROUP_SIZE,
   MIN_TIME_OVERLAP_MINUTES,
   SMALL_GROUP_RELEASE_HOURS,
   type SelfDeclaredGender,
   arePreferencesCompatible,
   overlapMinutes,
+  sumPartySizes,
 } from "./domain";
 
 export type MatchingCandidate = {
@@ -20,6 +23,8 @@ export type MatchingCandidate = {
   routeDescriptorRef: string;
   sealedDestinationRef: string;
   displayName: string;
+  /** Passengers on this booking; defaults to 1. */
+  partySize?: number;
 };
 
 export type SelectedGroup = {
@@ -61,7 +66,20 @@ export function evaluateGroup(
     for (let compareIndex = index + 1; compareIndex < members.length; compareIndex += 1) {
       const left = members[index];
       const right = members[compareIndex];
-      const edge = compatibilityMap.get(pairKey(left.routeDescriptorRef, right.routeDescriptorRef));
+      const key = pairKey(left.routeDescriptorRef, right.routeDescriptorRef);
+      let edge = compatibilityMap.get(key);
+      if (!edge && left.routeDescriptorRef === right.routeDescriptorRef) {
+        const ref = left.routeDescriptorRef;
+        edge = {
+          leftRef: ref,
+          rightRef: ref,
+          score: 1,
+          routeOverlap: 1,
+          destinationProximity: 1,
+          detourMinutes: 0,
+          spreadDistanceKm: 0,
+        };
+      }
       if (!edge) return null;
       if (edge.detourMinutes > MAX_DETOUR_MINUTES) return null;
       if (edge.spreadDistanceKm > MAX_SPREAD_KM) return null;
@@ -93,19 +111,22 @@ export function evaluateGroup(
   };
 }
 
-function combinations<T>(items: T[], size: number): T[][] {
-  if (size === 0) return [[]];
-  if (items.length < size) return [];
-  if (size === 1) return items.map((item) => [item]);
-
-  const result: T[][] = [];
-  items.forEach((item, index) => {
-    const rest = items.slice(index + 1);
-    for (const tail of combinations(rest, size - 1)) {
-      result.push([item, ...tail]);
+function forEachNonEmptySubset<T>(items: T[], visit: (subset: T[]) => void) {
+  const n = items.length;
+  const subset: T[] = [];
+  function dfs(i: number) {
+    if (i === n) {
+      if (subset.length > 0) {
+        visit([...subset]);
+      }
+      return;
     }
-  });
-  return result;
+    dfs(i + 1);
+    subset.push(items[i] as T);
+    dfs(i + 1);
+    subset.pop();
+  }
+  dfs(0);
 }
 
 export function formGroups(
@@ -121,49 +142,63 @@ export function formGroups(
   const unmatched = [...candidates];
   const selectedGroups: SelectedGroup[] = [];
 
-  const trySize = (size: number) => {
+  while (unmatched.length >= 1) {
     let best: SelectedGroup | null = null;
 
-    for (const candidateMembers of combinations(unmatched, size)) {
-      const sharedWindowStart = Math.max(
-        ...candidateMembers.map((member) => new Date(member.windowStart).getTime()),
-      );
-      const hoursUntilStart = (sharedWindowStart - Date.now()) / 3_600_000;
-      if (size < 4 && hoursUntilStart > SMALL_GROUP_RELEASE_HOURS) {
-        continue;
-      }
+    for (let targetSeats = MAX_GROUP_SIZE; targetSeats >= MIN_GROUP_SIZE; targetSeats--) {
+      forEachNonEmptySubset(unmatched, (candidateMembers) => {
+        if (candidateMembers.length > MAX_GROUP_SIZE) {
+          return;
+        }
+        const seats = sumPartySizes(candidateMembers);
+        if (seats !== targetSeats) {
+          return;
+        }
 
-      const evaluation = evaluateGroup(candidateMembers, compatibilityMap, geohashByRef);
-      if (!evaluation) continue;
+        const sharedWindowStart = Math.max(
+          ...candidateMembers.map((member) => new Date(member.windowStart).getTime()),
+        );
+        const hoursUntilStart = (sharedWindowStart - Date.now()) / 3_600_000;
+        if (seats < MAX_GROUP_SIZE && hoursUntilStart > SMALL_GROUP_RELEASE_HOURS) {
+          return;
+        }
 
-      const current = { members: candidateMembers, ...evaluation };
-      if (
-        !best ||
-        current.averageScore > best.averageScore ||
-        (current.averageScore === best.averageScore && current.minimumScore > best.minimumScore) ||
-        (current.averageScore === best.averageScore &&
-          current.minimumScore === best.minimumScore &&
-          current.maxDetourMinutes < best.maxDetourMinutes)
-      ) {
-        best = current;
+        const evaluation = evaluateGroup(candidateMembers, compatibilityMap, geohashByRef);
+        if (!evaluation) {
+          return;
+        }
+
+        const current = { members: candidateMembers, ...evaluation };
+        if (
+          !best ||
+          current.averageScore > best.averageScore ||
+          (current.averageScore === best.averageScore &&
+            current.minimumScore > best.minimumScore) ||
+          (current.averageScore === best.averageScore &&
+            current.minimumScore === best.minimumScore &&
+            current.maxDetourMinutes < best.maxDetourMinutes)
+        ) {
+          best = current;
+        }
+      });
+
+      if (best) {
+        break;
       }
     }
 
-    if (!best) return false;
+    if (best === null) {
+      break;
+    }
 
-    selectedGroups.push(best);
-    for (const member of best.members) {
+    const chosen: SelectedGroup = best;
+    selectedGroups.push(chosen);
+    for (const member of chosen.members) {
       const index = unmatched.findIndex((entry) => entry.availabilityId === member.availabilityId);
-      if (index >= 0) unmatched.splice(index, 1);
+      if (index >= 0) {
+        unmatched.splice(index, 1);
+      }
     }
-    return true;
-  };
-
-  while (unmatched.length >= 2) {
-    if (trySize(4)) continue;
-    if (trySize(3)) continue;
-    if (trySize(2)) continue;
-    break;
   }
 
   return selectedGroups;

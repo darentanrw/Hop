@@ -1,4 +1,4 @@
-import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
+import { MAX_GROUP_SIZE, MIN_GROUP_SIZE, sumPartySizes } from "@hop/shared";
 import { v } from "convex/values";
 import { selectBookerUserId } from "../lib/group-lifecycle";
 import { isMembershipInActiveRide } from "../lib/ride-eligibility";
@@ -392,7 +392,16 @@ export const forceLockGroups = mutation({
       throw new Error(`Group is "${activeGroup.status}", expected "tentative".`);
     }
 
-    const newStatus = activeGroup.groupSize >= MAX_GROUP_SIZE ? "locked" : "semi_locked";
+    const lockMembers = await ctx.db
+      .query("groupMembers")
+      .withIndex("groupId", (q) => q.eq("groupId", activeGroup._id))
+      .collect();
+    const activeLockMembers = lockMembers.filter((m) => m.participationStatus === "active");
+    const seatTotal =
+      activeGroup.passengerSeatTotal != null
+        ? activeGroup.passengerSeatTotal
+        : sumPartySizes(activeLockMembers) || activeGroup.groupSize;
+    const newStatus = seatTotal >= MAX_GROUP_SIZE ? "locked" : "semi_locked";
     await ctx.db.patch(activeGroup._id, { status: newStatus });
 
     await ctx.db.insert("auditEvents", {

@@ -141,6 +141,35 @@ describe("matcher core", () => {
     expect(edges).toHaveLength(0);
   });
 
+  test("co-located descriptors skip live routing and still produce an edge", async () => {
+    mockClementiGeocode();
+    const first = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+    mockClementiGeocode();
+    const second = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+
+    mockRoute.mockRejectedValue(new Error("OneMap route API unavailable"));
+
+    const edges = await scoreRouteDescriptors([
+      first.routeDescriptorRef,
+      second.routeDescriptorRef,
+    ]);
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.detourMinutes).toBe(0);
+    expect(edges[0]?.spreadDistanceKm).toBe(0);
+  });
+
+  test("duplicate route descriptor ref in the list scores one self-pair without driving routes", async () => {
+    mockClementiGeocode();
+    const only = await submitDestination("123 Clementi Ave 3 Singapore 120123");
+    mockRoute.mockRejectedValue(new Error("OneMap should not be called"));
+
+    const edges = await scoreRouteDescriptors([only.routeDescriptorRef, only.routeDescriptorRef]);
+
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.detourMinutes).toBe(0);
+    expect(mockRoute).not.toHaveBeenCalled();
+  });
+
   test("reveal envelopes are created per recipient", async () => {
     mockClementiGeocode();
     const left = await submitDestination("123 Clementi Ave 3 Singapore 120123");

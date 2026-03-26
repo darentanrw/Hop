@@ -126,6 +126,8 @@ const schema = defineSchema({
     sealedDestinationRef: v.string(),
     routeDescriptorRef: v.string(),
     estimatedFareBand: v.optional(v.string()),
+    /** Passengers on this booking (1–3); counts toward vehicle capacity. */
+    partySize: v.optional(v.number()),
     createdAt: v.string(),
     status: availabilityStatus,
   }).index("userId", ["userId"]),
@@ -136,6 +138,8 @@ const schema = defineSchema({
     windowStart: v.string(),
     windowEnd: v.string(),
     groupSize: v.number(),
+    /** Sum of member party sizes (passenger seats). */
+    passengerSeatTotal: v.optional(v.number()),
     estimatedFareBand: v.optional(v.string()),
     maxDetourMinutes: v.number(),
     averageScore: v.number(),
@@ -168,6 +172,7 @@ const schema = defineSchema({
     userId: v.string(),
     availabilityId: v.string(),
     displayName: v.string(),
+    partySize: v.optional(v.number()),
     emoji: v.optional(v.string()),
     accepted: v.union(v.boolean(), v.null()),
     acknowledgementStatus: v.optional(memberAcknowledgementStatus),

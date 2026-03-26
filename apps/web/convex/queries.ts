@@ -173,6 +173,7 @@ export const getMatchingCandidates = internalQuery({
       routeDescriptorRef: availability.routeDescriptorRef,
       sealedDestinationRef: availability.sealedDestinationRef,
       displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
+      partySize: availability.partySize ?? 1,
     }));
   },
 });

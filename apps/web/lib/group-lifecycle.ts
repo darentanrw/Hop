@@ -166,20 +166,52 @@ export function deriveMeetingTime(windowStart: string) {
 
 export function computeSplitAmounts(
   totalCostCents: number,
-  memberUserIds: string[],
+  members: { userId: string; partySize: number }[],
   payerUserId: string,
 ) {
-  const shareCount = memberUserIds.length;
-  if (shareCount === 0) return new Map<string, number>();
-
-  const baseShare = Math.floor(totalCostCents / shareCount);
-  let remainder = totalCostCents % shareCount;
   const amounts = new Map<string, number>();
+  for (const m of members) {
+    amounts.set(m.userId, 0);
+  }
 
-  for (const userId of memberUserIds) {
-    const amount = baseShare + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder -= 1;
-    amounts.set(userId, userId === payerUserId ? 0 : amount);
+  const totalSeatsAll = members.reduce((sum, m) => sum + m.partySize, 0);
+  if (totalSeatsAll === 0) {
+    return amounts;
+  }
+
+  const debtors = members.filter((m) => m.userId !== payerUserId);
+  if (debtors.length === 0) {
+    return amounts;
+  }
+
+  const booker = members.find((m) => m.userId === payerUserId);
+  const bookerSeats = booker?.partySize ?? 0;
+  const reimbursementPool =
+    totalCostCents - Math.floor((totalCostCents * bookerSeats) / totalSeatsAll);
+
+  const debtorSeats = debtors.reduce((sum, m) => sum + m.partySize, 0);
+  if (debtorSeats === 0) {
+    return amounts;
+  }
+
+  let allocated = 0;
+  const owed = new Map<string, number>();
+  for (const m of debtors) {
+    const floor = Math.floor((reimbursementPool * m.partySize) / debtorSeats);
+    owed.set(m.userId, floor);
+    allocated += floor;
+  }
+
+  const remainder = reimbursementPool - allocated;
+  const seatOrder = debtors.flatMap((m) => Array.from({ length: m.partySize }, () => m.userId));
+  const cycle = Math.max(seatOrder.length, 1);
+  for (let i = 0; i < remainder; i++) {
+    const uid = seatOrder[i % cycle];
+    owed.set(uid, (owed.get(uid) ?? 0) + 1);
+  }
+
+  for (const m of debtors) {
+    amounts.set(m.userId, owed.get(m.userId) ?? 0);
   }
 
   return amounts;

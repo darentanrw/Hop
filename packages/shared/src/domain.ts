@@ -6,8 +6,12 @@ export const PICKUP_ORIGIN_LNG = 103.7734;
 export const ACK_WINDOW_MINUTES = 30;
 export const MIN_TIME_OVERLAP_MINUTES = 0;
 export const SMALL_GROUP_RELEASE_HOURS = 36;
+/** Maximum passengers in one vehicle (total seats across all accounts in a group). */
 export const MAX_GROUP_SIZE = 4;
+/** Minimum passengers required for a valid ride group. */
 export const MIN_GROUP_SIZE = 2;
+/** Maximum people under one account's booking (e.g. you + friends in one car). */
+export const MAX_PARTY_SIZE = 3;
 export const MAX_DETOUR_MINUTES = 12;
 export const MEETUP_GRACE_MINUTES = 5;
 export const PAYMENT_WINDOW_HOURS = 24;
@@ -79,6 +83,8 @@ export interface AvailabilityEntry {
   windowEnd: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
+  /** Passengers traveling on this booking (1–MAX_PARTY_SIZE); counts toward vehicle capacity. */
+  partySize?: number;
   sealedDestinationRef: string;
   routeDescriptorRef: string;
   createdAt: string;
@@ -156,6 +162,33 @@ export function isNusAliasFormat(email: string) {
 export function clampGroupSize(value: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_GROUP_SIZE, Math.max(MIN_GROUP_SIZE, Math.floor(value)));
+}
+
+export function clampPartySize(value: unknown): number {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.min(MAX_PARTY_SIZE, Math.max(1, n));
+}
+
+export function sumPartySizes(members: readonly { partySize?: number | null }[]): number {
+  return members.reduce((sum, m) => sum + (m.partySize ?? 1), 0);
+}
+
+/**
+ * Total passenger seats for a group; prefers stored `passengerSeatTotal`, else sums member `partySize`,
+ * else falls back to legacy `groupSize` (account count when party sizes were always 1).
+ */
+export function groupPassengerSeatTotal(
+  group: { passengerSeatTotal?: number | null; groupSize: number },
+  members: readonly { partySize?: number | null }[],
+): number {
+  if (group.passengerSeatTotal != null && group.passengerSeatTotal !== undefined) {
+    return group.passengerSeatTotal;
+  }
+  const fromMembers = sumPartySizes(members);
+  if (fromMembers > 0) {
+    return fromMembers;
+  }
+  return group.groupSize;
 }
 
 export function overlapMinutes(
