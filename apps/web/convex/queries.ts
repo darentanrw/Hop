@@ -1,9 +1,10 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { calculateCredibilityScore, isCredibilitySuspended } from "@hop/shared";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalQuery, query } from "./_generated/server";
-import { requireAdmin } from "./adminAccess";
+import { isAdminUserEmail, requireAdmin } from "./adminAccess";
 
 async function getRiderProfileInternal(ctx: QueryCtx) {
   const userId = await getAuthUserId(ctx);
@@ -15,6 +16,11 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
     .withIndex("userId", (q) => q.eq("userId", userId))
     .first();
   if (!preference) return null;
+  const credibilityScore = calculateCredibilityScore({
+    successfulTrips: user.successfulTrips ?? 0,
+    cancelledTrips: user.cancelledTrips ?? 0,
+    confirmedReportCount: user.confirmedReportCount ?? 0,
+  });
   return {
     userId: userId,
     name: user.name,
@@ -25,6 +31,7 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
     cancelledTrips: user.cancelledTrips ?? 0,
     reportedCount: user.reportedCount ?? 0,
     confirmedReportCount: user.confirmedReportCount ?? 0,
+    credibilitySuspended: isCredibilitySuspended(credibilityScore),
   };
 }
 
@@ -256,5 +263,21 @@ export const getSemiLockedGroupRouteRefs = internalQuery({
       if (avail?.routeDescriptorRef) refs.push(avail.routeDescriptorRef);
     }
     return [...new Set(refs)];
+  },
+});
+
+/** Used by actions to mirror mutation-side credibility suspension (admins always allowed). */
+export const rideActionsAllowedForUserId = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) return false;
+    if (isAdminUserEmail(user.email)) return true;
+    const score = calculateCredibilityScore({
+      successfulTrips: user.successfulTrips ?? 0,
+      cancelledTrips: user.cancelledTrips ?? 0,
+      confirmedReportCount: user.confirmedReportCount ?? 0,
+    });
+    return !isCredibilitySuspended(score);
   },
 });

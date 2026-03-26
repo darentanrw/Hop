@@ -1,10 +1,15 @@
 "use client";
 
-import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
+import {
+  CREDIBILITY_SUSPENSION_THRESHOLD,
+  type SelfDeclaredGender,
+  calculateCredibilityScore,
+} from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
+import { credibilityScoreNumberColor } from "../../../lib/credibility-score-color";
 
 export default function ProfilePage() {
   const riderProfile = useQuery(api.queries.getRiderProfile);
@@ -95,9 +100,20 @@ export default function ProfilePage() {
           <p className="text-muted text-sm" style={{ marginBottom: 4 }}>
             Credibility Score
           </p>
-          <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-display)" }}>
+          <div
+            style={{
+              fontSize: 28,
+              fontWeight: 700,
+              fontFamily: "var(--font-display)",
+              color: credibilityScoreNumberColor(credibilityScore),
+            }}
+          >
             {Math.round(credibilityScore)}
           </div>
+          <p className="text-muted text-xs" style={{ marginTop: 10, lineHeight: 1.5 }}>
+            Your account will be suspended if your credibility score falls below{" "}
+            {CREDIBILITY_SUSPENSION_THRESHOLD}.
+          </p>
         </div>
 
         {/* Score breakdown */}

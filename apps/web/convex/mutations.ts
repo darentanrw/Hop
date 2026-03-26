@@ -36,6 +36,10 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalAction, internalMutation, mutation } from "./_generated/server";
+import {
+  CREDIBILITY_SUSPENSION_ERROR,
+  assertEffectiveUserNotCredibilitySuspended,
+} from "./credibilitySuspension";
 import { resolveQaActingUserId } from "./localQa";
 import { syncLifecycleForGroup } from "./trips";
 
@@ -418,6 +422,7 @@ export const createAvailability = mutation({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
 
     const existingMembers = await ctx.db
       .query("groupMembers")
@@ -465,6 +470,7 @@ export const cancelAvailability = mutation({
   handler: async (ctx, { availabilityId }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
 
     const availability = await ctx.db.get(availabilityId);
     if (!availability || availability.userId !== userId) {
@@ -491,6 +497,7 @@ export const updateAcknowledgement = mutation({
   handler: async (ctx, { groupId, accepted, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
+    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
 
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
@@ -526,6 +533,7 @@ export const cancelTripParticipation = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
+    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
 
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
@@ -1015,6 +1023,8 @@ export const runMatching = action({
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    const rideOk = await ctx.runQuery(internal.queries.rideActionsAllowedForUserId, { userId });
+    if (!rideOk) throw new Error(CREDIBILITY_SUSPENSION_ERROR);
 
     let candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
@@ -1100,6 +1110,8 @@ export const runMatchingWithEdges = action({
   handler: async (ctx, { edges }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    const rideOk = await ctx.runQuery(internal.queries.rideActionsAllowedForUserId, { userId });
+    if (!rideOk) throw new Error(CREDIBILITY_SUSPENSION_ERROR);
 
     const candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
@@ -1120,6 +1132,10 @@ export const revealGroupAddresses = action({
   handler: async (ctx, { groupId }) => {
     const requesterId = await getAuthUserId(ctx);
     if (!requesterId) throw new Error("Not authenticated");
+    const rideOk = await ctx.runQuery(internal.queries.rideActionsAllowedForUserId, {
+      userId: requesterId,
+    });
+    if (!rideOk) throw new Error(CREDIBILITY_SUSPENSION_ERROR);
 
     const revealContext = (await ctx.runQuery(internal.queries.getRevealContext, {
       groupId,
@@ -1320,6 +1336,8 @@ export const lateJoinGroup = action({
   ): Promise<{ joined: boolean; reason?: string; groupId?: string }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    const rideOk = await ctx.runQuery(internal.queries.rideActionsAllowedForUserId, { userId });
+    if (!rideOk) throw new Error(CREDIBILITY_SUSPENSION_ERROR);
 
     const availability = (await ctx.runQuery(internal.queries.getAvailabilityById, {
       availabilityId,
@@ -1680,6 +1698,7 @@ export const requestRedelegate = mutation({
   handler: async (ctx, { groupId, volunteerAsBooker }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
 
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");

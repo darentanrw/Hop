@@ -1,10 +1,15 @@
 "use client";
 
-import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
-import type { RiderProfile } from "@hop/shared";
+import {
+  CREDIBILITY_SUSPENSION_THRESHOLD,
+  type RiderProfile,
+  type SelfDeclaredGender,
+  calculateCredibilityScore,
+} from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import { type FormEvent, useState } from "react";
 import { api } from "../convex/_generated/api";
+import { credibilityScoreNumberColor } from "../lib/credibility-score-color";
 
 interface ProfileSheetProps {
   profile: RiderProfile;
@@ -136,7 +141,13 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                 Your Credibility Score
               </p>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <div style={{ fontSize: 32, fontWeight: 800 }}>
+                <div
+                  style={{
+                    fontSize: 32,
+                    fontWeight: 800,
+                    color: credibilityScoreNumberColor(credibilityScore),
+                  }}
+                >
                   {Math.round(credibilityScore).toString()}
                 </div>
                 <div style={{ fontSize: 12, opacity: 0.8 }}>
@@ -149,6 +160,10 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                         : "⭐ Excellent"}
                 </div>
               </div>
+              <p style={{ margin: "10px 0 0", fontSize: 11, opacity: 0.85, lineHeight: 1.45 }}>
+                Your account will be suspended if your credibility score falls below{" "}
+                {CREDIBILITY_SUSPENSION_THRESHOLD}.
+              </p>
               <div style={{ marginTop: 12, fontSize: 11, opacity: 0.8 }}>
                 <div>✓ {currentUser?.successfulTrips ?? 0} successful trips</div>
                 <div>✗ {currentUser?.cancelledTrips ?? 0} cancelled</div>

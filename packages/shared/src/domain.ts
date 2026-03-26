@@ -29,6 +29,13 @@ export const CREDIBILITY_CONFIRMED_REPORT_PENALTY = 25;
 export const CREDIBILITY_MIN_SCORE = 0;
 export const CREDIBILITY_MAX_SCORE = 100;
 
+/** Scores strictly below this cannot use ride features (app redirects + mutations reject). */
+export const CREDIBILITY_SUSPENSION_THRESHOLD = 30;
+
+export function isCredibilitySuspended(score: number): boolean {
+  return score < CREDIBILITY_SUSPENSION_THRESHOLD;
+}
+
 /**
  * Additive credibility score on a 0–100 scale.
  * Successes and cancellations do not dilute over time (unlike a ratio).
@@ -78,6 +85,8 @@ export interface RiderProfile {
   /** @deprecated Legacy field; scoring uses confirmedReportCount only. */
   reportedCount?: number;
   confirmedReportCount?: number;
+  /** True when credibility score is below `CREDIBILITY_SUSPENSION_THRESHOLD`. */
+  credibilitySuspended?: boolean;
 }
 
 export interface AvailabilityEntry {

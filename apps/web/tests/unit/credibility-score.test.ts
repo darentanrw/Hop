@@ -5,7 +5,9 @@ import {
   CREDIBILITY_MIN_SCORE,
   CREDIBILITY_STARTING_POINTS,
   CREDIBILITY_SUCCESS_POINTS,
+  CREDIBILITY_SUSPENSION_THRESHOLD,
   calculateCredibilityScore,
+  isCredibilitySuspended,
 } from "@hop/shared";
 import { describe, expect, it } from "vitest";
 
@@ -31,6 +33,19 @@ describe("credibility score constants", () => {
     expect(CREDIBILITY_CONFIRMED_REPORT_PENALTY).toBe(25);
     expect(CREDIBILITY_MIN_SCORE).toBe(0);
     expect(CREDIBILITY_MAX_SCORE).toBe(100);
+    expect(CREDIBILITY_SUSPENSION_THRESHOLD).toBe(30);
+  });
+});
+
+describe("isCredibilitySuspended", () => {
+  it("is false at the threshold and above", () => {
+    expect(isCredibilitySuspended(CREDIBILITY_SUSPENSION_THRESHOLD)).toBe(false);
+    expect(isCredibilitySuspended(100)).toBe(false);
+  });
+
+  it("is true strictly below the threshold", () => {
+    expect(isCredibilitySuspended(CREDIBILITY_SUSPENSION_THRESHOLD - 1)).toBe(true);
+    expect(isCredibilitySuspended(0)).toBe(true);
   });
 });
 

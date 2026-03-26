@@ -20,6 +20,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const riderProfile = await fetchQuery(api.queries.getRiderProfile, {}, { token });
   if (!riderProfile) redirect("/onboarding");
   const adminAccess = await fetchQuery(api.admin.adminAccess, {}, { token });
+  if (riderProfile.credibilitySuspended && !adminAccess.isAdmin) {
+    redirect("/suspended");
+  }
 
   return (
     <>
