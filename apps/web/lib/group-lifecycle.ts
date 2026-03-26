@@ -1,3 +1,5 @@
+import { CREDIBILITY_STARTING_POINTS } from "@hop/shared";
+
 export const MEETING_LOCATION_LABEL = "NUS University Town Plaza";
 
 export const EMOJI_NAMES: Record<string, string> = {
@@ -141,6 +143,7 @@ export function getEmojiForMember(seed: string, index: number) {
 export function selectBookerUserId(
   memberUserIds: string[],
   credibilityScores: Map<string, number> = new Map(),
+  defaultScore = CREDIBILITY_STARTING_POINTS,
 ): string | null {
   if (memberUserIds.length === 0) return null;
 
@@ -151,8 +154,8 @@ export function selectBookerUserId(
 
   // Select highest credibility score; tie-break by alphabetical order
   return memberUserIds.reduce((best, current) => {
-    const bestScore = credibilityScores.get(best) ?? 0.5;
-    const currentScore = credibilityScores.get(current) ?? 0.5;
+    const bestScore = credibilityScores.get(best) ?? defaultScore;
+    const currentScore = credibilityScores.get(current) ?? defaultScore;
     if (currentScore > bestScore || (currentScore === bestScore && current < best)) {
       return current;
     }

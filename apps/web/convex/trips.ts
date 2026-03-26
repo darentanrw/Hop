@@ -141,6 +141,12 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
                 : "timed_out",
           });
           await reopenAvailability(ctx, member.availabilityId);
+          const removedUser = await ctx.db.get(member.userId as Id<"users">);
+          if (removedUser) {
+            await ctx.db.patch(member.userId as Id<"users">, {
+              cancelledTrips: (removedUser.cancelledTrips ?? 0) + 1,
+            });
+          }
         }
 
         for (const [index, member] of orderedAcceptedMembers.entries()) {
@@ -160,7 +166,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             const score = calculateCredibilityScore({
               successfulTrips: user.successfulTrips ?? 0,
               cancelledTrips: user.cancelledTrips ?? 0,
-              reportedCount: user.reportedCount ?? 0,
+              confirmedReportCount: user.confirmedReportCount ?? 0,
             });
             credibilityScores.set(acceptedUserId, score);
           }
@@ -715,6 +721,22 @@ export const submitReceipt = mutation({
       paymentDueAt: addHours(submittedAt, PAYMENT_WINDOW_HOURS),
     });
 
+    const latestAfterReceipt = await ctx.db.get(groupId);
+    if (
+      latestAfterReceipt &&
+      !latestAfterReceipt.bookerReceiptCredibilityCredited &&
+      latestAfterReceipt.bookerUserId
+    ) {
+      const bookerId = latestAfterReceipt.bookerUserId as Id<"users">;
+      const bookerUser = await ctx.db.get(bookerId);
+      if (bookerUser) {
+        await ctx.db.patch(bookerId, {
+          successfulTrips: (bookerUser.successfulTrips ?? 0) + 1,
+        });
+      }
+      await ctx.db.patch(groupId, { bookerReceiptCredibilityCredited: true });
+    }
+
     for (const member of activeMembers) {
       const amountDueCents = split.get(member.userId) ?? 0;
       await ctx.db.patch(member._id, {
@@ -910,7 +932,7 @@ export const reportBookerAbsent = mutation({
           calculateCredibilityScore({
             successfulTrips: user.successfulTrips ?? 0,
             cancelledTrips: user.cancelledTrips ?? 0,
-            reportedCount: user.reportedCount ?? 0,
+            confirmedReportCount: user.confirmedReportCount ?? 0,
           }),
         );
       }
@@ -957,22 +979,13 @@ export const createReport = mutation({
       category: args.category,
       description: args.description.trim(),
       createdAt: nowIso(),
+      reviewStatus: "pending",
     });
 
     await ctx.db.patch(args.groupId, {
       status: group.status === "closed" ? "reported" : "reported",
       reportCount: (group.reportCount ?? 0) + 1,
     });
-
-    // Increment reportedCount for the reported user
-    if (args.reportedUserId) {
-      const reportedUser = await ctx.db.get(args.reportedUserId);
-      if (reportedUser) {
-        await ctx.db.patch(args.reportedUserId, {
-          reportedCount: (reportedUser.reportedCount ?? 0) + 1,
-        });
-      }
-    }
 
     return { ok: true };
   },

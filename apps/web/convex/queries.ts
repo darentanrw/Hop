@@ -24,6 +24,7 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
     successfulTrips: user.successfulTrips ?? 0,
     cancelledTrips: user.cancelledTrips ?? 0,
     reportedCount: user.reportedCount ?? 0,
+    confirmedReportCount: user.confirmedReportCount ?? 0,
   };
 }
 

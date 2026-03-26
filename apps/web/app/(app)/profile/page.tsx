@@ -32,7 +32,7 @@ export default function ProfilePage() {
   const credibilityScore = calculateCredibilityScore({
     successfulTrips: riderProfile.successfulTrips ?? 0,
     cancelledTrips: riderProfile.cancelledTrips ?? 0,
-    reportedCount: riderProfile.reportedCount ?? 0,
+    confirmedReportCount: riderProfile.confirmedReportCount ?? 0,
   });
 
   const totalTrips = (riderProfile.successfulTrips ?? 0) + (riderProfile.cancelledTrips ?? 0);
@@ -100,7 +100,7 @@ export default function ProfilePage() {
             Credibility Score
           </p>
           <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-display)" }}>
-            {(credibilityScore * 100).toFixed(0)}
+            {Math.round(credibilityScore)}
           </div>
         </div>
 
@@ -122,16 +122,15 @@ export default function ProfilePage() {
             <strong>{riderProfile.cancelledTrips ?? 0}</strong>
           </div>
           <div className="row-between">
-            <span className="text-muted">Reports</span>
-            <strong>{riderProfile.reportedCount ?? 0}</strong>
+            <span className="text-muted">Confirmed reports</span>
+            <strong>{riderProfile.confirmedReportCount ?? 0}</strong>
           </div>
         </div>
 
         {/* Score explanation */}
         <p className="text-muted text-xs" style={{ marginTop: 16, lineHeight: 1.5 }}>
-          Your credibility score is calculated from your trip history. Completing trips improves
-          your score, while cancellations and reports reduce it. A higher score helps you become a
-          booker.
+          Your score starts at 75 and moves by +5 per successful trip and −10 per cancellation.
+          Admin-confirmed reports reduce it further. A higher score helps you become a booker.
         </p>
       </div>
 

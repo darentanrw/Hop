@@ -629,7 +629,7 @@ export const cancelTripParticipation = mutation({
                 const score = calculateCredibilityScore({
                   successfulTrips: user.successfulTrips ?? 0,
                   cancelledTrips: user.cancelledTrips ?? 0,
-                  reportedCount: user.reportedCount ?? 0,
+                  confirmedReportCount: user.confirmedReportCount ?? 0,
                 });
                 credibilityScores.set(remainingUserId, score);
               }
@@ -823,7 +823,7 @@ export const createTentativeGroup = internalMutation({
         const score = calculateCredibilityScore({
           successfulTrips: user.successfulTrips ?? 0,
           cancelledTrips: user.cancelledTrips ?? 0,
-          reportedCount: user.reportedCount ?? 0,
+          confirmedReportCount: user.confirmedReportCount ?? 0,
         });
         credibilityScores.set(userId, score);
       }

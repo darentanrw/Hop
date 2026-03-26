@@ -30,7 +30,7 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
     ? calculateCredibilityScore({
         successfulTrips: currentUser.successfulTrips ?? 0,
         cancelledTrips: currentUser.cancelledTrips ?? 0,
-        reportedCount: currentUser.reportedCount ?? 0,
+        confirmedReportCount: currentUser.confirmedReportCount ?? 0,
       })
     : undefined;
 
@@ -137,14 +137,14 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
               </p>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 <div style={{ fontSize: 32, fontWeight: 800 }}>
-                  {(credibilityScore * 100).toFixed(0)}
+                  {Math.round(credibilityScore).toString()}
                 </div>
                 <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  {credibilityScore < 0.55
+                  {credibilityScore < 55
                     ? "⚠️ Low"
-                    : credibilityScore < 0.75
+                    : credibilityScore < 75
                       ? "📊 Fair"
-                      : credibilityScore < 0.9
+                      : credibilityScore < 90
                         ? "✓ Good"
                         : "⭐ Excellent"}
                 </div>
@@ -152,7 +152,7 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
               <div style={{ marginTop: 12, fontSize: 11, opacity: 0.8 }}>
                 <div>✓ {currentUser?.successfulTrips ?? 0} successful trips</div>
                 <div>✗ {currentUser?.cancelledTrips ?? 0} cancelled</div>
-                <div>⚠️ {currentUser?.reportedCount ?? 0} reports</div>
+                <div>⚠️ {currentUser?.confirmedReportCount ?? 0} confirmed reports</div>
               </div>
             </div>
           )}
