@@ -161,13 +161,14 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                 </div>
               </div>
               <p style={{ margin: "10px 0 0", fontSize: 11, opacity: 0.85, lineHeight: 1.45 }}>
-                Your account will be suspended if your credibility score falls below{" "}
-                {CREDIBILITY_SUSPENSION_THRESHOLD}.
+                {profile.credibilitySuspended
+                  ? `Your account has been suspended as your credibility score has fallen below ${CREDIBILITY_SUSPENSION_THRESHOLD}. Contact help@hophome.app if you require assistance.`
+                  : `If your score falls below ${CREDIBILITY_SUSPENSION_THRESHOLD}, your account will be suspended.`}
               </p>
               <div style={{ marginTop: 12, fontSize: 11, opacity: 0.8 }}>
                 <div>✓ {currentUser?.successfulTrips ?? 0} successful trips</div>
                 <div>✗ {currentUser?.cancelledTrips ?? 0} cancelled</div>
-                <div>⚠️ {currentUser?.confirmedReportCount ?? 0} confirmed reports</div>
+                <div>⚠️ {currentUser?.confirmedReportCount ?? 0} reports</div>
               </div>
             </div>
           )}

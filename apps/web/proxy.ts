@@ -14,7 +14,6 @@ const isProtectedRoute = createRouteMatcher([
   "/admin(.*)",
   "/verify-email",
   "/onboarding",
-  "/suspended",
 ]);
 
 export default convexAuthNextjsMiddleware(

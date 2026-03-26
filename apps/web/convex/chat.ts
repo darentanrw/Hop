@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { assertEffectiveUserNotCredibilitySuspended } from "./credibilitySuspension";
 import { resolveQaActingUserId } from "./localQa";
 
 export const CHAT_ELIGIBLE_STATUSES = new Set([
@@ -49,7 +48,6 @@ export const sendMessage = mutation({
   handler: async (ctx, { groupId, body, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
 
     const trimmed = body.trim();
     if (trimmed.length === 0) throw new Error("Message cannot be empty.");

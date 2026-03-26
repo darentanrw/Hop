@@ -94,6 +94,13 @@ export default function ProfilePage() {
         </p>
       </div>
 
+      {riderProfile.credibilitySuspended ? (
+        <div className="notice notice-info">
+          Your account has been suspended as your credibility score has fallen below{" "}
+          {CREDIBILITY_SUSPENSION_THRESHOLD}. Contact help@hophome.app if you require assistance.
+        </div>
+      ) : null}
+
       {/* Credibility score card */}
       <div className="card" style={{ background: "var(--surface-hover)" }}>
         <div style={{ marginBottom: 16 }}>
@@ -111,8 +118,8 @@ export default function ProfilePage() {
             {Math.round(credibilityScore)}
           </div>
           <p className="text-muted text-xs" style={{ marginTop: 10, lineHeight: 1.5 }}>
-            Your account will be suspended if your credibility score falls below{" "}
-            {CREDIBILITY_SUSPENSION_THRESHOLD}.
+            If your score falls below {CREDIBILITY_SUSPENSION_THRESHOLD}, your account will be
+            suspended.
           </p>
         </div>
 
@@ -130,7 +137,7 @@ export default function ProfilePage() {
             <strong>{riderProfile.cancelledTrips ?? 0}</strong>
           </div>
           <div className="row-between">
-            <span className="text-muted">Confirmed reports</span>
+            <span className="text-muted">Reports</span>
             <strong>{riderProfile.confirmedReportCount ?? 0}</strong>
           </div>
         </div>

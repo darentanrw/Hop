@@ -15,7 +15,12 @@ export async function POST(request: Request) {
     fetchQuery(api.admin.adminAccess, {}, { token }),
   ]);
   if (riderProfile?.credibilitySuspended && !adminAccess.isAdmin) {
-    return NextResponse.json({ error: "Account suspended." }, { status: 403 });
+    return NextResponse.json(
+      {
+        error: "You can't schedule new rides as your account is suspended.",
+      },
+      { status: 403 },
+    );
   }
 
   const payload = (await request.json().catch(() => null)) as { address?: unknown } | null;

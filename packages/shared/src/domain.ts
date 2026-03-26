@@ -85,7 +85,7 @@ export interface RiderProfile {
   /** @deprecated Legacy field; scoring uses confirmedReportCount only. */
   reportedCount?: number;
   confirmedReportCount?: number;
-  /** True when credibility score is below `CREDIBILITY_SUSPENSION_THRESHOLD`. */
+  /** When true, the user cannot open new ride windows until score reaches `CREDIBILITY_SUSPENSION_THRESHOLD`. */
   credibilitySuspended?: boolean;
 }
 

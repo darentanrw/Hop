@@ -4,13 +4,11 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { isAdminUserEmail } from "./adminAccess";
 
-export const CREDIBILITY_SUSPENSION_ERROR =
-  "Your Hop account is suspended because your credibility score is too low. Contact support if you need help.";
+/** Thrown when a user below the credibility threshold tries to create a new ride window. */
+export const SCHEDULING_NOT_ALLOWED_ERROR =
+  "Your account has been suspended as your credibility score has fallen below 30. Contact help@hophome.app if you require assistance.";
 
-export async function assertEffectiveUserNotCredibilitySuspended(
-  ctx: MutationCtx,
-  effectiveUserId: Id<"users">,
-) {
+export async function assertUserCanScheduleNewRide(ctx: MutationCtx, effectiveUserId: Id<"users">) {
   const authUserId = await getAuthUserId(ctx);
   const authUser = authUserId ? await ctx.db.get(authUserId) : null;
   if (isAdminUserEmail(authUser?.email)) return;
@@ -24,6 +22,6 @@ export async function assertEffectiveUserNotCredibilitySuspended(
     confirmedReportCount: subject.confirmedReportCount ?? 0,
   });
   if (isCredibilitySuspended(score)) {
-    throw new Error(CREDIBILITY_SUSPENSION_ERROR);
+    throw new Error(SCHEDULING_NOT_ALLOWED_ERROR);
   }
 }

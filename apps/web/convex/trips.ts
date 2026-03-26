@@ -11,7 +11,6 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { CHAT_ELIGIBLE_STATUSES } from "./chat";
-import { assertEffectiveUserNotCredibilitySuspended } from "./credibilitySuspension";
 import { resolveQaActingUserId } from "./localQa";
 
 type GroupDoc = Doc<"groups">;
@@ -479,8 +478,6 @@ export const advanceCurrentGroupLifecycle = mutation({
   handler: async (ctx, { actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await findActiveGroupForUser(ctx, userId);
     if (!group) return { ok: true };
 
@@ -510,8 +507,6 @@ export const submitGroupDestination = mutation({
   handler: async (ctx, { groupId, address }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.status === "cancelled" || group.status === "closed" || group.status === "dissolved") {
@@ -541,8 +536,6 @@ export const startMeetupCheckIn = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the booker can start check-in.");
@@ -580,8 +573,6 @@ export const scanGroupQrToken = mutation({
   handler: async (ctx, { groupId, qrToken, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId)
@@ -614,8 +605,6 @@ export const departGroup = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the booker can depart the group.");
@@ -690,7 +679,6 @@ export const generateUploadUrl = mutation({
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -705,8 +693,6 @@ export const submitReceipt = mutation({
   handler: async (ctx, { groupId, totalCostCents, storageId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId)
@@ -788,8 +774,6 @@ export const submitPaymentProof = mutation({
   handler: async (ctx, { groupId, storageId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const member = await ctx.db
       .query("groupMembers")
       .withIndex("groupId_userId", (q) => q.eq("groupId", groupId).eq("userId", userId))
@@ -817,8 +801,6 @@ export const verifyPayment = mutation({
   handler: async (ctx, { groupId, memberUserId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the booker can verify payments.");
@@ -866,8 +848,6 @@ export const redelegateBooker = mutation({
   handler: async (ctx, { groupId, newBookerUserId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the current booker can redelegate.");
@@ -896,8 +876,6 @@ export const reportBookerAbsent = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-    await assertEffectiveUserNotCredibilitySuspended(ctx, userId);
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId === userId) {
