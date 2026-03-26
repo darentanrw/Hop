@@ -35,10 +35,6 @@ export default function ProfilePage() {
     confirmedReportCount: riderProfile.confirmedReportCount ?? 0,
   });
 
-  const totalTrips = (riderProfile.successfulTrips ?? 0) + (riderProfile.cancelledTrips ?? 0);
-  const successRate =
-    totalTrips > 0 ? (((riderProfile.successfulTrips ?? 0) / totalTrips) * 100).toFixed(0) : 0;
-
   async function handleSaveGender() {
     if (!riderProfile) return;
     setSaving(true);
@@ -110,10 +106,6 @@ export default function ProfilePage() {
           style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}
         >
           <div className="row-between">
-            <span className="text-muted">Success rate</span>
-            <strong>{successRate}%</strong>
-          </div>
-          <div className="row-between">
             <span className="text-muted">Successful trips</span>
             <strong>{riderProfile.successfulTrips ?? 0}</strong>
           </div>
@@ -126,12 +118,6 @@ export default function ProfilePage() {
             <strong>{riderProfile.confirmedReportCount ?? 0}</strong>
           </div>
         </div>
-
-        {/* Score explanation */}
-        <p className="text-muted text-xs" style={{ marginTop: 16, lineHeight: 1.5 }}>
-          Your score starts at 75 and moves by +5 per successful trip and −10 per cancellation.
-          Admin-confirmed reports reduce it further. A higher score helps you become a booker.
-        </p>
       </div>
 
       {/* Gender selection */}
