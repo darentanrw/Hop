@@ -36,7 +36,10 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalAction, internalMutation, mutation } from "./_generated/server";
-import { assertUserCanScheduleNewRide } from "./credibilitySuspension";
+import {
+  assertUserCanScheduleNewRide,
+  enforceSuspensionSideEffects,
+} from "./credibilitySuspension";
 import { resolveQaActingUserId } from "./localQa";
 import { syncLifecycleForGroup } from "./trips";
 
@@ -562,12 +565,12 @@ export const cancelTripParticipation = mutation({
       await ctx.db.patch(availability._id, { status: "cancelled" });
     }
 
-    // Increment cancellation count (only once, since we check above)
     const user = await ctx.db.get(userId);
     if (user) {
       await ctx.db.patch(userId, {
         cancelledTrips: (user.cancelledTrips ?? 0) + 1,
       });
+      await enforceSuspensionSideEffects(ctx, userId);
     }
     // Keep the parent group document in sync after the rider leaves.
     const groupPatch: Partial<{

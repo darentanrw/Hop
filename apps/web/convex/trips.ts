@@ -11,6 +11,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { CHAT_ELIGIBLE_STATUSES } from "./chat";
+import { enforceSuspensionSideEffects } from "./credibilitySuspension";
 import { resolveQaActingUserId } from "./localQa";
 
 type GroupDoc = Doc<"groups">;
@@ -146,6 +147,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             await ctx.db.patch(member.userId as Id<"users">, {
               cancelledTrips: (removedUser.cancelledTrips ?? 0) + 1,
             });
+            await enforceSuspensionSideEffects(ctx, member.userId as Id<"users">);
           }
         }
 
@@ -231,6 +233,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             await ctx.db.patch(member.userId as Id<"users">, {
               cancelledTrips: (user.cancelledTrips ?? 0) + 1,
             });
+            await enforceSuspensionSideEffects(ctx, member.userId as Id<"users">);
           }
         }
 
@@ -633,12 +636,12 @@ export const departGroup = mutation({
         participationStatus: "removed_no_show",
       });
 
-      // No-show harms credibility: increment cancelledTrips
       const user = await ctx.db.get(member.userId as Id<"users">);
       if (user) {
         await ctx.db.patch(member.userId as Id<"users">, {
           cancelledTrips: (user.cancelledTrips ?? 0) + 1,
         });
+        await enforceSuspensionSideEffects(ctx, member.userId as Id<"users">);
       }
     }
 

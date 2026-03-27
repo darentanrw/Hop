@@ -533,6 +533,94 @@ describe("suspension — report confirmation trigger", () => {
   });
 });
 
+describe("suspension — cancellation trigger", () => {
+  function shouldEnforceSuspensionAfterCancel(before: {
+    successfulTrips: number;
+    cancelledTrips: number;
+    confirmedReportCount: number;
+  }): boolean {
+    const after = { ...before, cancelledTrips: before.cancelledTrips + 1 };
+    return isCredibilitySuspended(calculateCredibilityScore(after));
+  }
+
+  it("first cancel on a fresh user (75→65) does NOT trigger enforcement", () => {
+    expect(
+      shouldEnforceSuspensionAfterCancel({
+        successfulTrips: 0,
+        cancelledTrips: 0,
+        confirmedReportCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("5th cancel on a fresh user (35→25) DOES trigger enforcement", () => {
+    const before = { successfulTrips: 0, cancelledTrips: 4, confirmedReportCount: 0 };
+    expect(calculateCredibilityScore(before)).toBe(35);
+    expect(shouldEnforceSuspensionAfterCancel(before)).toBe(true);
+    expect(calculateCredibilityScore({ ...before, cancelledTrips: 5 })).toBe(25);
+  });
+
+  it("4th cancel on a fresh user (45→35) does NOT trigger enforcement", () => {
+    const before = { successfulTrips: 0, cancelledTrips: 3, confirmedReportCount: 0 };
+    expect(calculateCredibilityScore(before)).toBe(45);
+    expect(shouldEnforceSuspensionAfterCancel(before)).toBe(false);
+  });
+
+  it("cancel on user already below threshold stays suspended", () => {
+    const before = { successfulTrips: 0, cancelledTrips: 6, confirmedReportCount: 0 };
+    expect(calculateCredibilityScore(before)).toBe(15);
+    expect(isCredibilitySuspended(calculateCredibilityScore(before))).toBe(true);
+    expect(shouldEnforceSuspensionAfterCancel(before)).toBe(true);
+  });
+
+  it("cancel + existing report combo: 1 report + 3rd cancel (30→20) DOES trigger enforcement", () => {
+    const before = { successfulTrips: 0, cancelledTrips: 2, confirmedReportCount: 1 };
+    expect(calculateCredibilityScore(before)).toBe(30);
+    expect(shouldEnforceSuspensionAfterCancel(before)).toBe(true);
+    expect(calculateCredibilityScore({ ...before, cancelledTrips: 3 })).toBe(20);
+  });
+});
+
+describe("suspension — matching candidate exclusion", () => {
+  it("user at baseline (75) is eligible for matching", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 0,
+      confirmedReportCount: 0,
+    });
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+
+  it("user below threshold is excluded from matching", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 5,
+      confirmedReportCount: 0,
+    });
+    expect(isCredibilitySuspended(score)).toBe(true);
+  });
+
+  it("user exactly at threshold (30) is NOT excluded", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 1,
+      cancelledTrips: 5,
+      confirmedReportCount: 0,
+    });
+    expect(score).toBe(30);
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+
+  it("user with no doc (undefined fields) defaults to baseline and is eligible", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 0,
+      confirmedReportCount: 0,
+    });
+    expect(score).toBe(CREDIBILITY_STARTING_POINTS);
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+});
+
 describe("suspension threshold is reachable from realistic trip histories", () => {
   it("exactly 5 cancels (no successes, no reports) is the first profile to cross into suspension", () => {
     for (let c = 0; c <= 4; c++) {
