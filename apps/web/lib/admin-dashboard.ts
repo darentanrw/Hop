@@ -39,6 +39,14 @@ export function getReportCategoryLabel(category: keyof typeof REPORT_CATEGORY_LA
 }
 
 export function normalizeReportReviewStatus(value: unknown): ReportReviewStatus {
+  if (value === "pending") {
+    return "open";
+  }
+
+  if (value === "confirmed") {
+    return "resolved";
+  }
+
   return REPORT_REVIEW_STATUSES.includes(value as ReportReviewStatus)
     ? (value as ReportReviewStatus)
     : "open";

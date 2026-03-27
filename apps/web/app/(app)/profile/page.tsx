@@ -1,10 +1,15 @@
 "use client";
 
-import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
+import {
+  CREDIBILITY_SUSPENSION_THRESHOLD,
+  type SelfDeclaredGender,
+  calculateCredibilityScore,
+} from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "../../../convex/_generated/api";
+import { credibilityScoreNumberColor } from "../../../lib/credibility-score-color";
 
 export default function ProfilePage() {
   const riderProfile = useQuery(api.queries.getRiderProfile);
@@ -32,12 +37,8 @@ export default function ProfilePage() {
   const credibilityScore = calculateCredibilityScore({
     successfulTrips: riderProfile.successfulTrips ?? 0,
     cancelledTrips: riderProfile.cancelledTrips ?? 0,
-    reportedCount: riderProfile.reportedCount ?? 0,
+    confirmedReportCount: riderProfile.confirmedReportCount ?? 0,
   });
-
-  const totalTrips = (riderProfile.successfulTrips ?? 0) + (riderProfile.cancelledTrips ?? 0);
-  const successRate =
-    totalTrips > 0 ? (((riderProfile.successfulTrips ?? 0) / totalTrips) * 100).toFixed(0) : 0;
 
   async function handleSaveGender() {
     if (!riderProfile) return;
@@ -93,15 +94,33 @@ export default function ProfilePage() {
         </p>
       </div>
 
+      {riderProfile.credibilitySuspended ? (
+        <div className="notice notice-info">
+          Your account has been suspended as your credibility score has fallen below{" "}
+          {CREDIBILITY_SUSPENSION_THRESHOLD}. Contact help@hophome.app if you require assistance.
+        </div>
+      ) : null}
+
       {/* Credibility score card */}
       <div className="card" style={{ background: "var(--surface-hover)" }}>
         <div style={{ marginBottom: 16 }}>
           <p className="text-muted text-sm" style={{ marginBottom: 4 }}>
             Credibility Score
           </p>
-          <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-display)" }}>
-            {(credibilityScore * 100).toFixed(0)}
+          <div
+            style={{
+              fontSize: 28,
+              fontWeight: 700,
+              fontFamily: "var(--font-display)",
+              color: credibilityScoreNumberColor(credibilityScore),
+            }}
+          >
+            {Math.round(credibilityScore)}
           </div>
+          <p className="text-muted text-xs" style={{ marginTop: 10, lineHeight: 1.5 }}>
+            If your score falls below {CREDIBILITY_SUSPENSION_THRESHOLD}, your account will be
+            suspended.
+          </p>
         </div>
 
         {/* Score breakdown */}
@@ -109,10 +128,6 @@ export default function ProfilePage() {
           className="stack-sm"
           style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}
         >
-          <div className="row-between">
-            <span className="text-muted">Success rate</span>
-            <strong>{successRate}%</strong>
-          </div>
           <div className="row-between">
             <span className="text-muted">Successful trips</span>
             <strong>{riderProfile.successfulTrips ?? 0}</strong>
@@ -123,16 +138,9 @@ export default function ProfilePage() {
           </div>
           <div className="row-between">
             <span className="text-muted">Reports</span>
-            <strong>{riderProfile.reportedCount ?? 0}</strong>
+            <strong>{riderProfile.confirmedReportCount ?? 0}</strong>
           </div>
         </div>
-
-        {/* Score explanation */}
-        <p className="text-muted text-xs" style={{ marginTop: 16, lineHeight: 1.5 }}>
-          Your credibility score is calculated from your trip history. Completing trips improves
-          your score, while cancellations and reports reduce it. A higher score helps you become a
-          booker.
-        </p>
       </div>
 
       {/* Gender selection */}

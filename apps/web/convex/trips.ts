@@ -1,5 +1,10 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
+import {
+  PAYMENT_WINDOW_HOURS,
+  calculateCredibilityScore,
+  groupPassengerSeatTotal,
+  sumPartySizes,
+} from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
@@ -11,6 +16,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { CHAT_ELIGIBLE_STATUSES } from "./chat";
+
 import { resolveQaActingUserId } from "./localQa";
 
 type GroupDoc = Doc<"groups">;
@@ -141,6 +147,12 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
                 : "timed_out",
           });
           await reopenAvailability(ctx, member.availabilityId);
+          const removedUser = await ctx.db.get(member.userId as Id<"users">);
+          if (removedUser) {
+            await ctx.db.patch(member.userId as Id<"users">, {
+              cancelledTrips: (removedUser.cancelledTrips ?? 0) + 1,
+            });
+          }
         }
 
         for (const [index, member] of orderedAcceptedMembers.entries()) {
@@ -160,7 +172,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             const score = calculateCredibilityScore({
               successfulTrips: user.successfulTrips ?? 0,
               cancelledTrips: user.cancelledTrips ?? 0,
-              reportedCount: user.reportedCount ?? 0,
+              confirmedReportCount: user.confirmedReportCount ?? 0,
             });
             credibilityScores.set(acceptedUserId, score);
           }
@@ -173,6 +185,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           memberUserIds: acceptedUserIds,
           availabilityIds: acceptedAvailabilityIds,
           groupSize: acceptedMembers.length,
+          passengerSeatTotal: sumPartySizes(acceptedMembers),
           bookerUserId: nextBookerUserId,
           suggestedDropoffOrder: orderedAcceptedMembers.map((member) => member.userId),
         });
@@ -406,6 +419,7 @@ async function buildTripPayload(
     })),
     stats: {
       activeMemberCount: activeMembers.length,
+      passengerSeatTotal: groupPassengerSeatTotal(group, activeMembers),
       checkedInCount: checkedInMembers.length,
       destinationCount: activeMembers.filter((member) => Boolean(member.destinationLockedAt))
         .length,
@@ -432,6 +446,68 @@ async function buildTripPayload(
     },
   };
 }
+
+const PAST_RIDE_GROUP_STATUSES = new Set(["cancelled", "closed", "dissolved", "reported"]);
+
+function pastRideSortTime(group: GroupDoc): number {
+  const isoCandidates = [
+    group.closedAt,
+    group.departedAt,
+    group.meetingTime,
+    group.windowEnd,
+  ].filter(Boolean) as string[];
+  if (isoCandidates.length > 0) {
+    return Math.max(...isoCandidates.map((iso) => new Date(iso).getTime()));
+  }
+  return group._creationTime;
+}
+
+export const listPastRides = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+
+    const memberships = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const byGroupId = new Map<Id<"groups">, { sortTime: number; group: GroupDoc }>();
+
+    for (const membership of memberships) {
+      const group = await ctx.db.get(membership.groupId);
+      if (!group || !PAST_RIDE_GROUP_STATUSES.has(group.status)) continue;
+
+      const sortTime = pastRideSortTime(group);
+      const prev = byGroupId.get(group._id);
+      if (prev && prev.sortTime >= sortTime) continue;
+      byGroupId.set(group._id, { sortTime, group });
+    }
+
+    const rows = [...byGroupId.values()]
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .slice(0, 50)
+      .map(({ group }) => ({
+        groupId: group._id,
+        groupName: group.groupName ?? "Hop Group",
+        groupColor: group.groupColor ?? "#44d4c8",
+        status: group.status,
+        pickupLabel: group.pickupLabel,
+        meetingTime: group.meetingTime ?? group.windowStart,
+        closedAt: group.closedAt ?? null,
+        finalCostCents: group.finalCostCents ?? null,
+        endedAt:
+          group.closedAt ??
+          group.departedAt ??
+          group.meetingTime ??
+          group.windowEnd ??
+          new Date(group._creationTime).toISOString(),
+      }));
+
+    return rows;
+  },
+});
 
 export const getRideEligibility = query({
   args: { actingUserId: v.optional(v.id("users")) },
@@ -472,7 +548,6 @@ export const advanceCurrentGroupLifecycle = mutation({
   handler: async (ctx, { actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await findActiveGroupForUser(ctx, userId);
     if (!group) return { ok: true };
 
@@ -502,7 +577,6 @@ export const submitGroupDestination = mutation({
   handler: async (ctx, { groupId, address }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.status === "cancelled" || group.status === "closed" || group.status === "dissolved") {
@@ -532,7 +606,6 @@ export const startMeetupCheckIn = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the booker can start check-in.");
@@ -570,7 +643,6 @@ export const scanGroupQrToken = mutation({
   handler: async (ctx, { groupId, qrToken, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId)
@@ -603,7 +675,6 @@ export const departGroup = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the booker can depart the group.");
@@ -632,7 +703,6 @@ export const departGroup = mutation({
         participationStatus: "removed_no_show",
       });
 
-      // No-show harms credibility: increment cancelledTrips
       const user = await ctx.db.get(member.userId as Id<"users">);
       if (user) {
         await ctx.db.patch(member.userId as Id<"users">, {
@@ -647,6 +717,7 @@ export const departGroup = mutation({
       memberUserIds: presentMembers.map((member) => member.userId),
       availabilityIds: presentMembers.map((member) => member.availabilityId),
       groupSize: presentMembers.length,
+      passengerSeatTotal: sumPartySizes(presentMembers),
       suggestedDropoffOrder: presentMembers
         .sort((left, right) => (left.dropoffOrder ?? 999) - (right.dropoffOrder ?? 999))
         .map((member) => member.userId),
@@ -692,9 +763,10 @@ export const submitReceipt = mutation({
   handler: async (ctx, { groupId, totalCostCents, storageId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
+    if (group.status !== "in_trip")
+      throw new Error("Receipt can only be submitted while the group is in trip.");
     if (group.bookerUserId !== userId)
       throw new Error("Only the booker can upload the taxi receipt.");
 
@@ -702,10 +774,15 @@ export const submitReceipt = mutation({
     const activeMembers = getActiveMembers(members);
     const split = computeSplitAmounts(
       totalCostCents,
-      activeMembers.map((member) => member.userId),
+      activeMembers.map((member) => ({
+        userId: member.userId,
+        partySize: member.partySize ?? 1,
+      })),
       userId,
     );
     const submittedAt = nowIso();
+
+    const shouldCreditBooker = !group.bookerReceiptCredibilityCredited && group.bookerUserId;
 
     await ctx.db.patch(groupId, {
       status: "payment_pending",
@@ -713,7 +790,18 @@ export const submitReceipt = mutation({
       receiptStorageId: storageId,
       receiptSubmittedAt: submittedAt,
       paymentDueAt: addHours(submittedAt, PAYMENT_WINDOW_HOURS),
+      ...(shouldCreditBooker ? { bookerReceiptCredibilityCredited: true } : {}),
     });
+
+    if (shouldCreditBooker) {
+      const bookerId = group.bookerUserId as Id<"users">;
+      const bookerUser = await ctx.db.get(bookerId);
+      if (bookerUser) {
+        await ctx.db.patch(bookerId, {
+          successfulTrips: (bookerUser.successfulTrips ?? 0) + 1,
+        });
+      }
+    }
 
     for (const member of activeMembers) {
       const amountDueCents = split.get(member.userId) ?? 0;
@@ -758,7 +846,6 @@ export const submitPaymentProof = mutation({
   handler: async (ctx, { groupId, storageId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const member = await ctx.db
       .query("groupMembers")
       .withIndex("groupId_userId", (q) => q.eq("groupId", groupId).eq("userId", userId))
@@ -786,7 +873,6 @@ export const verifyPayment = mutation({
   handler: async (ctx, { groupId, memberUserId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the booker can verify payments.");
@@ -834,7 +920,6 @@ export const redelegateBooker = mutation({
   handler: async (ctx, { groupId, newBookerUserId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId !== userId) throw new Error("Only the current booker can redelegate.");
@@ -863,7 +948,6 @@ export const reportBookerAbsent = mutation({
   handler: async (ctx, { groupId, actingUserId }) => {
     const userId = await resolveQaActingUserId(ctx, actingUserId);
     if (!userId) throw new Error("Not authenticated");
-
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
     if (group.bookerUserId === userId) {
@@ -910,7 +994,7 @@ export const reportBookerAbsent = mutation({
           calculateCredibilityScore({
             successfulTrips: user.successfulTrips ?? 0,
             cancelledTrips: user.cancelledTrips ?? 0,
-            reportedCount: user.reportedCount ?? 0,
+            confirmedReportCount: user.confirmedReportCount ?? 0,
           }),
         );
       }
@@ -962,19 +1046,9 @@ export const createReport = mutation({
     });
 
     await ctx.db.patch(args.groupId, {
-      status: group.status === "closed" ? "reported" : "reported",
+      status: "reported",
       reportCount: (group.reportCount ?? 0) + 1,
     });
-
-    // Increment reportedCount for the reported user
-    if (args.reportedUserId) {
-      const reportedUser = await ctx.db.get(args.reportedUserId);
-      if (reportedUser) {
-        await ctx.db.patch(args.reportedUserId, {
-          reportedCount: (reportedUser.reportedCount ?? 0) + 1,
-        });
-      }
-    }
 
     await ctx.db.insert("auditEvents", {
       action: "report.created",
@@ -994,7 +1068,6 @@ export const createReport = mutation({
     await ctx.scheduler.runAfter(0, internal.admin.refreshDashboardSummaryInternal, {
       reason: "report_created",
     });
-
     return { ok: true };
   },
 });

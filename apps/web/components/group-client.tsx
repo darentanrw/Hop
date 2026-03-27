@@ -68,6 +68,7 @@ type ActiveTripPayload = {
   }>;
   stats: {
     activeMemberCount: number;
+    passengerSeatTotal: number;
     checkedInCount: number;
     destinationCount: number;
     outstandingPaymentCount: number;
@@ -959,7 +960,7 @@ export function GroupClient({
           {/* ── Forming banner (tentative — rolling matching) ── */}
           {group.group.status === "tentative"
             ? (() => {
-                const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
+                const spotsLeft = MAX_GROUP_SIZE - group.stats.passengerSeatTotal;
                 return (
                   <div
                     className="card"
@@ -978,13 +979,15 @@ export function GroupClient({
                       {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
                     </div>
                     <h3 style={{ marginBottom: 4 }}>
-                      {group.stats.activeMemberCount} rider
-                      {group.stats.activeMemberCount > 1 ? "s" : ""} matched
+                      {group.stats.activeMemberCount} booking
+                      {group.stats.activeMemberCount > 1 ? "s" : ""} ·{" "}
+                      {group.stats.passengerSeatTotal} passenger
+                      {group.stats.passengerSeatTotal !== 1 ? "s" : ""}
                     </h3>
                     <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
                       {spotsLeft > 0
-                        ? `Looking for up to ${spotsLeft} more rider${spotsLeft > 1 ? "s" : ""} with nearby destinations. The group locks 3 h before departure.`
-                        : "Group is full and will lock in soon."}
+                        ? `Room for up to ${spotsLeft} more passenger${spotsLeft > 1 ? "s" : ""} (max 4 per car, 3 drop-offs). The group locks 3 h before departure.`
+                        : "Car is full and will lock in soon."}
                     </p>
                   </div>
                 );
@@ -994,7 +997,7 @@ export function GroupClient({
           {/* ── Semi-locked banner (T-3h lock — open to late joiners) ── */}
           {group.group.status === "semi_locked"
             ? (() => {
-                const spotsLeft = MAX_GROUP_SIZE - group.stats.activeMemberCount;
+                const spotsLeft = MAX_GROUP_SIZE - group.stats.passengerSeatTotal;
                 return (
                   <div
                     className="card"
@@ -1012,10 +1015,14 @@ export function GroupClient({
                       ).join(" ")}
                       {spotsLeft > 0 ? ` ${"⬜ ".repeat(spotsLeft).trim()}` : ""}
                     </div>
-                    <h3 style={{ marginBottom: 4 }}>Open to +{spotsLeft}</h3>
+                    <h3 style={{ marginBottom: 4 }}>
+                      Open to +{spotsLeft} seat{spotsLeft !== 1 ? "s" : ""}
+                    </h3>
                     <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
-                      {group.stats.activeMemberCount} riders matched. New riders can join until 3 h
-                      before departure, or until the group fills to 4.
+                      {group.stats.passengerSeatTotal} passenger
+                      {group.stats.passengerSeatTotal !== 1 ? "s" : ""} in this group. New bookings
+                      can join until 3 h before departure, or until the car fills (4 passengers
+                      max).
                     </p>
                   </div>
                 );

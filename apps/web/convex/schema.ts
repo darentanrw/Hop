@@ -58,8 +58,11 @@ const reportCategory = v.union(
   v.literal("other"),
 );
 const reportReviewStatus = v.union(
+  // Keep legacy values readable while the dashboard uses the newer moderation flow.
+  v.literal("pending"),
   v.literal("open"),
   v.literal("in_review"),
+  v.literal("confirmed"),
   v.literal("resolved"),
   v.literal("dismissed"),
 );
@@ -90,6 +93,7 @@ const schema = defineSchema({
     successfulTrips: v.optional(v.number()),
     cancelledTrips: v.optional(v.number()),
     reportedCount: v.optional(v.number()),
+    confirmedReportCount: v.optional(v.number()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -140,6 +144,8 @@ const schema = defineSchema({
     sealedDestinationRef: v.string(),
     routeDescriptorRef: v.string(),
     estimatedFareBand: v.optional(v.string()),
+    /** Passengers on this booking (1–3); counts toward vehicle capacity. */
+    partySize: v.optional(v.number()),
     createdAt: v.string(),
     status: availabilityStatus,
   }).index("userId", ["userId"]),
@@ -150,6 +156,8 @@ const schema = defineSchema({
     windowStart: v.string(),
     windowEnd: v.string(),
     groupSize: v.number(),
+    /** Sum of member party sizes (passenger seats). */
+    passengerSeatTotal: v.optional(v.number()),
     estimatedFareBand: v.optional(v.string()),
     maxDetourMinutes: v.number(),
     averageScore: v.number(),
@@ -176,12 +184,14 @@ const schema = defineSchema({
     generalAreaLabels: v.optional(v.array(v.string())),
     reportCount: v.optional(v.number()),
     rewardedUserIds: v.optional(v.array(v.string())),
+    bookerReceiptCredibilityCredited: v.optional(v.boolean()),
   }),
   groupMembers: defineTable({
     groupId: v.id("groups"),
     userId: v.string(),
     availabilityId: v.string(),
     displayName: v.string(),
+    partySize: v.optional(v.number()),
     emoji: v.optional(v.string()),
     accepted: v.union(v.boolean(), v.null()),
     acknowledgementStatus: v.optional(memberAcknowledgementStatus),

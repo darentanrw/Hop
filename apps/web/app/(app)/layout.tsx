@@ -17,9 +17,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!status.emailVerified) redirect("/verify-email");
   if (!status.onboardingComplete) redirect("/onboarding");
 
-  const riderProfile = await fetchQuery(api.queries.getRiderProfile, {}, { token });
+  const [riderProfile, adminAccess] = await Promise.all([
+    fetchQuery(api.queries.getRiderProfile, {}, { token }),
+    fetchQuery(api.admin.adminAccess, {}, { token }),
+  ]);
   if (!riderProfile) redirect("/onboarding");
-  const adminAccess = await fetchQuery(api.admin.adminAccess, {}, { token });
 
   return (
     <>
@@ -27,7 +29,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <TopBarContent />
         <ClientKeyRegistrar />
         <PwaCoachmark />
-        {adminAccess.isAdmin ? <LocalQaPanel /> : null}
+        <LocalQaPanel />
         {children}
       </div>
       <BottomNav />

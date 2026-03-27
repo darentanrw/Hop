@@ -1,4 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { calculateCredibilityScore, isCredibilitySuspended } from "@hop/shared";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -15,6 +16,11 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
     .withIndex("userId", (q) => q.eq("userId", userId))
     .first();
   if (!preference) return null;
+  const credibilityScore = calculateCredibilityScore({
+    successfulTrips: user.successfulTrips ?? 0,
+    cancelledTrips: user.cancelledTrips ?? 0,
+    confirmedReportCount: user.confirmedReportCount ?? 0,
+  });
   return {
     userId: userId,
     name: user.name,
@@ -24,6 +30,8 @@ async function getRiderProfileInternal(ctx: QueryCtx) {
     successfulTrips: user.successfulTrips ?? 0,
     cancelledTrips: user.cancelledTrips ?? 0,
     reportedCount: user.reportedCount ?? 0,
+    confirmedReportCount: user.confirmedReportCount ?? 0,
+    credibilitySuspended: isCredibilitySuspended(credibilityScore),
   };
 }
 
@@ -156,9 +164,11 @@ export const adminSnapshot = query({
 export const getMatchingCandidates = internalQuery({
   args: {},
   handler: async (ctx) => {
+    const now = Date.now();
     const availabilities = await ctx.db.query("availabilities").collect();
     const openAvailabilities = availabilities.filter(
-      (availability) => availability.status === "open",
+      (availability) =>
+        availability.status === "open" && new Date(availability.windowEnd).getTime() > now,
     );
     const users = await ctx.db.query("users").collect();
     const userById = new Map(users.map((user) => [user._id, user]));
@@ -173,6 +183,7 @@ export const getMatchingCandidates = internalQuery({
       routeDescriptorRef: availability.routeDescriptorRef,
       sealedDestinationRef: availability.sealedDestinationRef,
       displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
+      partySize: availability.partySize ?? 1,
     }));
   },
 });

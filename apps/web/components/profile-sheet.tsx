@@ -1,10 +1,15 @@
 "use client";
 
-import { type SelfDeclaredGender, calculateCredibilityScore } from "@hop/shared";
-import type { RiderProfile } from "@hop/shared";
+import {
+  CREDIBILITY_SUSPENSION_THRESHOLD,
+  type RiderProfile,
+  type SelfDeclaredGender,
+  calculateCredibilityScore,
+} from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import { type FormEvent, useState } from "react";
 import { api } from "../convex/_generated/api";
+import { credibilityScoreNumberColor } from "../lib/credibility-score-color";
 
 interface ProfileSheetProps {
   profile: RiderProfile;
@@ -30,7 +35,7 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
     ? calculateCredibilityScore({
         successfulTrips: currentUser.successfulTrips ?? 0,
         cancelledTrips: currentUser.cancelledTrips ?? 0,
-        reportedCount: currentUser.reportedCount ?? 0,
+        confirmedReportCount: currentUser.confirmedReportCount ?? 0,
       })
     : undefined;
 
@@ -136,23 +141,34 @@ export function ProfileSheet({ profile, isOpen, onClose }: ProfileSheetProps) {
                 Your Credibility Score
               </p>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                <div style={{ fontSize: 32, fontWeight: 800 }}>
-                  {(credibilityScore * 100).toFixed(0)}
+                <div
+                  style={{
+                    fontSize: 32,
+                    fontWeight: 800,
+                    color: credibilityScoreNumberColor(credibilityScore),
+                  }}
+                >
+                  {Math.round(credibilityScore).toString()}
                 </div>
                 <div style={{ fontSize: 12, opacity: 0.8 }}>
-                  {credibilityScore < 0.55
+                  {credibilityScore < 55
                     ? "⚠️ Low"
-                    : credibilityScore < 0.75
+                    : credibilityScore < 75
                       ? "📊 Fair"
-                      : credibilityScore < 0.9
+                      : credibilityScore < 90
                         ? "✓ Good"
                         : "⭐ Excellent"}
                 </div>
               </div>
+              <p style={{ margin: "10px 0 0", fontSize: 11, opacity: 0.85, lineHeight: 1.45 }}>
+                {profile.credibilitySuspended
+                  ? `Your account has been suspended as your credibility score has fallen below ${CREDIBILITY_SUSPENSION_THRESHOLD}. Contact help@hophome.app if you require assistance.`
+                  : `If your score falls below ${CREDIBILITY_SUSPENSION_THRESHOLD}, your account will be suspended.`}
+              </p>
               <div style={{ marginTop: 12, fontSize: 11, opacity: 0.8 }}>
                 <div>✓ {currentUser?.successfulTrips ?? 0} successful trips</div>
                 <div>✗ {currentUser?.cancelledTrips ?? 0} cancelled</div>
-                <div>⚠️ {currentUser?.reportedCount ?? 0} reports</div>
+                <div>⚠️ {currentUser?.confirmedReportCount ?? 0} reports</div>
               </div>
             </div>
           )}
