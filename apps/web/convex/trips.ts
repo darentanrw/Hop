@@ -216,8 +216,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         await scheduleLifecycleNotifications(ctx, [
           ...acceptedMembers.map((member) => {
             const pushCopy = buildConfirmedPushCopy({
-              windowStart: group.windowStart,
-              windowEnd: group.windowEnd,
+              meetingTime: group.meetingTime ?? group.windowStart,
               meetingLocationLabel: group.meetingLocationLabel ?? group.pickupLabel,
             });
 
@@ -237,8 +236,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           }),
           ...removedMembers.map((member) => {
             const pushCopy = buildMovedOnWithoutYouPushCopy({
-              windowStart: group.windowStart,
-              windowEnd: group.windowEnd,
+              meetingTime: group.meetingTime ?? group.windowStart,
             });
 
             return {
@@ -283,8 +281,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           ctx,
           activeMembers.map((member) => {
             const pushCopy = buildCouldNotConfirmPushCopy({
-              windowStart: group.windowStart,
-              windowEnd: group.windowEnd,
+              meetingTime: group.meetingTime ?? group.windowStart,
             });
 
             return {
@@ -816,8 +813,7 @@ export const departGroup = mutation({
       ctx,
       absentMembers.map((member) => {
         const pushCopy = buildRemovedFromRidePushCopy({
-          windowStart: group.windowStart,
-          windowEnd: group.windowEnd,
+          meetingTime: group.meetingTime ?? group.windowStart,
         });
 
         return {
@@ -914,8 +910,7 @@ export const submitReceipt = mutation({
         .map((member) => {
           const amountDueCents = split.get(member.userId) ?? 0;
           const pushCopy = buildPaymentRequestedPushCopy({
-            windowStart: group.windowStart,
-            windowEnd: group.windowEnd,
+            meetingTime: group.meetingTime ?? group.windowStart,
             amountLabel: formatCurrency(amountDueCents),
           });
           return {

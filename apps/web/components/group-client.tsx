@@ -8,6 +8,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { type DestinationLabelCache, loadDestinationLabelCache } from "../lib/destination-storage";
 import { resolveGroupDestinationLabel } from "../lib/group-destination-label";
 import { emojiName } from "../lib/group-lifecycle";
+import { formatStoredMeetingTimeWithDate } from "../lib/time-range";
 import { Countdown } from "./countdown";
 
 type QrScannerInstance = InstanceType<typeof import("qr-scanner").default>;
@@ -705,7 +706,7 @@ export function GroupClient({
                 <div>
                   <div className="group-logistics-label">Time</div>
                   <div className="group-logistics-value">
-                    {formatDateTime(group.group.meetingTime)}
+                    {formatStoredMeetingTimeWithDate(group.group.meetingTime)}
                   </div>
                 </div>
               </div>

@@ -43,7 +43,7 @@ import {
   buildLateJoinPushCopy,
   buildLockedPushCopy,
   buildMatchedPushCopy,
-  formatRideWindowForPush,
+  formatRideMeetingTimeForPush,
 } from "../lib/push-notification-copy";
 import { checkRideEligibility } from "../lib/ride-eligibility";
 import { isGroupPastWindowBeforeDeparture } from "../lib/trip-state";
@@ -947,8 +947,7 @@ export const createTentativeGroup = internalMutation({
       ctx,
       args.members.map((member) => {
         const pushCopy = buildMatchedPushCopy({
-          windowStart: args.windowStart,
-          windowEnd: args.windowEnd,
+          meetingTime,
           isFullGroup,
           isLastMinuteGroup,
           remainingSeats: MAX_GROUP_SIZE - args.passengerSeatTotal,
@@ -1304,8 +1303,7 @@ export const lockGroups = internalMutation({
         ctx,
         activeMembers.map((member) => {
           const pushCopy = buildLockedPushCopy({
-            windowStart: group.windowStart,
-            windowEnd: group.windowEnd,
+            meetingTime: group.meetingTime ?? group.windowStart,
           });
 
           return {
@@ -1384,8 +1382,7 @@ export const hardLockGroups = internalMutation({
         ctx,
         activeMembers.map((member) => {
           const pushCopy = buildLockedPushCopy({
-            windowStart: group.windowStart,
-            windowEnd: group.windowEnd,
+            meetingTime: group.meetingTime ?? group.windowStart,
           });
 
           return {
@@ -1750,15 +1747,14 @@ export const attemptLateJoin = internalMutation({
         ctx,
         [...targetActiveMembers.map((member) => member.userId), args.userId as string].map(
           (userId) => {
-            const rideLabel = formatRideWindowForPush(sharedStart, sharedEnd);
+            const rideLabel = formatRideMeetingTimeForPush(updatedMeetingTime);
             const pushCopy = shouldResetAcknowledgements
               ? {
                   title: "Ride updated",
                   body: `Your ${rideLabel} ride changed. Confirm again within 30 minutes to keep your spot.`,
                 }
               : buildLockedPushCopy({
-                  windowStart: sharedStart,
-                  windowEnd: sharedEnd,
+                  meetingTime: updatedMeetingTime,
                 });
             const emailTitle = shouldResetAcknowledgements
               ? "Your ride changed"
@@ -1792,8 +1788,7 @@ export const attemptLateJoin = internalMutation({
         ctx,
         targetActiveMembers.map((member) => {
           const pushCopy = buildLateJoinPushCopy({
-            windowStart: sharedStart,
-            windowEnd: sharedEnd,
+            meetingTime: updatedMeetingTime,
           });
 
           return {
@@ -1889,8 +1884,7 @@ export const requestRedelegate = mutation({
           activeMembers.map((m) => {
             const bookerMember = activeMembers.find((am) => am.userId === newBooker);
             const pushCopy = buildBookerChangedPushCopy({
-              windowStart: group.windowStart,
-              windowEnd: group.windowEnd,
+              meetingTime: group.meetingTime ?? group.windowStart,
             });
             return {
               userId: m.userId as Id<"users">,

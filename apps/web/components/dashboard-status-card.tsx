@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../convex/_generated/api";
 import { isCurrentOpenAvailability } from "../lib/availability-state";
+import { formatStoredMeetingTimeWithDate } from "../lib/time-range";
 
 type ActiveTripSnapshot = {
   group: {
@@ -34,16 +35,6 @@ type StatusState =
       meetLocation: string;
       groupStatus: string;
     };
-
-function formatMeetTime(iso: string) {
-  return new Date(iso).toLocaleString("en-SG", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 function resolveStatus(group: ActiveTripSnapshot, openCount: number): StatusState {
   if (!group) {
@@ -274,7 +265,7 @@ function StatusCard({
           </div>
         </div>
         <p className="text-sm text-muted">
-          Meet at {state.meetLocation} · {formatMeetTime(state.meetTime)}
+          Meet at {state.meetLocation} · {formatStoredMeetingTimeWithDate(state.meetTime)}
         </p>
       </div>
     </Link>

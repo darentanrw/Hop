@@ -1,30 +1,28 @@
-import { formatStoredWindowWithDate } from "./time-range";
+import { formatStoredMeetingTimeWithDate } from "./time-range";
 
-type RideWindow = {
-  windowStart: string;
-  windowEnd: string;
+type RideMeeting = {
+  meetingTime: string;
 };
 
-type MatchPushCopyOptions = RideWindow & {
+type MatchPushCopyOptions = RideMeeting & {
   isFullGroup: boolean;
   isLastMinuteGroup: boolean;
   remainingSeats: number;
   meetingLocationLabel: string;
 };
 
-export function formatRideWindowForPush(windowStart: string, windowEnd: string) {
-  return formatStoredWindowWithDate(windowStart, windowEnd);
+export function formatRideMeetingTimeForPush(meetingTime: string) {
+  return formatStoredMeetingTimeWithDate(meetingTime);
 }
 
 export function buildMatchedPushCopy({
-  windowStart,
-  windowEnd,
+  meetingTime,
   isFullGroup,
   isLastMinuteGroup,
   remainingSeats,
   meetingLocationLabel,
 }: MatchPushCopyOptions) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   if (isFullGroup) {
     return {
@@ -46,8 +44,8 @@ export function buildMatchedPushCopy({
   };
 }
 
-export function buildLockedPushCopy({ windowStart, windowEnd }: RideWindow) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+export function buildLockedPushCopy({ meetingTime }: RideMeeting) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Ride locked",
@@ -56,11 +54,10 @@ export function buildLockedPushCopy({ windowStart, windowEnd }: RideWindow) {
 }
 
 export function buildConfirmedPushCopy({
-  windowStart,
-  windowEnd,
+  meetingTime,
   meetingLocationLabel,
-}: RideWindow & { meetingLocationLabel: string }) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+}: RideMeeting & { meetingLocationLabel: string }) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Ride confirmed",
@@ -68,8 +65,8 @@ export function buildConfirmedPushCopy({
   };
 }
 
-export function buildMovedOnWithoutYouPushCopy({ windowStart, windowEnd }: RideWindow) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+export function buildMovedOnWithoutYouPushCopy({ meetingTime }: RideMeeting) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Ride continued without you",
@@ -77,8 +74,8 @@ export function buildMovedOnWithoutYouPushCopy({ windowStart, windowEnd }: RideW
   };
 }
 
-export function buildCouldNotConfirmPushCopy({ windowStart, windowEnd }: RideWindow) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+export function buildCouldNotConfirmPushCopy({ meetingTime }: RideMeeting) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Ride could not be confirmed",
@@ -86,8 +83,8 @@ export function buildCouldNotConfirmPushCopy({ windowStart, windowEnd }: RideWin
   };
 }
 
-export function buildRemovedFromRidePushCopy({ windowStart, windowEnd }: RideWindow) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+export function buildRemovedFromRidePushCopy({ meetingTime }: RideMeeting) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Removed from ride",
@@ -96,11 +93,10 @@ export function buildRemovedFromRidePushCopy({ windowStart, windowEnd }: RideWin
 }
 
 export function buildPaymentRequestedPushCopy({
-  windowStart,
-  windowEnd,
+  meetingTime,
   amountLabel,
-}: RideWindow & { amountLabel: string }) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+}: RideMeeting & { amountLabel: string }) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Payment proof due",
@@ -108,8 +104,8 @@ export function buildPaymentRequestedPushCopy({
   };
 }
 
-export function buildLateJoinPushCopy({ windowStart, windowEnd }: RideWindow) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+export function buildLateJoinPushCopy({ meetingTime }: RideMeeting) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Ride updated",
@@ -117,8 +113,8 @@ export function buildLateJoinPushCopy({ windowStart, windowEnd }: RideWindow) {
   };
 }
 
-export function buildBookerChangedPushCopy({ windowStart, windowEnd }: RideWindow) {
-  const rideLabel = formatRideWindowForPush(windowStart, windowEnd);
+export function buildBookerChangedPushCopy({ meetingTime }: RideMeeting) {
+  const rideLabel = formatRideMeetingTimeForPush(meetingTime);
 
   return {
     title: "Ride updated",

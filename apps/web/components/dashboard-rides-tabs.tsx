@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Doc } from "../convex/_generated/dataModel";
+import { formatStoredMeetingTimeWithDate } from "../lib/time-range";
 import { AvailabilityList, type AvailabilityWindowRow } from "./availability-list";
 
 export type PastRideSummary = {
@@ -19,7 +20,7 @@ export type PastRideSummary = {
   endedAt: string;
 };
 
-function formatPastRideWhen(iso: string) {
+function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString("en-SG", {
     weekday: "short",
     month: "short",
@@ -35,6 +36,19 @@ function formatFare(cents: number | null) {
     style: "currency",
     currency: "SGD",
   }).format(cents / 100);
+}
+
+function sortPastRides(rides: PastRideSummary[]) {
+  return [...rides].sort((left, right) => {
+    const endedDelta = new Date(right.endedAt).getTime() - new Date(left.endedAt).getTime();
+    if (endedDelta !== 0) return endedDelta;
+
+    const meetingDelta =
+      new Date(right.meetingTime).getTime() - new Date(left.meetingTime).getTime();
+    if (meetingDelta !== 0) return meetingDelta;
+
+    return right.groupId.localeCompare(left.groupId);
+  });
 }
 
 function pastRideStatusMeta(status: string) {
@@ -114,9 +128,9 @@ function PastRidesList({ rides }: { rides: PastRideSummary[] }) {
               <span className={`pill pill-sm ${statusMeta.pillClass}`}>{statusMeta.label}</span>
             </div>
             <p className="text-sm text-muted" style={{ marginBottom: 4 }}>
-              {ride.pickupLabel} · {formatPastRideWhen(ride.meetingTime)}
+              {ride.pickupLabel} · {formatStoredMeetingTimeWithDate(ride.meetingTime)}
             </p>
-            <p className="text-xs text-muted">Ended {formatPastRideWhen(ride.endedAt)}</p>
+            <p className="text-xs text-muted">Ended {formatDateTime(ride.endedAt)}</p>
             {ride.status === "closed" && fare ? (
               <p className="text-sm" style={{ marginTop: 8, fontWeight: 600 }}>
                 Total {fare}
@@ -140,7 +154,7 @@ export function DashboardRidesTabs({
 }) {
   const [tab, setTab] = useState<"windows" | "history">("windows");
   const livePastRides = useQuery(api.trips.listPastRides);
-  const pastRides = livePastRides ?? initialPastRides;
+  const pastRides = sortPastRides(livePastRides ?? initialPastRides);
 
   return (
     <div>
