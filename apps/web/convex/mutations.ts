@@ -18,6 +18,7 @@ import {
   overlapMinutes,
 } from "@hop/shared";
 import { v } from "convex/values";
+import { isCurrentOpenAvailability } from "../lib/availability-state";
 import { buildLockedGroupDestinations } from "../lib/group-destinations";
 import {
   MEETING_LOCATION_LABEL,
@@ -32,6 +33,7 @@ import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib
 import { formGroups } from "../lib/matching";
 import { buildLoginUrl, buildNotificationEmail } from "../lib/notification-email";
 import { checkRideEligibility } from "../lib/ride-eligibility";
+import { isGroupPastWindowBeforeDeparture } from "../lib/trip-state";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
@@ -439,14 +441,23 @@ export const createAvailability = mutation({
       throw new Error("Clear your previous trip payment before scheduling another ride.");
     }
 
-    const existing = await ctx.db
+    const existingAvailabilities = await ctx.db
       .query("availabilities")
       .withIndex("userId", (q) => q.eq("userId", userId))
-      .filter((q) => q.eq(q.field("status"), "open"))
-      .first();
+      .collect();
 
-    if (existing) {
+    const currentOpenAvailability = existingAvailabilities.find((availability) =>
+      isCurrentOpenAvailability(availability),
+    );
+
+    if (currentOpenAvailability) {
       throw new Error("You already have an open ride window. Cancel it before creating another.");
+    }
+
+    for (const availability of existingAvailabilities) {
+      if (availability.status !== "open") continue;
+      if (isCurrentOpenAvailability(availability)) continue;
+      await ctx.db.patch(availability._id, { status: "cancelled" });
     }
 
     return await ctx.db.insert("availabilities", {
@@ -772,6 +783,7 @@ export const createTentativeGroup = internalMutation({
     const conflictingGroup = activeGroups.find(
       (group) =>
         inProgressStatuses.has(group.status) &&
+        !isGroupPastWindowBeforeDeparture(group) &&
         group.memberUserIds.some((memberUserId) => args.memberUserIds.includes(memberUserId)),
     );
     if (conflictingGroup) {

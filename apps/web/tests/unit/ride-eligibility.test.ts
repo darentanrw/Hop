@@ -68,6 +68,25 @@ describe("checkRideEligibility", () => {
     expect(result.unpaidCount).toBe(0);
   });
 
+  it("does not block for a pre-departure group once its ride window has ended", () => {
+    const result = checkRideEligibility([
+      pair(
+        {},
+        { status: "meetup_checkin", windowEnd: new Date(Date.now() - 60_000).toISOString() },
+      ),
+    ]);
+    expect(result.blocked).toBe(false);
+    expect(result.hasActiveGroup).toBe(false);
+  });
+
+  it("keeps post-departure groups active even when their ride window has ended", () => {
+    const result = checkRideEligibility([
+      pair({}, { status: "in_trip", windowEnd: new Date(Date.now() - 60_000).toISOString() }),
+    ]);
+    expect(result.blocked).toBe(true);
+    expect(result.hasActiveGroup).toBe(true);
+  });
+
   it("blocks for every active group status", () => {
     for (const status of ACTIVE_GROUP_STATUSES) {
       const membership =

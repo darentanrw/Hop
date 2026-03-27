@@ -39,14 +39,28 @@ function formatFare(cents: number | null) {
   }).format(cents / 100);
 }
 
-function pastRideStatusLabel(status: string): string {
+function pastRideStatusMeta(status: string) {
   const map: Record<string, string> = {
     closed: "Completed",
     cancelled: "Cancelled",
     dissolved: "Did not form",
     reported: "Reported",
+    did_not_start: "Did not start",
+    no_show: "No-show",
   };
-  return map[status] ?? status.replace(/_/g, " ");
+
+  const pillClass =
+    status === "closed" ? "pill-success" : status === "reported" ? "pill-danger" : "pill-muted";
+
+  return {
+    label: map[status] ?? status.replace(/_/g, " "),
+    pillClass,
+    muted:
+      status === "cancelled" ||
+      status === "dissolved" ||
+      status === "did_not_start" ||
+      status === "no_show",
+  };
 }
 
 function PastRidesList({ rides }: { rides: PastRideSummary[] }) {
@@ -65,28 +79,41 @@ function PastRidesList({ rides }: { rides: PastRideSummary[] }) {
     <div className="stack-sm">
       {rides.map((ride) => {
         const fare = formatFare(ride.finalCostCents);
-        const statusLabel = pastRideStatusLabel(ride.status);
-        return (
-          <div
-            key={ride.groupId}
-            className="card"
-            style={{
+        const statusMeta = pastRideStatusMeta(ride.status);
+        const cardStyle = statusMeta.muted
+          ? {
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              boxShadow: "none",
+              opacity: 0.72,
+            }
+          : statusMeta.pillClass === "pill-danger"
+            ? {
+                border: "1px solid rgba(239, 107, 107, 0.26)",
+                boxShadow: "0 4px 18px rgba(239, 107, 107, 0.12)",
+              }
+            : {
+                border: `1px solid ${ride.groupColor}44`,
+                boxShadow: `0 4px 18px ${ride.groupColor}18`,
+              };
+        const groupPillStyle = statusMeta.muted
+          ? {
+              background: "rgba(85, 93, 126, 0.15)",
+              color: "var(--text-muted)",
+              border: "1px solid var(--border)",
+            }
+          : {
+              background: `${ride.groupColor}22`,
+              color: ride.groupColor,
               border: `1px solid ${ride.groupColor}44`,
-              boxShadow: `0 4px 18px ${ride.groupColor}18`,
-            }}
-          >
+            };
+        return (
+          <div key={ride.groupId} className="card" style={cardStyle}>
             <div className="row-between" style={{ marginBottom: 8 }}>
-              <span
-                className="pill pill-sm"
-                style={{
-                  background: `${ride.groupColor}22`,
-                  color: ride.groupColor,
-                  border: `1px solid ${ride.groupColor}44`,
-                }}
-              >
+              <span className="pill pill-sm" style={groupPillStyle}>
                 {ride.groupName}
               </span>
-              <span className="pill pill-sm pill-muted">{statusLabel}</span>
+              <span className={`pill pill-sm ${statusMeta.pillClass}`}>{statusMeta.label}</span>
             </div>
             <p className="text-sm text-muted" style={{ marginBottom: 4 }}>
               {ride.pickupLabel} · {formatPastRideWhen(ride.meetingTime)}
