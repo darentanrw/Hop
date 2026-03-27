@@ -38,7 +38,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { requireAdmin } from "./adminAccess";
+import { isAdminUserEmail, requireAdmin } from "./adminAccess";
 
 const LOCAL_QA_BOT_PREFIX = "local-qa-bot-";
 
@@ -118,6 +118,223 @@ type AdminDashboardSnapshot = {
   reports: AdminReportView[];
   auditEvents: AdminAuditEventView[];
 };
+
+type SeededLocalQaReportTemplate = {
+  reporterIndex: number;
+  reportedIndex?: number;
+  category: Doc<"reports">["category"];
+  descriptionTemplate: string;
+  createdOffsetMinutes: number;
+  reviewStatus: ReportReviewStatus;
+  reviewStartedOffsetMinutes?: number;
+  reviewedOffsetMinutes?: number;
+  reviewNoteTemplate?: string;
+  ai:
+    | {
+        status: "ready";
+        scoredOffsetMinutes: number;
+        severityScore: number;
+        rationaleTemplate: string;
+        recommendedActionTemplate: string;
+      }
+    | {
+        status: "pending";
+      }
+    | {
+        status: "failed";
+        scoredOffsetMinutes: number;
+        errorTemplate: string;
+      };
+};
+
+const SEEDED_LOCAL_QA_NAME_SETS = [
+  ["Alicia Tan", "Marcus Lim", "Siti Rahman", "Daniel Goh"],
+  ["Priya Menon", "Ethan Koh", "Nur Aisyah", "Jia Hao Ong"],
+] as const;
+
+const SEEDED_LOCAL_QA_REPORT_TEMPLATES = [
+  [
+    {
+      reporterIndex: 0,
+      reportedIndex: 1,
+      category: "unsafe_behavior",
+      descriptionTemplate:
+        "{{reported}} kept pushing the group to move from the main {{pickup}} pickup to a darker service road and got confrontational when we said we wanted to stay near the plaza.",
+      createdOffsetMinutes: 12,
+      reviewStatus: "open",
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 18,
+        severityScore: 92,
+        rationaleTemplate:
+          "Multiple riders described pressure to move to an isolated pickup point and escalating aggression when they refused.",
+        recommendedActionTemplate:
+          "Contact {{reporter}} and {{reported}} today and pause new matches until the safety complaint is reviewed.",
+      },
+    },
+    {
+      reporterIndex: 2,
+      reportedIndex: 1,
+      category: "harassment",
+      descriptionTemplate:
+        "{{reported}} sent repeated personal comments in the group chat after {{reporter}} asked to keep the pickup point unchanged. The tone felt targeted rather than just stressed.",
+      createdOffsetMinutes: 16,
+      reviewStatus: "in_review",
+      reviewedOffsetMinutes: 46,
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 22,
+        severityScore: 78,
+        rationaleTemplate:
+          "The complaint alleges repeated targeted comments in a live ride coordination channel, which creates a conduct concern that still needs corroboration.",
+        recommendedActionTemplate:
+          "Review the group chat log, preserve screenshots, and warn {{reported}} if the behaviour is corroborated.",
+      },
+    },
+    {
+      reporterIndex: 3,
+      category: "other",
+      descriptionTemplate:
+        "No single rider to name here, but pickup coordination broke down because the meetup point kept changing between the plaza and the carpark entrance. We lost almost twenty minutes and nobody knew who was actually coordinating.",
+      createdOffsetMinutes: 19,
+      reviewStatus: "open",
+      ai: {
+        status: "pending",
+      },
+    },
+    {
+      reporterIndex: 1,
+      reportedIndex: 2,
+      category: "non_payment",
+      descriptionTemplate:
+        "{{reported}} said they needed a few extra minutes to transfer their share and asked the rest of us to cover first.",
+      createdOffsetMinutes: 23,
+      reviewStatus: "dismissed",
+      reviewStartedOffsetMinutes: 40,
+      reviewedOffsetMinutes: 61,
+      reviewNoteTemplate:
+        "Payment screenshot and recipient confirmation matched after manual review, so this report was dismissed.",
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 28,
+        severityScore: 22,
+        rationaleTemplate:
+          "This is a payment-delay complaint with no allegation of threat, coercion, or repeat misconduct.",
+        recommendedActionTemplate:
+          "Verify payment evidence before taking further action against {{reported}}.",
+      },
+    },
+    {
+      reporterIndex: 0,
+      reportedIndex: 3,
+      category: "no_show",
+      descriptionTemplate:
+        "{{reported}} only replied after the rest of the group had already been waiting for more than ten minutes at {{pickup}}.",
+      createdOffsetMinutes: 26,
+      reviewStatus: "resolved",
+      reviewStartedOffsetMinutes: 39,
+      reviewedOffsetMinutes: 55,
+      reviewNoteTemplate:
+        "Two riders confirmed the delay and the lateness was recorded against the member.",
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 30,
+        severityScore: 48,
+        rationaleTemplate:
+          "The report describes a late meetup that disrupted coordination but does not suggest broader safety risk.",
+        recommendedActionTemplate:
+          "Document the incident and send {{reported}} a reminder about meetup timing expectations.",
+      },
+    },
+  ],
+  [
+    {
+      reporterIndex: 0,
+      reportedIndex: 3,
+      category: "non_payment",
+      descriptionTemplate:
+        "{{reported}} asked everyone to pay first once the receipt was uploaded, then stopped responding when we asked whether the transfer had actually gone through.",
+      createdOffsetMinutes: 8,
+      reviewStatus: "open",
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 14,
+        severityScore: 71,
+        rationaleTemplate:
+          "The rider appears to be withholding payment confirmation after asking others to front the fare.",
+        recommendedActionTemplate:
+          "Request proof of payment from {{reported}} and confirm receipt with the booker before closing this item.",
+      },
+    },
+    {
+      reporterIndex: 1,
+      reportedIndex: 0,
+      category: "no_show",
+      descriptionTemplate:
+        "{{reported}} missed the agreed pickup timing and only responded after the driver had already looped past the stop once.",
+      createdOffsetMinutes: 10,
+      reviewStatus: "resolved",
+      reviewStartedOffsetMinutes: 27,
+      reviewedOffsetMinutes: 42,
+      reviewNoteTemplate:
+        "The rest of the group confirmed the delayed pickup and the report was resolved with a warning.",
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 17,
+        severityScore: 44,
+        rationaleTemplate:
+          "The complaint shows coordination impact and wasted driver time but limited evidence of intentional harm.",
+        recommendedActionTemplate:
+          "Record the incident and close it if the other riders confirm the same timeline.",
+      },
+    },
+    {
+      reporterIndex: 2,
+      reportedIndex: 1,
+      category: "misconduct",
+      descriptionTemplate:
+        "{{reported}} kept trying to reorder drop-offs mid-trip without checking with the rest of the group and argued when told the route was already locked.",
+      createdOffsetMinutes: 12,
+      reviewStatus: "open",
+      ai: {
+        status: "failed",
+        scoredOffsetMinutes: 20,
+        errorTemplate: "Timed out while waiting for the moderation model response.",
+      },
+    },
+    {
+      reporterIndex: 3,
+      reportedIndex: 1,
+      category: "unsafe_behavior",
+      descriptionTemplate:
+        "{{reported}} raised their voice at another rider during the trip and told the driver to ignore the planned stop order. The rest of the group were visibly uncomfortable after that.",
+      createdOffsetMinutes: 16,
+      reviewStatus: "open",
+      ai: {
+        status: "ready",
+        scoredOffsetMinutes: 24,
+        severityScore: 89,
+        rationaleTemplate:
+          "The report combines aggressive behaviour with attempts to override the agreed route during an active shared ride.",
+        recommendedActionTemplate:
+          "Prioritise human review and contact the affected riders before allowing {{reported}} into another trip.",
+      },
+    },
+    {
+      reporterIndex: 0,
+      reportedIndex: 2,
+      category: "harassment",
+      descriptionTemplate:
+        "{{reported}} kept mocking {{reporter}} in chat for asking about the fare split screenshots and continued after the ride ended.",
+      createdOffsetMinutes: 20,
+      reviewStatus: "in_review",
+      reviewedOffsetMinutes: 37,
+      ai: {
+        status: "pending",
+      },
+    },
+  ],
+] satisfies readonly (readonly SeededLocalQaReportTemplate[])[];
 
 function cleanOptionalText(value: string | undefined | null) {
   const trimmed = value?.trim();
@@ -472,6 +689,26 @@ function ensureLocalQaEnabled() {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function isLocalQaUserEmail(email: string | undefined | null) {
+  return email?.trim().toLowerCase().startsWith("local-qa-") === true;
+}
+
+function offsetIso(baseIso: string, offsetMinutes: number) {
+  const baseMs = Date.parse(baseIso);
+  if (Number.isNaN(baseMs)) {
+    return nowIso();
+  }
+
+  return new Date(baseMs + offsetMinutes * 60_000).toISOString();
+}
+
+function fillSeedTemplate(template: string, values: Record<string, string | undefined | null>) {
+  return Object.entries(values).reduce(
+    (output, [key, value]) => output.replaceAll(`{{${key}}}`, value?.trim() || ""),
+    template,
+  );
 }
 
 async function requireAuthenticatedUserId(ctx: QueryCtx | MutationCtx) {
@@ -1074,6 +1311,316 @@ export const seedLocalQaPool = mutation({
     return {
       ok: true,
       createdAvailabilities: 1 + botAvailabilityIds.length,
+    };
+  },
+});
+
+export const seedLocalQaReports = internalMutation({
+  args: {
+    overwrite: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { overwrite }) => {
+    ensureLocalQaEnabled();
+
+    const shouldOverwrite = overwrite !== false;
+    const [users, groups] = await Promise.all([
+      ctx.db.query("users").collect(),
+      ctx.db.query("groups").collect(),
+    ]);
+
+    const usersById = new Map(users.map((user) => [user._id as string, user]));
+    const qaUsersById = new Map(
+      users
+        .filter((user) => isLocalQaUserEmail(user.email))
+        .map((user) => [user._id as string, user]),
+    );
+
+    const targetGroups = groups
+      .map((group) => ({
+        group,
+        memberUserIds: group.memberUserIds
+          .filter((userId) => qaUsersById.has(userId))
+          .slice(0, 4)
+          .map((userId) => userId as Id<"users">),
+      }))
+      .filter(({ memberUserIds }) => memberUserIds.length >= 4)
+      .sort((left, right) => right.group._creationTime - left.group._creationTime)
+      .slice(0, SEEDED_LOCAL_QA_REPORT_TEMPLATES.length);
+
+    if (targetGroups.length === 0) {
+      throw new Error("No local QA groups with at least four riders were found.");
+    }
+
+    const targetGroupIds = new Set(targetGroups.map(({ group }) => group._id as string));
+    const targetUserIds = new Set(
+      targetGroups.flatMap(({ memberUserIds }) => memberUserIds.map((userId) => userId as string)),
+    );
+
+    const reviewer =
+      users.find((user) => isAdminUserEmail(user.email)) ??
+      usersById.get(targetGroups[0]?.memberUserIds[0] as string) ??
+      null;
+    if (!reviewer) {
+      throw new Error("No reviewer account was available for seeded moderation activity.");
+    }
+    const reviewerUserId = reviewer._id as Id<"users">;
+
+    const existingReports = (
+      await Promise.all(
+        targetGroups.map(({ group }) =>
+          ctx.db
+            .query("reports")
+            .withIndex("groupId", (q) => q.eq("groupId", group._id))
+            .collect(),
+        ),
+      )
+    ).flat();
+
+    if (shouldOverwrite && existingReports.length > 0) {
+      const existingReportIds = new Set(existingReports.map((report) => report._id as string));
+      for (const report of existingReports) {
+        await ctx.db.delete(report._id);
+      }
+
+      const auditEvents = await ctx.db.query("auditEvents").collect();
+      for (const event of auditEvents) {
+        if (!event.action.startsWith("report.")) continue;
+
+        const metadata =
+          typeof event.metadata === "object" && event.metadata !== null
+            ? (event.metadata as { reportId?: string; groupId?: string })
+            : null;
+        const metadataReportId =
+          metadata && typeof metadata.reportId === "string" ? metadata.reportId : null;
+        const metadataGroupId =
+          metadata && typeof metadata.groupId === "string" ? metadata.groupId : null;
+
+        if (
+          (metadataReportId && existingReportIds.has(metadataReportId)) ||
+          (metadataGroupId && targetGroupIds.has(metadataGroupId))
+        ) {
+          await ctx.db.delete(event._id);
+        }
+      }
+    }
+
+    const assignedUserNames = new Map<string, string>();
+    for (const [groupIndex, targetGroup] of targetGroups.entries()) {
+      const seedNames = SEEDED_LOCAL_QA_NAME_SETS[groupIndex % SEEDED_LOCAL_QA_NAME_SETS.length];
+      targetGroup.memberUserIds.forEach((userId, memberIndex) => {
+        if (!assignedUserNames.has(userId as string)) {
+          assignedUserNames.set(userId as string, seedNames[memberIndex % seedNames.length]);
+        }
+      });
+    }
+
+    for (const [userId, name] of assignedUserNames) {
+      await ctx.db.patch(userId as Id<"users">, { name });
+    }
+
+    if (!targetUserIds.has(reviewerUserId as string)) {
+      await ctx.db.patch(reviewerUserId, { name: "QA Admin" });
+    }
+
+    const createdReportIds: Id<"reports">[] = [];
+    let reportSeedIndex = 0;
+
+    for (const [groupIndex, targetGroup] of targetGroups.entries()) {
+      const templates = SEEDED_LOCAL_QA_REPORT_TEMPLATES[groupIndex] ?? [];
+      const baseIso = targetGroup.group.departedAt ?? targetGroup.group.createdAt;
+      const groupLabel = getGroupLabel(targetGroup.group);
+      const pickupLabel = targetGroup.group.pickupLabel;
+
+      for (const template of templates) {
+        const reporterUserId = targetGroup.memberUserIds[template.reporterIndex];
+        const reportedUserId =
+          typeof template.reportedIndex === "number"
+            ? targetGroup.memberUserIds[template.reportedIndex]
+            : undefined;
+
+        if (!reporterUserId) continue;
+        if (reportedUserId && reporterUserId === reportedUserId) continue;
+
+        const reporterName =
+          assignedUserNames.get(reporterUserId as string) ??
+          usersById.get(reporterUserId as string)?.name?.trim() ??
+          usersById.get(reporterUserId as string)?.email?.trim() ??
+          "Reporter";
+        const reportedName =
+          (reportedUserId &&
+            (assignedUserNames.get(reportedUserId as string) ??
+              usersById.get(reportedUserId as string)?.name?.trim() ??
+              usersById.get(reportedUserId as string)?.email?.trim())) ||
+          undefined;
+        const replacements = {
+          group: groupLabel,
+          pickup: pickupLabel,
+          reporter: reporterName,
+          reported: reportedName,
+        };
+        const createdAt = offsetIso(baseIso, template.createdOffsetMinutes);
+        const reviewedAt =
+          typeof template.reviewedOffsetMinutes === "number"
+            ? offsetIso(baseIso, template.reviewedOffsetMinutes)
+            : undefined;
+        const reviewStartedAt =
+          typeof template.reviewStartedOffsetMinutes === "number"
+            ? offsetIso(baseIso, template.reviewStartedOffsetMinutes)
+            : reviewedAt;
+
+        reportSeedIndex += 1;
+        const requestId = `local-qa-seed-${Date.now().toString(36)}-${reportSeedIndex}`;
+        const reportId = await ctx.db.insert("reports", {
+          groupId: targetGroup.group._id,
+          reporterUserId,
+          ...(reportedUserId ? { reportedUserId } : {}),
+          category: template.category,
+          description: fillSeedTemplate(template.descriptionTemplate, replacements).trim(),
+          createdAt,
+          reviewStatus: template.reviewStatus,
+          reviewNote: template.reviewNoteTemplate
+            ? fillSeedTemplate(template.reviewNoteTemplate, replacements).trim()
+            : undefined,
+          reviewedByUserId: template.reviewStatus === "open" ? undefined : reviewerUserId,
+          reviewedAt: template.reviewStatus === "open" ? undefined : reviewedAt,
+          aiStatus: template.ai.status,
+          severityScore: template.ai.status === "ready" ? template.ai.severityScore : undefined,
+          severityBand:
+            template.ai.status === "ready"
+              ? inferSeverityBandFromScore(template.ai.severityScore)
+              : undefined,
+          aiRationale:
+            template.ai.status === "ready"
+              ? fillSeedTemplate(template.ai.rationaleTemplate, replacements).trim()
+              : undefined,
+          aiRecommendedAction:
+            template.ai.status === "ready"
+              ? fillSeedTemplate(template.ai.recommendedActionTemplate, replacements).trim()
+              : undefined,
+          aiScoredAt:
+            template.ai.status === "pending"
+              ? undefined
+              : offsetIso(baseIso, template.ai.scoredOffsetMinutes),
+          aiModel: template.ai.status === "pending" ? undefined : "local-qa-seed-v1",
+          aiRequestId: template.ai.status === "pending" ? undefined : requestId,
+          aiError:
+            template.ai.status === "failed"
+              ? fillSeedTemplate(template.ai.errorTemplate, replacements).trim()
+              : undefined,
+        });
+
+        createdReportIds.push(reportId);
+
+        await ctx.db.insert("auditEvents", {
+          action: "report.created",
+          actorId: reporterUserId,
+          metadata: {
+            reportId,
+            groupId: targetGroup.group._id,
+            category: template.category,
+            reportedUserId: reportedUserId ?? null,
+          },
+          createdAt,
+        });
+
+        if (template.reviewStatus === "in_review" && reviewedAt) {
+          await ctx.db.insert("auditEvents", {
+            action: "report.review_started",
+            actorId: reviewerUserId,
+            metadata: {
+              reportId,
+            },
+            createdAt: reviewedAt,
+          });
+        }
+
+        if (
+          (template.reviewStatus === "resolved" || template.reviewStatus === "dismissed") &&
+          reviewedAt
+        ) {
+          if (reviewStartedAt) {
+            await ctx.db.insert("auditEvents", {
+              action: "report.review_started",
+              actorId: reviewerUserId,
+              metadata: {
+                reportId,
+              },
+              createdAt: reviewStartedAt,
+            });
+          }
+
+          await ctx.db.insert("auditEvents", {
+            action: template.reviewStatus === "resolved" ? "report.resolved" : "report.dismissed",
+            actorId: reviewerUserId,
+            metadata: {
+              reportId,
+              note: template.reviewNoteTemplate
+                ? fillSeedTemplate(template.reviewNoteTemplate, replacements).trim()
+                : null,
+            },
+            createdAt: reviewedAt,
+          });
+        }
+      }
+    }
+
+    const allReports = await ctx.db.query("reports").collect();
+    for (const { group } of targetGroups) {
+      await ctx.db.patch(group._id, {
+        reportCount: allReports.filter((report) => report.groupId === group._id).length,
+      });
+    }
+
+    for (const userId of targetUserIds) {
+      await ctx.db.patch(userId as Id<"users">, {
+        reportedCount: allReports.filter((report) => report.reportedUserId === userId).length,
+      });
+    }
+
+    const snapshot = await buildAdminDashboardSnapshot(ctx);
+    const summarySource = buildSummarySource(snapshot);
+    const unresolvedCount = summarySource.unresolvedReportCounts.total;
+    const criticalCount =
+      typeof summarySource.unresolvedReportCounts.bySeverity.critical === "number"
+        ? summarySource.unresolvedReportCounts.bySeverity.critical
+        : 0;
+    const aiPendingCount = summarySource.unresolvedReportCounts.aiPending;
+    const aiFailedCount = summarySource.unresolvedReportCounts.aiFailed;
+    const topCategories = Object.entries(summarySource.unresolvedReportCounts.byCategory)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 2)
+      .map(([category]) => getReportCategoryLabel(category))
+      .join(" and ");
+    const groupLabels = targetGroups.map(({ group }) => getGroupLabel(group));
+
+    await saveAdminInsight(ctx, {
+      status: "ready",
+      summaryHeadline: `${unresolvedCount} unresolved reports need follow-up`,
+      summaryBody: `The moderation queue is concentrated in ${groupLabels.join(" and ")}. ${criticalCount} unresolved reports are already marked critical, with ${aiPendingCount} still waiting on AI scoring and ${aiFailedCount} that need manual fallback. ${topCategories ? `${topCategories} complaints make up the biggest buckets in the current queue.` : "The current queue spans multiple categories so the filters are exercised end to end."}`,
+      recommendedFocus: [
+        criticalCount > 0
+          ? `Triage the ${criticalCount} critical safety complaints first.`
+          : "Start with the oldest unresolved report in the queue.",
+        "Confirm payment proof before closing the open non-payment complaints.",
+        aiFailedCount > 0
+          ? "Retry AI scoring for the timed-out report, but do not block manual review."
+          : "Work through the remaining open queue after the safety items are assigned.",
+      ],
+      generatedAt: nowIso(),
+      model: "local-qa-seed-v1",
+      requestId: `local-qa-summary-${Date.now().toString(36)}`,
+      error: undefined,
+    });
+
+    return {
+      ok: true,
+      groupsSeeded: targetGroups.map(({ group }) => ({
+        groupId: group._id,
+        groupLabel: getGroupLabel(group),
+      })),
+      reportsCreated: createdReportIds.length,
+      targetedUsers: targetUserIds.size,
+      unresolvedReports: unresolvedCount,
     };
   },
 });
