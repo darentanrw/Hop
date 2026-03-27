@@ -464,6 +464,25 @@ async function scheduleDashboardSummaryRefresh(ctx: MutationCtx, reason: string)
   });
 }
 
+async function incrementConfirmedReportCount(
+  ctx: MutationCtx,
+  reportedUserId: string | undefined | null,
+) {
+  if (!reportedUserId) {
+    return;
+  }
+
+  const userId = reportedUserId as Id<"users">;
+  const reportedUser = await ctx.db.get(userId);
+  if (!reportedUser) {
+    return;
+  }
+
+  await ctx.db.patch(userId, {
+    confirmedReportCount: (reportedUser.confirmedReportCount ?? 0) + 1,
+  });
+}
+
 function ensureLocalQaEnabled() {
   if (process.env.ENABLE_LOCAL_QA !== "true") {
     throw new Error("Local QA controls are disabled.");
@@ -965,6 +984,8 @@ export const resolveReport = mutation({
       reviewedAt: nowIso(),
     });
     await incrementConfirmedReportCountForReport(ctx, report);
+
+    await incrementConfirmedReportCount(ctx, report.reportedUserId);
 
     await ctx.db.insert("auditEvents", {
       action: "report.resolved",
