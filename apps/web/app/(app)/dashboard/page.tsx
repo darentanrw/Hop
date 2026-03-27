@@ -11,14 +11,15 @@ export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
   if (!token) return null;
 
-  const [riderProfile, availabilities, group, eligibility, adminAccess, pastRides] = await Promise.all([
-    fetchQuery(api.queries.getRiderProfile, {}, { token }),
-    fetchQuery(api.queries.listAvailabilities, {}, { token }),
-    fetchQuery(api.trips.getActiveTrip, {}, { token }),
-    fetchQuery(api.trips.getRideEligibility, {}, { token }),
-    fetchQuery(api.admin.adminAccess, {}, { token }),
-    fetchQuery(api.trips.listPastRides, {}, { token }),
-  ]);
+  const [riderProfile, availabilities, group, eligibility, adminAccess, pastRides] =
+    await Promise.all([
+      fetchQuery(api.queries.getRiderProfile, {}, { token }),
+      fetchQuery(api.queries.listAvailabilities, {}, { token }),
+      fetchQuery(api.trips.getActiveTrip, {}, { token }),
+      fetchQuery(api.trips.getRideEligibility, {}, { token }),
+      fetchQuery(api.admin.adminAccess, {}, { token }),
+      fetchQuery(api.trips.listPastRides, {}, { token }),
+    ]);
   const dashboardNotice = getDashboardNotice({
     hasActiveTrip: Boolean(group),
     eligibility,
@@ -42,21 +43,10 @@ export default async function DashboardPage() {
         />
       )}
 
-      <div>
-        <div className="section-header" style={{ marginBottom: 12 }}>
-          <h2>Your windows</h2>
-          {!eligibility?.blocked && !schedulingBlocked && (
-            <Link href="/availability" style={{ fontSize: 13, fontWeight: 600 }}>
-              + Add
-            </Link>
-          )}
-        </div>
-        <AvailabilityList availabilities={availabilities ?? []} />
-      </div>
       <DashboardRidesTabs
         initialAvailabilities={availabilities ?? []}
         initialPastRides={pastRides ?? []}
-        showAddLink={!eligibility?.blocked}
+        showAddLink={!eligibility?.blocked && !schedulingBlocked}
       />
 
       <PreferencesForm profile={riderProfile} />
