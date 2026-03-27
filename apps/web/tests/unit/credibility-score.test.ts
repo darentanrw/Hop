@@ -488,6 +488,51 @@ describe("suspension — recovery via successful trips", () => {
   });
 });
 
+describe("suspension — report confirmation trigger", () => {
+  function shouldEnforceSuspension(before: {
+    successfulTrips: number;
+    cancelledTrips: number;
+    confirmedReportCount: number;
+  }): boolean {
+    const after = { ...before, confirmedReportCount: before.confirmedReportCount + 1 };
+    return isCredibilitySuspended(calculateCredibilityScore(after));
+  }
+
+  it("first confirmed report on a fresh user (75→50) does NOT trigger enforcement", () => {
+    expect(
+      shouldEnforceSuspension({ successfulTrips: 0, cancelledTrips: 0, confirmedReportCount: 0 }),
+    ).toBe(false);
+  });
+
+  it("second confirmed report on a fresh user (50→25) DOES trigger enforcement", () => {
+    expect(
+      shouldEnforceSuspension({ successfulTrips: 0, cancelledTrips: 0, confirmedReportCount: 1 }),
+    ).toBe(true);
+  });
+
+  it("report on a user with 5 successes (100→75) does NOT trigger enforcement", () => {
+    expect(
+      shouldEnforceSuspension({ successfulTrips: 5, cancelledTrips: 0, confirmedReportCount: 0 }),
+    ).toBe(false);
+  });
+
+  it("report on a user with 2 cancels + 1 existing report (30→5) DOES trigger enforcement", () => {
+    const before = { successfulTrips: 0, cancelledTrips: 2, confirmedReportCount: 1 };
+    const scoreBefore = calculateCredibilityScore(before);
+    expect(scoreBefore).toBe(30);
+    expect(shouldEnforceSuspension(before)).toBe(true);
+    expect(calculateCredibilityScore({ ...before, confirmedReportCount: 2 })).toBe(5);
+  });
+
+  it("report on a user with enough successes to stay above threshold", () => {
+    const before = { successfulTrips: 3, cancelledTrips: 0, confirmedReportCount: 1 };
+    const scoreBefore = calculateCredibilityScore(before);
+    expect(scoreBefore).toBe(65);
+    expect(shouldEnforceSuspension(before)).toBe(false);
+    expect(calculateCredibilityScore({ ...before, confirmedReportCount: 2 })).toBe(40);
+  });
+});
+
 describe("suspension threshold is reachable from realistic trip histories", () => {
   it("exactly 5 cancels (no successes, no reports) is the first profile to cross into suspension", () => {
     for (let c = 0; c <= 4; c++) {

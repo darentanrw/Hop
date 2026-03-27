@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { requireAdmin } from "./adminAccess";
+import { enforceSuspensionSideEffects } from "./credibilitySuspension";
 
 const LOCAL_QA_BOT_PREFIX = "local-qa-bot-";
 
@@ -712,21 +713,25 @@ export const confirmReport = mutation({
       throw new Error("This report was dismissed.");
     }
     await ctx.db.patch(reportId, { reviewStatus: "confirmed" });
+    let suspensionEnforced = false;
     if (report.reportedUserId) {
-      const reportedUser = await ctx.db.get(report.reportedUserId as Id<"users">);
+      const reportedUserId = report.reportedUserId as Id<"users">;
+      const reportedUser = await ctx.db.get(reportedUserId);
       if (reportedUser) {
-        await ctx.db.patch(report.reportedUserId as Id<"users">, {
+        await ctx.db.patch(reportedUserId, {
           confirmedReportCount: (reportedUser.confirmedReportCount ?? 0) + 1,
         });
+        const result = await enforceSuspensionSideEffects(ctx, reportedUserId);
+        suspensionEnforced = result.cancelledAvailabilities > 0 || result.evictedFromGroups > 0;
       }
     }
     await ctx.db.insert("auditEvents", {
       action: "admin.report.confirmed",
       actorId: userId,
-      metadata: { reportId },
+      metadata: { reportId, suspensionEnforced },
       createdAt: nowIso(),
     });
-    return { ok: true as const };
+    return { ok: true as const, suspensionEnforced };
   },
 });
 
