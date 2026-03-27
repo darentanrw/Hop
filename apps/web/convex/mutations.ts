@@ -34,6 +34,12 @@ import { getMatcherBaseUrl } from "../lib/matcher-base-url";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
 import { buildLoginUrl, buildNotificationEmail } from "../lib/notification-email";
+import {
+  buildBookerChangedPushCopy,
+  buildLateJoinPushCopy,
+  buildLockedPushCopy,
+  buildMatchedPushCopy,
+} from "../lib/push-notification-copy";
 import { checkRideEligibility } from "../lib/ride-eligibility";
 import { isGroupPastWindowBeforeDeparture } from "../lib/trip-state";
 import { internal } from "./_generated/api";
@@ -934,29 +940,36 @@ export const createTentativeGroup = internalMutation({
 
     await scheduleLifecycleNotifications(
       ctx,
-      args.members.map((member) => ({
-        userId: member.userId as Id<"users">,
-        groupId,
-        kind: shouldLockNow ? "group_locked" : "group_semi_locked",
-        eventKey: `${groupId}:${shouldLockNow ? "group_locked" : "group_semi_locked"}:${member.userId}`,
-        title: `You are matched in ${theme.name}`,
-        body: isFullGroup
-          ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
-          : isLastMinuteGroup
-            ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
-            : `Your group has room for ${MAX_GROUP_SIZE - args.passengerSeatTotal} more passenger${MAX_GROUP_SIZE - args.passengerSeatTotal > 1 ? "s" : ""} until 3 hours before departure or until the car is full.`,
-        emailSubject: shouldLockNow
-          ? `Confirm your Hop ride in ${theme.name}`
-          : `${theme.name} is open to more riders`,
-        emailHtml: buildNotificationEmail(
-          `You are matched in ${theme.name}`,
-          isFullGroup
-            ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
-            : isLastMinuteGroup
-              ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
-              : `Your group has room for ${MAX_GROUP_SIZE - args.passengerSeatTotal} more passenger${MAX_GROUP_SIZE - args.passengerSeatTotal > 1 ? "s" : ""} until 3 hours before departure or until the car is full.`,
-        ),
-      })),
+      args.members.map((member) => {
+        const pushCopy = buildMatchedPushCopy({
+          windowStart: args.windowStart,
+          windowEnd: args.windowEnd,
+          isFullGroup,
+          isLastMinuteGroup,
+          remainingSeats: MAX_GROUP_SIZE - args.passengerSeatTotal,
+          meetingLocationLabel: MEETING_LOCATION_LABEL,
+        });
+
+        return {
+          userId: member.userId as Id<"users">,
+          groupId,
+          kind: shouldLockNow ? "group_locked" : "group_semi_locked",
+          eventKey: `${groupId}:${shouldLockNow ? "group_locked" : "group_semi_locked"}:${member.userId}`,
+          title: pushCopy.title,
+          body: pushCopy.body,
+          emailSubject: shouldLockNow
+            ? `Confirm your Hop ride in ${theme.name}`
+            : `${theme.name} is open to more riders`,
+          emailHtml: buildNotificationEmail(
+            `You are matched in ${theme.name}`,
+            isFullGroup
+              ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
+              : isLastMinuteGroup
+                ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
+                : `Your group has room for ${MAX_GROUP_SIZE - args.passengerSeatTotal} more passenger${MAX_GROUP_SIZE - args.passengerSeatTotal > 1 ? "s" : ""} until 3 hours before departure or until the car is full.`,
+          ),
+        };
+      }),
     );
 
     return groupId;
@@ -1272,23 +1285,30 @@ export const lockGroups = internalMutation({
 
       await scheduleLifecycleNotifications(
         ctx,
-        activeMembers.map((member) => ({
-          userId: member.userId as Id<"users">,
-          groupId: group._id,
-          kind: "group_locked",
-          eventKey: `${group._id}:locked:${member.userId}`,
-          title: "Your group is locked",
-          body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-          emailSubject: "Your Hop group is locked — confirm in 30 minutes",
-          emailHtml: buildNotificationEmail(
-            "Your group is locked",
-            "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-            {
-              href: loginUrl,
-              label: "Log in to confirm ride",
-            },
-          ),
-        })),
+        activeMembers.map((member) => {
+          const pushCopy = buildLockedPushCopy({
+            windowStart: group.windowStart,
+            windowEnd: group.windowEnd,
+          });
+
+          return {
+            userId: member.userId as Id<"users">,
+            groupId: group._id,
+            kind: "group_locked",
+            eventKey: `${group._id}:locked:${member.userId}`,
+            title: pushCopy.title,
+            body: pushCopy.body,
+            emailSubject: "Your Hop group is locked — confirm in 30 minutes",
+            emailHtml: buildNotificationEmail(
+              "Your group is locked",
+              "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+              {
+                href: loginUrl,
+                label: "Log in to confirm ride",
+              },
+            ),
+          };
+        }),
       );
     }
 
@@ -1345,23 +1365,30 @@ export const hardLockGroups = internalMutation({
 
       await scheduleLifecycleNotifications(
         ctx,
-        activeMembers.map((member) => ({
-          userId: member.userId as Id<"users">,
-          groupId: group._id,
-          kind: "group_hard_locked",
-          eventKey: `${group._id}:hard_locked:${member.userId}`,
-          title: "Your group is locked",
-          body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-          emailSubject: "Your Hop group is locked — confirm in 30 minutes",
-          emailHtml: buildNotificationEmail(
-            "Your group is locked",
-            "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-            {
-              href: loginUrl,
-              label: "Log in to confirm ride",
-            },
-          ),
-        })),
+        activeMembers.map((member) => {
+          const pushCopy = buildLockedPushCopy({
+            windowStart: group.windowStart,
+            windowEnd: group.windowEnd,
+          });
+
+          return {
+            userId: member.userId as Id<"users">,
+            groupId: group._id,
+            kind: "group_hard_locked",
+            eventKey: `${group._id}:hard_locked:${member.userId}`,
+            title: pushCopy.title,
+            body: pushCopy.body,
+            emailSubject: "Your Hop group is locked — confirm in 30 minutes",
+            emailHtml: buildNotificationEmail(
+              "Your group is locked",
+              "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+              {
+                href: loginUrl,
+                label: "Log in to confirm ride",
+              },
+            ),
+          };
+        }),
       );
     }
 
@@ -1694,23 +1721,30 @@ export const attemptLateJoin = internalMutation({
       await scheduleLifecycleNotifications(
         ctx,
         [...targetActiveMembers.map((member) => member.userId), args.userId as string].map(
-          (userId) => ({
-            userId: userId as Id<"users">,
-            groupId: targetGroup._id,
-            kind: "group_locked",
-            eventKey: `${targetGroup._id}:late_join_locked:${userId}`,
-            title: "Your group is locked",
-            body: "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-            emailSubject: "Your Hop group is locked — confirm in 30 minutes",
-            emailHtml: buildNotificationEmail(
-              "Your group is locked",
-              "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-              {
-                href: loginUrl,
-                label: "Log in to confirm ride",
-              },
-            ),
-          }),
+          (userId) => {
+            const pushCopy = buildLockedPushCopy({
+              windowStart: sharedStart,
+              windowEnd: sharedEnd,
+            });
+
+            return {
+              userId: userId as Id<"users">,
+              groupId: targetGroup._id,
+              kind: "group_locked",
+              eventKey: `${targetGroup._id}:late_join_locked:${userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: "Your Hop group is locked — confirm in 30 minutes",
+              emailHtml: buildNotificationEmail(
+                "Your group is locked",
+                "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
+                {
+                  href: loginUrl,
+                  label: "Log in to confirm ride",
+                },
+              ),
+            };
+          },
         ),
       );
     } else {
@@ -1718,19 +1752,26 @@ export const attemptLateJoin = internalMutation({
 
       await scheduleLifecycleNotifications(
         ctx,
-        targetActiveMembers.map((member) => ({
-          userId: member.userId as Id<"users">,
-          groupId: targetGroup._id,
-          kind: "late_join",
-          eventKey: `${targetGroup._id}:late_join:${args.userId}:${member.userId}`,
-          title: "A new rider joined your group!",
-          body: `${displayName} joined ${targetGroup.groupName ?? "your group"}.`,
-          emailSubject: "A new rider joined your Hop group",
-          emailHtml: buildNotificationEmail(
-            "A new rider joined your group!",
-            `${displayName} joined ${targetGroup.groupName ?? "your group"}.`,
-          ),
-        })),
+        targetActiveMembers.map((member) => {
+          const pushCopy = buildLateJoinPushCopy({
+            windowStart: sharedStart,
+            windowEnd: sharedEnd,
+          });
+
+          return {
+            userId: member.userId as Id<"users">,
+            groupId: targetGroup._id,
+            kind: "late_join",
+            eventKey: `${targetGroup._id}:late_join:${args.userId}:${member.userId}`,
+            title: pushCopy.title,
+            body: pushCopy.body,
+            emailSubject: "A new rider joined your Hop group",
+            emailHtml: buildNotificationEmail(
+              "A new rider joined your group!",
+              `${displayName} joined ${targetGroup.groupName ?? "your group"}.`,
+            ),
+          };
+        }),
       );
     }
 
@@ -1809,13 +1850,17 @@ export const requestRedelegate = mutation({
           ctx,
           activeMembers.map((m) => {
             const bookerMember = activeMembers.find((am) => am.userId === newBooker);
+            const pushCopy = buildBookerChangedPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+            });
             return {
               userId: m.userId as Id<"users">,
               groupId,
               kind: "booker_changed",
               eventKey: `${groupId}:booker_changed:${newBooker}:${m.userId}`,
-              title: "Booker changed",
-              body: `Booker changed to ${bookerMember?.displayName ?? "a group member"}.`,
+              title: pushCopy.title,
+              body: pushCopy.body,
               emailSubject: "Hop group booker changed",
               emailHtml: buildNotificationEmail(
                 "Booker changed",
