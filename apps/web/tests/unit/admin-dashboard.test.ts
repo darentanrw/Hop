@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import {
+  buildAdminCredibilitySnapshot,
   buildAdminPersonLabel,
+  getCredibilityScoreLabel,
   isAdminInsightStale,
   sortAdminReports,
 } from "../../lib/admin-dashboard";
@@ -74,6 +76,28 @@ describe("admin dashboard helpers", () => {
         email: null,
       }),
     ).toBe("Hop member abcdef");
+  });
+
+  test("builds credibility snapshots from rider history and labels the score", () => {
+    expect(
+      buildAdminCredibilitySnapshot({
+        successfulTrips: 2,
+        cancelledTrips: 1,
+        confirmedReportCount: 1,
+      }),
+    ).toEqual({
+      score: 50,
+      suspended: false,
+      successfulTrips: 2,
+      cancelledTrips: 1,
+      confirmedReportCount: 1,
+    });
+
+    expect(buildAdminCredibilitySnapshot(undefined)).toBeNull();
+    expect(getCredibilityScoreLabel(54)).toBe("Low");
+    expect(getCredibilityScoreLabel(60)).toBe("Fair");
+    expect(getCredibilityScoreLabel(84)).toBe("Good");
+    expect(getCredibilityScoreLabel(95)).toBe("Excellent");
   });
 
   test("treats missing or expired summaries as stale", () => {

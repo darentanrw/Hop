@@ -1,3 +1,5 @@
+import { calculateCredibilityScore, isCredibilitySuspended } from "@hop/shared";
+
 export const REPORT_REVIEW_STATUSES = ["open", "in_review", "resolved", "dismissed"] as const;
 
 export const REPORT_AI_STATUSES = ["pending", "ready", "failed"] as const;
@@ -11,6 +13,13 @@ export type ReportReviewStatus = (typeof REPORT_REVIEW_STATUSES)[number];
 export type ReportAiStatus = (typeof REPORT_AI_STATUSES)[number];
 export type ReportSeverityBand = (typeof REPORT_SEVERITY_BANDS)[number];
 export type AdminInsightStatus = (typeof ADMIN_INSIGHT_STATUSES)[number];
+export type AdminCredibilitySnapshot = {
+  score: number;
+  suspended: boolean;
+  successfulTrips: number;
+  cancelledTrips: number;
+  confirmedReportCount: number;
+};
 
 export const REPORT_CATEGORY_LABELS = {
   no_show: "No-show",
@@ -27,6 +36,12 @@ type AdminPersonLike = {
   email?: string | null;
 };
 
+type CredibilityLike = {
+  successfulTrips?: number | null;
+  cancelledTrips?: number | null;
+  confirmedReportCount?: number | null;
+};
+
 type SortableReport = {
   reviewStatus: ReportReviewStatus;
   severityScore: number | null;
@@ -36,6 +51,42 @@ type SortableReport = {
 
 export function getReportCategoryLabel(category: keyof typeof REPORT_CATEGORY_LABELS | string) {
   return REPORT_CATEGORY_LABELS[category as keyof typeof REPORT_CATEGORY_LABELS] ?? "Other";
+}
+
+export function buildAdminCredibilitySnapshot(
+  user: CredibilityLike | null | undefined,
+): AdminCredibilitySnapshot | null {
+  if (!user) {
+    return null;
+  }
+
+  const successfulTrips = user.successfulTrips ?? 0;
+  const cancelledTrips = user.cancelledTrips ?? 0;
+  const confirmedReportCount = user.confirmedReportCount ?? 0;
+  const score = calculateCredibilityScore({
+    successfulTrips,
+    cancelledTrips,
+    confirmedReportCount,
+  });
+
+  return {
+    score,
+    suspended: isCredibilitySuspended(score),
+    successfulTrips,
+    cancelledTrips,
+    confirmedReportCount,
+  };
+}
+
+export function isLowCredibilityScore(score: number) {
+  return score < 50;
+}
+
+export function getCredibilityScoreLabel(score: number) {
+  if (score < 55) return "Low";
+  if (score < 75) return "Fair";
+  if (score < 90) return "Good";
+  return "Excellent";
 }
 
 export function normalizeReportReviewStatus(value: unknown): ReportReviewStatus {

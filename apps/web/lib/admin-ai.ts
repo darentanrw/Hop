@@ -43,6 +43,12 @@ export type AdminSummaryPromptInput = {
     unresolvedReports: number;
     criticalOpenReports: number;
   };
+  credibility: {
+    suspendedRiders: number;
+    lowCredibilityRiders: number;
+    unresolvedReportsWithSuspendedParticipants: number;
+    unresolvedReportsWithLowCredibilityParticipants: number;
+  };
   unresolvedReportCounts: {
     total: number;
     aiPending: number;
@@ -59,6 +65,16 @@ export type AdminSummaryPromptInput = {
     aiStatus: string;
     groupStatus: string | null;
     descriptionExcerpt: string;
+    reporter: {
+      credibilityScore: number;
+      suspended: boolean;
+      confirmedReportCount: number;
+    } | null;
+    reportedUser: {
+      credibilityScore: number;
+      suspended: boolean;
+      confirmedReportCount: number;
+    } | null;
   }>;
   recentAuditEvents: Array<{
     action: string;
@@ -270,6 +286,7 @@ export async function generateAdminDashboardSummary(input: AdminSummaryPromptInp
       "You summarize a rideshare admin dashboard for operators. " +
       "Base the response only on the supplied JSON snapshot. " +
       "Keep the tone operational, concise, and factual. " +
+      "Credibility data is supporting context only and should not be treated as proof of a current allegation. " +
       "Highlight risk concentration, queue bottlenecks, and the next best focus areas. " +
       "Return JSON that matches the schema exactly.",
     input: JSON.stringify(input, null, 2),

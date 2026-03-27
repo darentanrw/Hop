@@ -1,5 +1,6 @@
 "use client";
 
+import { CREDIBILITY_SUSPENSION_THRESHOLD } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -10,19 +11,30 @@ import {
   REPORT_CATEGORY_LABELS,
   REPORT_REVIEW_STATUSES,
   REPORT_SEVERITY_BANDS,
+  getCredibilityScoreLabel,
   isUnresolvedReviewStatus,
 } from "../lib/admin-dashboard";
+import { credibilityScoreNumberColor } from "../lib/credibility-score-color";
 
 type NoticeState = {
   tone: "success" | "error" | "info";
   text: string;
 } | null;
 
+type DashboardCredibility = {
+  score: number;
+  suspended: boolean;
+  successfulTrips: number;
+  cancelledTrips: number;
+  confirmedReportCount: number;
+};
+
 type DashboardActor = {
   userId: string;
   label: string;
   name: string | null;
   email: string | null;
+  credibility: DashboardCredibility | null;
 };
 
 type DashboardReport = {
@@ -82,6 +94,10 @@ type DashboardData = {
   totalReports: number;
   unresolvedReports: number;
   criticalOpenReports: number;
+  credibility: {
+    suspendedRiders: number;
+    lowCredibilityRiders: number;
+  };
   summary: DashboardSummary;
   reports: DashboardReport[];
   auditEvents: DashboardAuditEvent[];
@@ -159,6 +175,30 @@ function getSummaryStatusLabel(summary: DashboardSummary) {
     case "failed":
       return "Refresh failed";
   }
+}
+
+function renderCredibilityMeta(actor: DashboardActor | null) {
+  const credibility = actor?.credibility;
+  if (!credibility) {
+    return <span className="admin-meta-sub">Credibility unavailable</span>;
+  }
+
+  return (
+    <>
+      <span className="admin-meta-sub">
+        Credibility{" "}
+        <strong style={{ color: credibilityScoreNumberColor(credibility.score) }}>
+          {Math.round(credibility.score)}
+        </strong>
+        {" · "}
+        {credibility.suspended ? "Suspended" : getCredibilityScoreLabel(credibility.score)}
+      </span>
+      <span className="admin-meta-sub">
+        {credibility.successfulTrips} successes · {credibility.cancelledTrips} cancelled ·{" "}
+        {credibility.confirmedReportCount} confirmed reports
+      </span>
+    </>
+  );
 }
 
 function toErrorMessage(error: unknown) {
@@ -350,6 +390,12 @@ export function AdminDashboardClient() {
           <span className="admin-kpi-n text-success">{dashboard?.revealedGroups ?? "—"}</span>
           <span className="admin-kpi-l">Revealed</span>
         </div>
+        <div className="admin-kpi">
+          <span className="admin-kpi-n text-danger">
+            {dashboard?.credibility.suspendedRiders ?? "—"}
+          </span>
+          <span className="admin-kpi-l">Suspended &lt; {CREDIBILITY_SUSPENSION_THRESHOLD}</span>
+        </div>
       </div>
 
       <section className="admin-summary-card">
@@ -402,7 +448,7 @@ export function AdminDashboardClient() {
             <h3 className="admin-col-title">Summary</h3>
             <p className="admin-summary-paragraph">
               {summary.body ??
-                "The AI overview will summarize queue pressure, urgent report patterns, and recent operator activity once it runs."}
+                "The AI overview will summarize queue pressure, credibility risk, and recent operator activity once it runs."}
             </p>
             {summary.error ? <p className="text-sm text-danger">{summary.error}</p> : null}
           </div>
@@ -529,6 +575,7 @@ export function AdminDashboardClient() {
                         <span className="admin-meta-sub">
                           {report.reporter.email ?? report.reporter.userId}
                         </span>
+                        {renderCredibilityMeta(report.reporter)}
                       </div>
                       <div className="admin-meta-block">
                         <span className="admin-meta-k">Reported</span>
@@ -541,6 +588,7 @@ export function AdminDashboardClient() {
                               ? report.reportedUser.userId
                               : "No specific rider selected")}
                         </span>
+                        {renderCredibilityMeta(report.reportedUser)}
                       </div>
                       <div className="admin-meta-block">
                         <span className="admin-meta-k">Group</span>

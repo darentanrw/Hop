@@ -8,14 +8,17 @@ import {
 } from "../lib/admin-ai";
 import {
   ADMIN_INSIGHT_KEY,
+  type AdminCredibilitySnapshot,
   type AdminInsightStatus,
   type ReportAiStatus,
   type ReportReviewStatus,
   type ReportSeverityBand,
+  buildAdminCredibilitySnapshot,
   buildAdminPersonLabel,
   getReportCategoryLabel,
   inferSeverityBandFromScore,
   isAdminInsightStale,
+  isLowCredibilityScore,
   isUnresolvedReviewStatus,
   normalizeReportAiStatus,
   normalizeReportReviewStatus,
@@ -55,6 +58,7 @@ type AdminActorView = {
   label: string;
   name: string | null;
   email: string | null;
+  credibility: AdminCredibilitySnapshot | null;
 };
 
 type AdminReportView = {
@@ -103,8 +107,14 @@ type AdminDashboardKpis = {
   criticalOpenReports: number;
 };
 
+type AdminDashboardCredibility = {
+  suspendedRiders: number;
+  lowCredibilityRiders: number;
+};
+
 type AdminDashboardSnapshot = {
   kpis: AdminDashboardKpis;
+  credibility: AdminDashboardCredibility;
   reports: AdminReportView[];
   auditEvents: AdminAuditEventView[];
 };
@@ -161,6 +171,7 @@ function buildActorView(
     ),
     name: cleanOptionalText(user?.name),
     email: cleanOptionalText(user?.email),
+    credibility: buildAdminCredibilitySnapshot(user),
   } satisfies AdminActorView;
 }
 
@@ -275,6 +286,9 @@ async function buildAdminDashboardSnapshot(
 
   const usersById = new Map(users.map((user) => [user._id as string, user]));
   const groupsById = new Map(groups.map((group) => [group._id as string, group]));
+  const credibilitySnapshots = users
+    .map((user) => buildAdminCredibilitySnapshot(user))
+    .filter((snapshot): snapshot is AdminCredibilitySnapshot => snapshot !== null);
 
   const reportViews = sortAdminReports(
     reports.map((report) => {
@@ -286,6 +300,7 @@ async function buildAdminDashboardSnapshot(
           label: buildAdminPersonLabel({ id: report.reporterUserId }, "Reporter"),
           name: null,
           email: null,
+          credibility: null,
         } satisfies AdminActorView);
       const severityScore =
         typeof report.severityScore === "number" ? Math.round(report.severityScore) : null;
@@ -345,6 +360,12 @@ async function buildAdminDashboardSnapshot(
       criticalOpenReports: unresolvedReports.filter((report) => report.severityBand === "critical")
         .length,
     },
+    credibility: {
+      suspendedRiders: credibilitySnapshots.filter((snapshot) => snapshot.suspended).length,
+      lowCredibilityRiders: credibilitySnapshots.filter((snapshot) =>
+        isLowCredibilityScore(snapshot.score),
+      ).length,
+    },
     reports: reportViews,
     auditEvents: auditEvents.map((event) => {
       const actor = buildAuditActorView(event.actorId, usersById);
@@ -365,6 +386,20 @@ function buildSummarySource(snapshot: AdminDashboardSnapshot) {
   const unresolvedReports = snapshot.reports.filter((report) =>
     isUnresolvedReviewStatus(report.reviewStatus),
   );
+  const unresolvedReportsWithSuspendedParticipants = unresolvedReports.filter(
+    (report) =>
+      report.reporter.credibility?.suspended === true ||
+      report.reportedUser?.credibility?.suspended === true,
+  ).length;
+  const unresolvedReportsWithLowCredibilityParticipants = unresolvedReports.filter(
+    (report) =>
+      (report.reporter.credibility
+        ? isLowCredibilityScore(report.reporter.credibility.score)
+        : false) ||
+      (report.reportedUser?.credibility
+        ? isLowCredibilityScore(report.reportedUser.credibility.score)
+        : false),
+  ).length;
 
   const byCategory = unresolvedReports.reduce<Record<string, number>>((counts, report) => {
     counts[report.category] = (counts[report.category] ?? 0) + 1;
@@ -379,6 +414,12 @@ function buildSummarySource(snapshot: AdminDashboardSnapshot) {
 
   return {
     kpis: snapshot.kpis,
+    credibility: {
+      suspendedRiders: snapshot.credibility.suspendedRiders,
+      lowCredibilityRiders: snapshot.credibility.lowCredibilityRiders,
+      unresolvedReportsWithSuspendedParticipants,
+      unresolvedReportsWithLowCredibilityParticipants,
+    },
     unresolvedReportCounts: {
       total: unresolvedReports.length,
       aiPending: unresolvedReports.filter((report) => report.aiStatus === "pending").length,
@@ -395,6 +436,20 @@ function buildSummarySource(snapshot: AdminDashboardSnapshot) {
       aiStatus: report.aiStatus,
       groupStatus: report.group.status,
       descriptionExcerpt: truncateAdminSummaryText(report.description),
+      reporter: report.reporter.credibility
+        ? {
+            credibilityScore: report.reporter.credibility.score,
+            suspended: report.reporter.credibility.suspended,
+            confirmedReportCount: report.reporter.credibility.confirmedReportCount,
+          }
+        : null,
+      reportedUser: report.reportedUser?.credibility
+        ? {
+            credibilityScore: report.reportedUser.credibility.score,
+            suspended: report.reportedUser.credibility.suspended,
+            confirmedReportCount: report.reportedUser.credibility.confirmedReportCount,
+          }
+        : null,
     })),
     recentAuditEvents: snapshot.auditEvents.slice(0, 8).map((event) => ({
       action: event.action,
@@ -593,6 +648,7 @@ export const adminDashboard = query({
 
     return {
       ...snapshot.kpis,
+      credibility: snapshot.credibility,
       summary: buildSummaryView(summary),
       reports: snapshot.reports,
       auditEvents: snapshot.auditEvents,
