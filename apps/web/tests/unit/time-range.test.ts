@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   clampRange,
   formatRangeSummary,
+  formatStoredMeetingTimeWithDate,
   formatStoredWindow,
   formatStoredWindowWithDate,
   slotFromPointerPosition,
@@ -57,5 +58,15 @@ describe("time range utilities", () => {
     expect(formatted).toContain("20");
     expect(formatted).toContain("6:00");
     expect(formatted).toContain("8:00");
+  });
+
+  test("formats stored meeting times using the booking slot", () => {
+    const formatted = formatStoredMeetingTimeWithDate("2026-03-19T21:03:55.000Z");
+
+    expect(formatted).toContain("Fri");
+    expect(formatted).toContain("Mar");
+    expect(formatted).toContain("20");
+    expect(formatted).toContain("5:00");
+    expect(formatted).not.toContain("5:03");
   });
 });

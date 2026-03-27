@@ -4,27 +4,25 @@ import {
   buildLateJoinPushCopy,
   buildLockedPushCopy,
   buildMatchedPushCopy,
-  formatRideWindowForPush,
+  formatRideMeetingTimeForPush,
 } from "../../lib/push-notification-copy";
 
-const WINDOW_START = "2026-03-20T10:00:00.000Z";
-const WINDOW_END = "2026-03-20T12:00:00.000Z";
+const MEETING_TIME = "2026-03-19T21:03:55.000Z";
 
 describe("push notification copy", () => {
-  test("formats ride windows with date and time", () => {
-    const label = formatRideWindowForPush(WINDOW_START, WINDOW_END);
+  test("formats ride meeting times with date and the booking slot", () => {
+    const label = formatRideMeetingTimeForPush(MEETING_TIME);
 
     expect(label).toContain("Fri");
     expect(label).toContain("Mar");
     expect(label).toContain("20");
-    expect(label).toContain("6:00");
-    expect(label).toContain("8:00");
+    expect(label).toContain("5:00");
+    expect(label).not.toContain("5:03");
   });
 
-  test("uses the ride window instead of group names in match notifications", () => {
+  test("uses the meeting time instead of the full ride window in match notifications", () => {
     const copy = buildMatchedPushCopy({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
+      meetingTime: MEETING_TIME,
       isFullGroup: false,
       isLastMinuteGroup: false,
       remainingSeats: 1,
@@ -33,14 +31,14 @@ describe("push notification copy", () => {
 
     expect(copy.title).toBe("Ride matched");
     expect(copy.body).toContain("Fri");
-    expect(copy.body).toContain("6:00");
+    expect(copy.body).toContain("5:00");
+    expect(copy.body).not.toContain("5:03");
     expect(copy.body).toContain("1 more passenger");
   });
 
   test("keeps late-join notifications anonymous", () => {
     const copy = buildLateJoinPushCopy({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
+      meetingTime: MEETING_TIME,
     });
 
     expect(copy.title).toBe("Ride updated");
@@ -50,8 +48,7 @@ describe("push notification copy", () => {
 
   test("keeps booker change notifications anonymous", () => {
     const copy = buildBookerChangedPushCopy({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
+      meetingTime: MEETING_TIME,
     });
 
     expect(copy.title).toBe("Ride updated");
@@ -60,10 +57,9 @@ describe("push notification copy", () => {
     expect(copy.body).toContain("Fri");
   });
 
-  test("includes the ride window when a ride is locked", () => {
+  test("includes the ride meeting time when a ride is locked", () => {
     const copy = buildLockedPushCopy({
-      windowStart: WINDOW_START,
-      windowEnd: WINDOW_END,
+      meetingTime: MEETING_TIME,
     });
 
     expect(copy.title).toBe("Ride locked");

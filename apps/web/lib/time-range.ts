@@ -202,6 +202,19 @@ export function formatStoredWindowWithDate(windowStart: string, windowEnd: strin
   return `${dateLabel}, ${startLabel} - ${endLabel}`;
 }
 
+function snapDateToBookingSlot(date: Date) {
+  const slotMs = SLOT_MINUTES * 60_000;
+  return new Date(Math.floor(date.getTime() / slotMs) * slotMs);
+}
+
+export function formatStoredMeetingTimeWithDate(meetingTime: string) {
+  const meeting = snapDateToBookingSlot(new Date(meetingTime));
+  const dateLabel = dateFormatter.format(meeting);
+  const timeLabel = timeFormatter.format(meeting);
+
+  return `${dateLabel}, ${timeLabel}`;
+}
+
 export function slotFromPointerPosition(clientX: number, trackLeft: number, trackWidth: number) {
   if (trackWidth <= 0) return 0;
   const normalized = Math.max(0, Math.min(1, (clientX - trackLeft) / trackWidth));
