@@ -1,5 +1,10 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
+import {
+  PAYMENT_WINDOW_HOURS,
+  calculateCredibilityScore,
+  groupPassengerSeatTotal,
+  sumPartySizes,
+} from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
@@ -180,6 +185,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           memberUserIds: acceptedUserIds,
           availabilityIds: acceptedAvailabilityIds,
           groupSize: acceptedMembers.length,
+          passengerSeatTotal: sumPartySizes(acceptedMembers),
           bookerUserId: nextBookerUserId,
           suggestedDropoffOrder: orderedAcceptedMembers.map((member) => member.userId),
         });
@@ -413,6 +419,7 @@ async function buildTripPayload(
     })),
     stats: {
       activeMemberCount: activeMembers.length,
+      passengerSeatTotal: groupPassengerSeatTotal(group, activeMembers),
       checkedInCount: checkedInMembers.length,
       destinationCount: activeMembers.filter((member) => Boolean(member.destinationLockedAt))
         .length,
@@ -439,6 +446,68 @@ async function buildTripPayload(
     },
   };
 }
+
+const PAST_RIDE_GROUP_STATUSES = new Set(["cancelled", "closed", "dissolved", "reported"]);
+
+function pastRideSortTime(group: GroupDoc): number {
+  const isoCandidates = [
+    group.closedAt,
+    group.departedAt,
+    group.meetingTime,
+    group.windowEnd,
+  ].filter(Boolean) as string[];
+  if (isoCandidates.length > 0) {
+    return Math.max(...isoCandidates.map((iso) => new Date(iso).getTime()));
+  }
+  return group._creationTime;
+}
+
+export const listPastRides = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+
+    const memberships = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const byGroupId = new Map<Id<"groups">, { sortTime: number; group: GroupDoc }>();
+
+    for (const membership of memberships) {
+      const group = await ctx.db.get(membership.groupId);
+      if (!group || !PAST_RIDE_GROUP_STATUSES.has(group.status)) continue;
+
+      const sortTime = pastRideSortTime(group);
+      const prev = byGroupId.get(group._id);
+      if (prev && prev.sortTime >= sortTime) continue;
+      byGroupId.set(group._id, { sortTime, group });
+    }
+
+    const rows = [...byGroupId.values()]
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .slice(0, 50)
+      .map(({ group }) => ({
+        groupId: group._id,
+        groupName: group.groupName ?? "Hop Group",
+        groupColor: group.groupColor ?? "#44d4c8",
+        status: group.status,
+        pickupLabel: group.pickupLabel,
+        meetingTime: group.meetingTime ?? group.windowStart,
+        closedAt: group.closedAt ?? null,
+        finalCostCents: group.finalCostCents ?? null,
+        endedAt:
+          group.closedAt ??
+          group.departedAt ??
+          group.meetingTime ??
+          group.windowEnd ??
+          new Date(group._creationTime).toISOString(),
+      }));
+
+    return rows;
+  },
+});
 
 export const getRideEligibility = query({
   args: { actingUserId: v.optional(v.id("users")) },
@@ -648,6 +717,7 @@ export const departGroup = mutation({
       memberUserIds: presentMembers.map((member) => member.userId),
       availabilityIds: presentMembers.map((member) => member.availabilityId),
       groupSize: presentMembers.length,
+      passengerSeatTotal: sumPartySizes(presentMembers),
       suggestedDropoffOrder: presentMembers
         .sort((left, right) => (left.dropoffOrder ?? 999) - (right.dropoffOrder ?? 999))
         .map((member) => member.userId),
@@ -704,7 +774,10 @@ export const submitReceipt = mutation({
     const activeMembers = getActiveMembers(members);
     const split = computeSplitAmounts(
       totalCostCents,
-      activeMembers.map((member) => member.userId),
+      activeMembers.map((member) => ({
+        userId: member.userId,
+        partySize: member.partySize ?? 1,
+      })),
       userId,
     );
     const submittedAt = nowIso();

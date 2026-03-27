@@ -14,6 +14,7 @@ import {
   getEarliestSlotForDate,
   slotsToIsoRange,
 } from "../lib/time-range";
+import { PartySizeSlider, type PartySizeValue } from "./party-size-slider";
 import { TimeRangePicker } from "./time-range-picker";
 
 const matcherBaseUrl = process.env.NEXT_PUBLIC_MATCHER_BASE_URL ?? "http://localhost:4001";
@@ -48,6 +49,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
     null,
   );
   const [busy, setBusy] = useState(false);
+  const [partySize, setPartySize] = useState<PartySizeValue>(1);
 
   useEffect(() => {
     return () => {
@@ -149,6 +151,7 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
         windowEnd,
         selfDeclaredGender: profile.selfDeclaredGender,
         sameGenderOnly: profile.sameGenderOnly,
+        partySize,
         sealedDestinationRef: matcherPayload.sealedDestinationRef,
         routeDescriptorRef: matcherPayload.routeDescriptorRef,
       });
@@ -301,6 +304,20 @@ export function AvailabilityForm({ profile }: AvailabilityFormProps) {
             setEndSlot(nextEndSlot);
           }}
         />
+      </div>
+
+      <div className="card stack">
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>Party size</span>
+          <p className="text-muted text-sm" style={{ margin: 0, lineHeight: 1.5 }}>
+            Number of people travelling together on this ride, including you.
+            <br />
+            <br />
+            <strong>Note:</strong> If you are bringing bulky bags or anything that needs extra space
+            in the car, choose a party size that reflects how many seats you need!
+          </p>
+        </div>
+        <PartySizeSlider value={partySize} onChange={setPartySize} />
       </div>
 
       <div

@@ -29,7 +29,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <TopBarContent />
         <ClientKeyRegistrar />
         <PwaCoachmark />
-        {adminAccess.isAdmin ? <LocalQaPanel /> : null}
+        <LocalQaPanel />
         {children}
       </div>
       <BottomNav />

@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { emojiName } from "../lib/group-lifecycle";
 import { mutation, query } from "./_generated/server";
 import { resolveQaActingUserId } from "./localQa";
 
@@ -72,7 +73,7 @@ export const sendMessage = mutation({
     await ctx.db.insert("groupMessages", {
       groupId,
       senderUserId: userId,
-      senderDisplayName: member.displayName,
+      senderDisplayName: emojiName(member.emoji ?? "🙂"),
       senderEmoji: member.emoji ?? "🙂",
       body: trimmed,
       createdAt: new Date().toISOString(),

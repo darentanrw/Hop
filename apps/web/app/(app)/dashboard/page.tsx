@@ -1,8 +1,7 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
-import Link from "next/link";
-import { AvailabilityList } from "../../../components/availability-list";
 import { DashboardBackgroundSync } from "../../../components/dashboard-background-sync";
+import { DashboardRidesTabs } from "../../../components/dashboard-rides-tabs";
 import { DashboardStatusCard } from "../../../components/dashboard-status-card";
 import { PreferencesForm } from "../../../components/preferences-form";
 import { api } from "../../../convex/_generated/api";
@@ -12,12 +11,13 @@ export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
   if (!token) return null;
 
-  const [riderProfile, availabilities, group, eligibility, adminAccess] = await Promise.all([
+  const [riderProfile, availabilities, group, eligibility, adminAccess, pastRides] = await Promise.all([
     fetchQuery(api.queries.getRiderProfile, {}, { token }),
     fetchQuery(api.queries.listAvailabilities, {}, { token }),
     fetchQuery(api.trips.getActiveTrip, {}, { token }),
     fetchQuery(api.trips.getRideEligibility, {}, { token }),
     fetchQuery(api.admin.adminAccess, {}, { token }),
+    fetchQuery(api.trips.listPastRides, {}, { token }),
   ]);
   const dashboardNotice = getDashboardNotice({
     hasActiveTrip: Boolean(group),
@@ -53,6 +53,11 @@ export default async function DashboardPage() {
         </div>
         <AvailabilityList availabilities={availabilities ?? []} />
       </div>
+      <DashboardRidesTabs
+        initialAvailabilities={availabilities ?? []}
+        initialPastRides={pastRides ?? []}
+        showAddLink={!eligibility?.blocked}
+      />
 
       <PreferencesForm profile={riderProfile} />
     </div>
