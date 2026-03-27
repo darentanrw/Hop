@@ -16,6 +16,21 @@ function LoadingBar({ width, height = 14 }: { width: number | string; height?: n
 export default function AppLoading() {
   return (
     <div className="stack-lg" aria-busy="true" aria-live="polite">
+      <span
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: "hidden",
+          clip: "rect(0, 0, 0, 0)",
+          whiteSpace: "nowrap",
+          border: 0,
+        }}
+      >
+        Loading your Hop dashboard and ride details.
+      </span>
       <div className="stack-sm" style={{ paddingTop: 4 }}>
         <LoadingBar width={180} height={28} />
         <LoadingBar width="68%" height={14} />

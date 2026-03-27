@@ -1,7 +1,5 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
-import Link from "next/link";
-import { AvailabilityList } from "../../../components/availability-list";
 import { DashboardBackgroundSync } from "../../../components/dashboard-background-sync";
 import { DashboardRidesTabs } from "../../../components/dashboard-rides-tabs";
 import { DashboardStatusCard } from "../../../components/dashboard-status-card";
@@ -44,22 +42,10 @@ export default async function DashboardPage() {
           schedulingBlocked={schedulingBlocked}
         />
       )}
-
-      <div>
-        <div className="section-header" style={{ marginBottom: 12 }}>
-          <h2>Your windows</h2>
-          {!eligibility?.blocked && !schedulingBlocked && (
-            <Link href="/availability" style={{ fontSize: 13, fontWeight: 600 }}>
-              + Add
-            </Link>
-          )}
-        </div>
-        <AvailabilityList availabilities={availabilities ?? []} />
-      </div>
       <DashboardRidesTabs
         initialAvailabilities={availabilities ?? []}
         initialPastRides={pastRides ?? []}
-        showAddLink={!eligibility?.blocked}
+        showAddLink={!eligibility?.blocked && !schedulingBlocked}
       />
 
       <PreferencesForm profile={riderProfile} />
