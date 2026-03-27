@@ -161,6 +161,9 @@ export function clearMatcherStore() {
 
 const SCORING_CONCURRENCY = 8;
 
+/** Below this haversine distance (km), treat as one stop — skip live routing. */
+const COLOCATED_KM = 0.05;
+
 async function runWithConcurrency<T>(
   tasks: Array<() => Promise<T>>,
   concurrency: number,
@@ -234,9 +237,6 @@ export async function scoreRouteDescriptors(
       });
     }
   }
-
-  /** Below this haversine distance (km), treat as one stop — skip live routing (avoids API flakes). */
-  const COLOCATED_KM = 0.05;
 
   const tasks = eligiblePairs.map((pair) => async (): Promise<CompatibilityEdge | null> => {
     const { leftRef, rightRef, left, right, spreadDistanceKm } = pair;

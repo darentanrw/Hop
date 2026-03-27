@@ -543,3 +543,93 @@ describe("matching — full-car gate and same-destination fallbacks", () => {
 function sumSeats(members: MatchingCandidate[]) {
   return members.reduce((s, m) => s + (m.partySize ?? 1), 0);
 }
+
+describe("single-account group prevention", () => {
+  test("solo candidate with partySize 2 does not form a group", () => {
+    const solo = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_a",
+      partySize: 2,
+    });
+    const groups = formGroups([solo], []);
+    expect(groups).toHaveLength(0);
+  });
+
+  test("solo candidate with partySize 3 does not form a group", () => {
+    const solo = makeCandidate({
+      userId: "alice",
+      routeDescriptorRef: "route_a",
+      partySize: 3,
+    });
+    const groups = formGroups([solo], []);
+    expect(groups).toHaveLength(0);
+  });
+
+  test("every formed group has at least 2 distinct accounts", () => {
+    const candidates = [
+      makeCandidate({ userId: "alice", routeDescriptorRef: "route_a", partySize: 3 }),
+      makeCandidate({ userId: "bob", routeDescriptorRef: "route_a", partySize: 1 }),
+      makeCandidate({ userId: "charlie", routeDescriptorRef: "route_c", partySize: 2 }),
+    ];
+    const edges = [makeEdge("route_a", "route_a"), makeEdge("route_a", "route_c")];
+    const groups = formGroups(candidates, edges);
+    for (const g of groups) {
+      expect(g.members.length).toBeGreaterThanOrEqual(2);
+      const uniqueUsers = new Set(g.members.map((m) => m.userId));
+      expect(uniqueUsers.size).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
+
+describe("formGroups — subset bounds", () => {
+  test("no group exceeds MAX_GROUP_SIZE accounts", () => {
+    const candidates = Array.from({ length: 6 }, (_, i) =>
+      makeCandidate({
+        userId: `user_${i}`,
+        routeDescriptorRef: "route_shared",
+        partySize: 1,
+      }),
+    );
+    const groups = formGroups(candidates, []);
+    for (const g of groups) {
+      expect(g.members.length).toBeLessThanOrEqual(4);
+    }
+  });
+
+  test("three accounts with partySize 1 form a group of 3 (not two separate groups)", () => {
+    const candidates = [
+      makeCandidate({ userId: "a", routeDescriptorRef: "r_shared", partySize: 1 }),
+      makeCandidate({ userId: "b", routeDescriptorRef: "r_shared", partySize: 1 }),
+      makeCandidate({ userId: "c", routeDescriptorRef: "r_shared", partySize: 1 }),
+    ];
+    const groups = formGroups(candidates, []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toHaveLength(3);
+  });
+
+  test("four accounts with partySize 1 form one group of 4", () => {
+    const candidates = [
+      makeCandidate({ userId: "a", routeDescriptorRef: "r_shared", partySize: 1 }),
+      makeCandidate({ userId: "b", routeDescriptorRef: "r_shared", partySize: 1 }),
+      makeCandidate({ userId: "c", routeDescriptorRef: "r_shared", partySize: 1 }),
+      makeCandidate({ userId: "d", routeDescriptorRef: "r_shared", partySize: 1 }),
+    ];
+    const groups = formGroups(candidates, []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toHaveLength(4);
+    expect(sumSeats(groups[0].members)).toBe(4);
+  });
+
+  test("five accounts with partySize 1 form one group of 4 and leave 1 unmatched", () => {
+    const candidates = Array.from({ length: 5 }, (_, i) =>
+      makeCandidate({
+        userId: `u${i}`,
+        routeDescriptorRef: "r_shared",
+        partySize: 1,
+      }),
+    );
+    const groups = formGroups(candidates, []);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toHaveLength(4);
+  });
+});

@@ -181,7 +181,7 @@ export function groupPassengerSeatTotal(
   group: { passengerSeatTotal?: number | null; groupSize: number },
   members: readonly { partySize?: number | null }[],
 ): number {
-  if (group.passengerSeatTotal != null && group.passengerSeatTotal !== undefined) {
+  if (group.passengerSeatTotal != null) {
     return group.passengerSeatTotal;
   }
   const fromMembers = sumPartySizes(members);

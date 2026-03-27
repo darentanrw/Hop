@@ -111,12 +111,21 @@ export function evaluateGroup(
   };
 }
 
-function forEachNonEmptySubset<T>(items: T[], visit: (subset: T[]) => void) {
+function forEachSubset<T>(
+  items: T[],
+  minSize: number,
+  maxSize: number,
+  visit: (subset: T[]) => void,
+) {
   const n = items.length;
   const subset: T[] = [];
   function dfs(i: number) {
+    if (subset.length === maxSize) {
+      visit([...subset]);
+      return;
+    }
     if (i === n) {
-      if (subset.length > 0) {
+      if (subset.length >= minSize) {
         visit([...subset]);
       }
       return;
@@ -142,14 +151,11 @@ export function formGroups(
   const unmatched = [...candidates];
   const selectedGroups: SelectedGroup[] = [];
 
-  while (unmatched.length >= 1) {
+  while (unmatched.length >= 2) {
     let best: SelectedGroup | null = null;
 
     for (let targetSeats = MAX_GROUP_SIZE; targetSeats >= MIN_GROUP_SIZE; targetSeats--) {
-      forEachNonEmptySubset(unmatched, (candidateMembers) => {
-        if (candidateMembers.length > MAX_GROUP_SIZE) {
-          return;
-        }
+      forEachSubset(unmatched, 2, MAX_GROUP_SIZE, (candidateMembers) => {
         const seats = sumPartySizes(candidateMembers);
         if (seats !== targetSeats) {
           return;

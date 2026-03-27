@@ -45,4 +45,65 @@ describe("computeSplitAmounts (party-weighted)", () => {
     expect(map.get("a")).toBe(20);
     expect(map.get("b")).toBe(60);
   });
+
+  it("returns all zeros when the only member is the booker", () => {
+    const map = computeSplitAmounts(100, [{ userId: "booker", partySize: 2 }], "booker");
+    expect(map.get("booker")).toBe(0);
+    expect(map.size).toBe(1);
+  });
+
+  it("total of all debts equals reimbursement pool (no rounding leak)", () => {
+    const total = 1000;
+    const map = computeSplitAmounts(
+      total,
+      [
+        { userId: "booker", partySize: 1 },
+        { userId: "a", partySize: 1 },
+        { userId: "b", partySize: 2 },
+      ],
+      "booker",
+    );
+    const bookerShare = Math.floor((total * 1) / 4);
+    const debtSum = (map.get("a") ?? 0) + (map.get("b") ?? 0);
+    expect(debtSum).toBe(total - bookerShare);
+  });
+
+  it("handles zero total cost gracefully", () => {
+    const map = computeSplitAmounts(
+      0,
+      [
+        { userId: "booker", partySize: 1 },
+        { userId: "a", partySize: 1 },
+      ],
+      "booker",
+    );
+    expect(map.get("booker")).toBe(0);
+    expect(map.get("a")).toBe(0);
+  });
+
+  it("booker with partySize 3 pays nothing and sole debtor covers the rest", () => {
+    const map = computeSplitAmounts(
+      100,
+      [
+        { userId: "booker", partySize: 3 },
+        { userId: "rider", partySize: 1 },
+      ],
+      "booker",
+    );
+    expect(map.get("booker")).toBe(0);
+    expect(map.get("rider")).toBe(25);
+  });
+
+  it("equal party sizes produce equal split among debtors", () => {
+    const map = computeSplitAmounts(
+      120,
+      [
+        { userId: "booker", partySize: 2 },
+        { userId: "a", partySize: 2 },
+      ],
+      "booker",
+    );
+    expect(map.get("booker")).toBe(0);
+    expect(map.get("a")).toBe(60);
+  });
 });

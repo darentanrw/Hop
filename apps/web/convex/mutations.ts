@@ -604,8 +604,8 @@ export const cancelTripParticipation = mutation({
       );
       const remainingPassengerSeats = sumPartySizes(stillInGroupActive);
 
-      if (remainingPassengerSeats < MIN_GROUP_SIZE) {
-        // Not enough passengers left — group can't proceed. Cancel it immediately and
+      if (updatedMemberUserIds.length < 2 || remainingPassengerSeats < MIN_GROUP_SIZE) {
+        // Not enough accounts or passengers left — group can't proceed. Cancel it immediately and
         // reopen the remaining riders' availabilities so they return to the matching pool.
         groupPatch.bookerUserId = undefined;
         groupPatch.status = "cancelled";

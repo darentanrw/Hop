@@ -66,4 +66,28 @@ describe("groupPassengerSeatTotal", () => {
   it("falls back to groupSize when member sum is zero", () => {
     expect(groupPassengerSeatTotal({ groupSize: 3 }, [])).toBe(3);
   });
+
+  it("treats explicit undefined passengerSeatTotal same as absent", () => {
+    expect(
+      groupPassengerSeatTotal({ groupSize: 2, passengerSeatTotal: undefined }, [
+        { partySize: 3 },
+        { partySize: 1 },
+      ]),
+    ).toBe(4);
+  });
+
+  it("treats null passengerSeatTotal same as absent", () => {
+    expect(
+      groupPassengerSeatTotal({ groupSize: 2, passengerSeatTotal: null }, [
+        { partySize: 2 },
+        { partySize: 2 },
+      ]),
+    ).toBe(4);
+  });
+
+  it("returns 0 passengerSeatTotal when stored as 0 (trusts the stored value)", () => {
+    expect(
+      groupPassengerSeatTotal({ groupSize: 2, passengerSeatTotal: 0 }, [{ partySize: 1 }]),
+    ).toBe(0);
+  });
 });
