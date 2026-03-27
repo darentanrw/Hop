@@ -154,19 +154,19 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         );
 
         for (const member of removedMembers) {
+          const declined = member.acknowledgementStatus === "declined" || member.accepted === false;
           await ctx.db.patch(member._id, {
             participationStatus: "removed_no_ack",
-            acknowledgementStatus:
-              member.acknowledgementStatus === "declined" || member.accepted === false
-                ? "declined"
-                : "timed_out",
+            acknowledgementStatus: declined ? "declined" : "timed_out",
           });
           await reopenAvailability(ctx, member.availabilityId);
-          const removedUser = await ctx.db.get(member.userId as Id<"users">);
-          if (removedUser) {
-            await ctx.db.patch(member.userId as Id<"users">, {
-              cancelledTrips: (removedUser.cancelledTrips ?? 0) + 1,
-            });
+          if (declined) {
+            const removedUser = await ctx.db.get(member.userId as Id<"users">);
+            if (removedUser) {
+              await ctx.db.patch(member.userId as Id<"users">, {
+                cancelledTrips: (removedUser.cancelledTrips ?? 0) + 1,
+              });
+            }
           }
         }
 
@@ -239,15 +239,10 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           await reopenAvailability(ctx, member.availabilityId);
         }
 
-        // Increment cancelledTrips only for members who didn't acknowledge (not their fault others didn't)
-        // Declined members explicitly chose not to ride
-        const declinedOrTimedOut = activeMembers.filter(
-          (member) =>
-            member.acknowledgementStatus === "declined" ||
-            member.accepted === false ||
-            member.acknowledgementStatus === "pending",
+        const declinedMembers = activeMembers.filter(
+          (member) => member.acknowledgementStatus === "declined" || member.accepted === false,
         );
-        for (const member of declinedOrTimedOut) {
+        for (const member of declinedMembers) {
           const user = await ctx.db.get(member.userId as Id<"users">);
           if (user) {
             await ctx.db.patch(member.userId as Id<"users">, {
