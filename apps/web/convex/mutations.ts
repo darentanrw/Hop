@@ -1503,6 +1503,7 @@ export const attemptLateJoin = internalMutation({
 
       const routeOk = activeAvailabilities.every((avail) => {
         if (!avail) return true;
+        if (args.routeDescriptorRef === avail.routeDescriptorRef) return true;
         const key = [args.routeDescriptorRef, avail.routeDescriptorRef].sort().join("::");
         const edge = edgeMap.get(key);
         if (!edge) return false;

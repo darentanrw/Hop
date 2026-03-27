@@ -1,4 +1,5 @@
 import {
+  MAX_DETOUR_MINUTES,
   MAX_DISTINCT_LOCATIONS,
   MAX_SPREAD_KM,
   arePreferencesCompatible,
@@ -87,5 +88,55 @@ describe("matching constraints", () => {
       windowEnd: "2026-03-20T14:00:00.000Z",
     };
     expect(overlapMinutes(left, right)).toBe(0);
+  });
+});
+
+describe("late-join same-destination fallback", () => {
+  function routeOk(
+    joinerRef: string,
+    memberRefs: string[],
+    edgeMap: Map<string, CompatibilityEdge>,
+  ): boolean {
+    return memberRefs.every((memberRef) => {
+      if (joinerRef === memberRef) return true;
+      const key = [joinerRef, memberRef].sort().join("::");
+      const edge = edgeMap.get(key);
+      if (!edge) return false;
+      return edge.detourMinutes <= MAX_DETOUR_MINUTES && edge.spreadDistanceKm <= MAX_SPREAD_KM;
+    });
+  }
+
+  test("same routeDescriptorRef passes without an edge in the map", () => {
+    const edgeMap = new Map<string, CompatibilityEdge>();
+    expect(routeOk("route_X", ["route_X"], edgeMap)).toBe(true);
+  });
+
+  test("same-ref joiner passes even alongside different-ref members", () => {
+    const edgeMap = new Map<string, CompatibilityEdge>();
+    const edge = makeEdge({
+      leftRef: "route_X",
+      rightRef: "route_Y",
+      detourMinutes: 5,
+      spreadDistanceKm: 2,
+    });
+    edgeMap.set("route_X::route_Y", edge);
+    expect(routeOk("route_X", ["route_X", "route_Y"], edgeMap)).toBe(true);
+  });
+
+  test("different-ref without edge rejects", () => {
+    const edgeMap = new Map<string, CompatibilityEdge>();
+    expect(routeOk("route_A", ["route_B"], edgeMap)).toBe(false);
+  });
+
+  test("different-ref with edge exceeding detour rejects", () => {
+    const edgeMap = new Map<string, CompatibilityEdge>();
+    const edge = makeEdge({
+      leftRef: "route_A",
+      rightRef: "route_B",
+      detourMinutes: MAX_DETOUR_MINUTES + 1,
+      spreadDistanceKm: 2,
+    });
+    edgeMap.set("route_A::route_B", edge);
+    expect(routeOk("route_A", ["route_B"], edgeMap)).toBe(false);
   });
 });
