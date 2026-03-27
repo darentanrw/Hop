@@ -1,9 +1,6 @@
 import "./globals.css";
-import "leaflet/dist/leaflet.css";
-import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Sora } from "next/font/google";
-import { ConvexClientProvider } from "../components/ConvexClientProvider";
 import { ThemeProvider } from "../components/theme-provider";
 import { getSiteUrl, siteMetadata, socialImageSize } from "../lib/site-metadata";
 
@@ -88,11 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: intentional anti-FOUC theme script */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <ConvexAuthNextjsServerProvider>
-          <ConvexClientProvider>
-            <ThemeProvider>{children}</ThemeProvider>
-          </ConvexClientProvider>
-        </ConvexAuthNextjsServerProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

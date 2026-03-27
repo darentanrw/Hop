@@ -4,6 +4,8 @@ import {
   buildAdminPersonLabel,
   getCredibilityScoreLabel,
   isAdminInsightStale,
+  isUnresolvedReviewStatus,
+  normalizeReportReviewStatus,
   sortAdminReports,
 } from "../../lib/admin-dashboard";
 
@@ -50,6 +52,13 @@ describe("admin dashboard helpers", () => {
       "in-review-low",
       "resolved-critical",
     ]);
+  });
+
+  test("maps legacy review statuses onto the current moderation workflow", () => {
+    expect(normalizeReportReviewStatus("confirmed")).toBe("resolved");
+    expect(normalizeReportReviewStatus("pending")).toBe("open");
+    expect(isUnresolvedReviewStatus(normalizeReportReviewStatus("confirmed"))).toBe(false);
+    expect(isUnresolvedReviewStatus(normalizeReportReviewStatus("pending"))).toBe(true);
   });
 
   test("builds display labels from name, then email, then a safe fallback suffix", () => {

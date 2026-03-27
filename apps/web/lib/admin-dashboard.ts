@@ -90,17 +90,19 @@ export function getCredibilityScoreLabel(score: number) {
 }
 
 export function normalizeReportReviewStatus(value: unknown): ReportReviewStatus {
-  if (value === "pending") {
-    return "open";
+  if (REPORT_REVIEW_STATUSES.includes(value as ReportReviewStatus)) {
+    return value as ReportReviewStatus;
   }
 
   if (value === "confirmed") {
     return "resolved";
   }
 
-  return REPORT_REVIEW_STATUSES.includes(value as ReportReviewStatus)
-    ? (value as ReportReviewStatus)
-    : "open";
+  if (value === "pending") {
+    return "open";
+  }
+
+  return "open";
 }
 
 export function normalizeReportAiStatus(value: unknown): ReportAiStatus {
