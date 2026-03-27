@@ -9,6 +9,13 @@ import { v } from "convex/values";
 import { isCurrentOpenAvailability } from "../lib/availability-state";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
+import {
+  buildConfirmedPushCopy,
+  buildCouldNotConfirmPushCopy,
+  buildMovedOnWithoutYouPushCopy,
+  buildPaymentRequestedPushCopy,
+  buildRemovedFromRidePushCopy,
+} from "../lib/push-notification-copy";
 import { checkRideEligibility, isMembershipInActiveRide } from "../lib/ride-eligibility";
 import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
@@ -206,32 +213,47 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         });
 
         await scheduleLifecycleNotifications(ctx, [
-          ...acceptedMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "group_confirmed",
-            eventKey: `${group._id}:group_confirmed:${member.userId}`,
-            title: `${group.groupName ?? "Hop Group"} is confirmed`,
-            body: `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
-            emailSubject: `${group.groupName ?? "Hop Group"} is confirmed`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Hop Group"} is confirmed`,
-              `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
-            ),
-          })),
-          ...removedMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "match_closed",
-            eventKey: `${group._id}:match_closed:${member.userId}`,
-            title: `${group.groupName ?? "Hop Group"} moved on without you`,
-            body: "This ride continued with the riders who acknowledged in time. You can look for another Hop ride.",
-            emailSubject: `${group.groupName ?? "Hop Group"} moved on without you`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Hop Group"} moved on without you`,
-              "This ride continued with the riders who acknowledged in time. You can look for another Hop ride.",
-            ),
-          })),
+          ...acceptedMembers.map((member) => {
+            const pushCopy = buildConfirmedPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+              meetingLocationLabel: group.meetingLocationLabel ?? group.pickupLabel,
+            });
+
+            return {
+              userId: member.userId as Id<"users">,
+              groupId: group._id,
+              kind: "group_confirmed",
+              eventKey: `${group._id}:group_confirmed:${member.userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: `${group.groupName ?? "Hop Group"} is confirmed`,
+              emailHtml: buildNotificationEmail(
+                `${group.groupName ?? "Hop Group"} is confirmed`,
+                `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
+              ),
+            };
+          }),
+          ...removedMembers.map((member) => {
+            const pushCopy = buildMovedOnWithoutYouPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+            });
+
+            return {
+              userId: member.userId as Id<"users">,
+              groupId: group._id,
+              kind: "match_closed",
+              eventKey: `${group._id}:match_closed:${member.userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: `${group.groupName ?? "Hop Group"} moved on without you`,
+              emailHtml: buildNotificationEmail(
+                `${group.groupName ?? "Hop Group"} moved on without you`,
+                "This ride continued with the riders who acknowledged in time. You can look for another Hop ride.",
+              ),
+            };
+          }),
         ]);
       } else {
         await ctx.db.patch(group._id, { status: "cancelled" });
@@ -258,19 +280,26 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
 
         await scheduleLifecycleNotifications(
           ctx,
-          activeMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "match_cancelled",
-            eventKey: `${group._id}:match_cancelled:${member.userId}`,
-            title: `${group.groupName ?? "Hop Group"} could not be confirmed`,
-            body: "Not enough riders acknowledged in time. You can head back into the queue for another ride.",
-            emailSubject: `${group.groupName ?? "Hop Group"} could not be confirmed`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Hop Group"} could not be confirmed`,
-              "Not enough riders acknowledged in time. You can head back into the queue for another ride.",
-            ),
-          })),
+          activeMembers.map((member) => {
+            const pushCopy = buildCouldNotConfirmPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+            });
+
+            return {
+              userId: member.userId as Id<"users">,
+              groupId: group._id,
+              kind: "match_cancelled",
+              eventKey: `${group._id}:match_cancelled:${member.userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: `${group.groupName ?? "Hop Group"} could not be confirmed`,
+              emailHtml: buildNotificationEmail(
+                `${group.groupName ?? "Hop Group"} could not be confirmed`,
+                "Not enough riders acknowledged in time. You can head back into the queue for another ride.",
+              ),
+            };
+          }),
         );
       }
     }
@@ -784,19 +813,26 @@ export const departGroup = mutation({
 
     await scheduleLifecycleNotifications(
       ctx,
-      absentMembers.map((member) => ({
-        userId: member.userId as Id<"users">,
-        groupId,
-        kind: "removed_no_show",
-        eventKey: `${groupId}:removed_no_show:${member.userId}`,
-        title: `You were removed from ${group.groupName ?? "Hop Group"}`,
-        body: "The group departed after the meetup grace period because your attendance was not verified.",
-        emailSubject: `You were removed from ${group.groupName ?? "Hop Group"}`,
-        emailHtml: buildNotificationEmail(
-          `You were removed from ${group.groupName ?? "Hop Group"}`,
-          "The group departed after the meetup grace period because your attendance was not verified.",
-        ),
-      })),
+      absentMembers.map((member) => {
+        const pushCopy = buildRemovedFromRidePushCopy({
+          windowStart: group.windowStart,
+          windowEnd: group.windowEnd,
+        });
+
+        return {
+          userId: member.userId as Id<"users">,
+          groupId,
+          kind: "removed_no_show",
+          eventKey: `${groupId}:removed_no_show:${member.userId}`,
+          title: pushCopy.title,
+          body: pushCopy.body,
+          emailSubject: `You were removed from ${group.groupName ?? "Hop Group"}`,
+          emailHtml: buildNotificationEmail(
+            `You were removed from ${group.groupName ?? "Hop Group"}`,
+            "The group departed after the meetup grace period because your attendance was not verified.",
+          ),
+        };
+      }),
     );
 
     return { ok: true };
@@ -876,13 +912,18 @@ export const submitReceipt = mutation({
         .filter((member) => member.userId !== userId)
         .map((member) => {
           const amountDueCents = split.get(member.userId) ?? 0;
+          const pushCopy = buildPaymentRequestedPushCopy({
+            windowStart: group.windowStart,
+            windowEnd: group.windowEnd,
+            amountLabel: formatCurrency(amountDueCents),
+          });
           return {
             userId: member.userId as Id<"users">,
             groupId,
             kind: "payment_requested",
             eventKey: `${groupId}:payment_requested:${member.userId}:${storageId}`,
-            title: `Payment proof is now due for ${group.groupName ?? "Hop Group"}`,
-            body: `Upload proof of your ${formatCurrency(amountDueCents)} payment within 24 hours.`,
+            title: pushCopy.title,
+            body: pushCopy.body,
             emailSubject: `Payment proof is now due for ${group.groupName ?? "Hop Group"}`,
             emailHtml: buildNotificationEmail(
               `Payment proof is now due for ${group.groupName ?? "Hop Group"}`,
