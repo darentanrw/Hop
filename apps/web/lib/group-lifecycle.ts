@@ -163,6 +163,13 @@ export function selectBookerUserId(
   });
 }
 
+export function shouldPenalizeDeclinedAcknowledgement(member: {
+  acknowledgementStatus?: "accepted" | "declined" | "pending" | null;
+  accepted?: boolean | null;
+}) {
+  return member.acknowledgementStatus === "declined" || member.accepted === false;
+}
+
 export function deriveMeetingTime(windowStart: string) {
   return new Date(windowStart).toISOString();
 }

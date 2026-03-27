@@ -7,7 +7,11 @@ import {
 } from "@hop/shared";
 import { v } from "convex/values";
 import { isCurrentOpenAvailability } from "../lib/availability-state";
-import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
+import {
+  computeSplitAmounts,
+  selectBookerUserId,
+  shouldPenalizeDeclinedAcknowledgement,
+} from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
 import { checkRideEligibility, isMembershipInActiveRide } from "../lib/ride-eligibility";
 import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
@@ -154,7 +158,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         );
 
         for (const member of removedMembers) {
-          const declined = member.acknowledgementStatus === "declined" || member.accepted === false;
+          const declined = shouldPenalizeDeclinedAcknowledgement(member);
           await ctx.db.patch(member._id, {
             participationStatus: "removed_no_ack",
             acknowledgementStatus: declined ? "declined" : "timed_out",
@@ -240,7 +244,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         }
 
         const declinedMembers = activeMembers.filter(
-          (member) => member.acknowledgementStatus === "declined" || member.accepted === false,
+          shouldPenalizeDeclinedAcknowledgement,
         );
         for (const member of declinedMembers) {
           const user = await ctx.db.get(member.userId as Id<"users">);
