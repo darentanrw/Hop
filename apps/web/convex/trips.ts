@@ -440,6 +440,68 @@ async function buildTripPayload(
   };
 }
 
+const PAST_RIDE_GROUP_STATUSES = new Set(["cancelled", "closed", "dissolved", "reported"]);
+
+function pastRideSortTime(group: GroupDoc): number {
+  const isoCandidates = [
+    group.closedAt,
+    group.departedAt,
+    group.meetingTime,
+    group.windowEnd,
+  ].filter(Boolean) as string[];
+  if (isoCandidates.length > 0) {
+    return Math.max(...isoCandidates.map((iso) => new Date(iso).getTime()));
+  }
+  return group._creationTime;
+}
+
+export const listPastRides = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+
+    const memberships = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+
+    const byGroupId = new Map<Id<"groups">, { sortTime: number; group: GroupDoc }>();
+
+    for (const membership of memberships) {
+      const group = await ctx.db.get(membership.groupId);
+      if (!group || !PAST_RIDE_GROUP_STATUSES.has(group.status)) continue;
+
+      const sortTime = pastRideSortTime(group);
+      const prev = byGroupId.get(group._id);
+      if (prev && prev.sortTime >= sortTime) continue;
+      byGroupId.set(group._id, { sortTime, group });
+    }
+
+    const rows = [...byGroupId.values()]
+      .sort((a, b) => b.sortTime - a.sortTime)
+      .slice(0, 50)
+      .map(({ group }) => ({
+        groupId: group._id,
+        groupName: group.groupName ?? "Hop Group",
+        groupColor: group.groupColor ?? "#44d4c8",
+        status: group.status,
+        pickupLabel: group.pickupLabel,
+        meetingTime: group.meetingTime ?? group.windowStart,
+        closedAt: group.closedAt ?? null,
+        finalCostCents: group.finalCostCents ?? null,
+        endedAt:
+          group.closedAt ??
+          group.departedAt ??
+          group.meetingTime ??
+          group.windowEnd ??
+          new Date(group._creationTime).toISOString(),
+      }));
+
+    return rows;
+  },
+});
+
 export const getRideEligibility = query({
   args: { actingUserId: v.optional(v.id("users")) },
   handler: async (ctx, { actingUserId }) => {

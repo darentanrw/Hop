@@ -1512,7 +1512,7 @@ export function GroupClient({
                   >
                     {!isSelf ? (
                       <div className="chat-sender">
-                        {message.senderEmoji} {message.senderDisplayName}
+                        {message.senderEmoji} {emojiName(message.senderEmoji)}
                       </div>
                     ) : null}
                     <div>{message.body}</div>
