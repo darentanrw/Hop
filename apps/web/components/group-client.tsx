@@ -2,8 +2,6 @@
 
 import { MAX_GROUP_SIZE } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
-import QrScanner from "qr-scanner";
-import QRCode from "qrcode";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -11,6 +9,8 @@ import { type DestinationLabelCache, loadDestinationLabelCache } from "../lib/de
 import { resolveGroupDestinationLabel } from "../lib/group-destination-label";
 import { emojiName } from "../lib/group-lifecycle";
 import { Countdown } from "./countdown";
+
+type QrScannerInstance = InstanceType<typeof import("qr-scanner").default>;
 
 type ActiveTripPayload = {
   group: {
@@ -279,7 +279,7 @@ export function GroupClient({
   );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scannerRef = useRef<QrScanner | null>(null);
+  const scannerRef = useRef<QrScannerInstance | null>(null);
   const scannerBusyRef = useRef(false);
   const lastScannedTokenRef = useRef<string | null>(null);
   const lastScannedAtRef = useRef(0);
@@ -318,12 +318,32 @@ export function GroupClient({
       setQrCode("");
       return;
     }
-    void QRCode.toDataURL(group.currentUserMember.qrToken, {
-      margin: 1,
-      width: 240,
-      color: { dark: group.group.groupColor, light: "#ffffff" },
-    }).then(setQrCode);
-  }, [group]);
+    const qrToken = group.currentUserMember.qrToken;
+    const groupColor = group.group.groupColor;
+    let cancelled = false;
+    void import("qrcode")
+      .then(({ default: QRCode }) =>
+        QRCode.toDataURL(qrToken, {
+          margin: 1,
+          width: 240,
+          color: { dark: groupColor, light: "#ffffff" },
+        }),
+      )
+      .then((nextQrCode) => {
+        if (!cancelled) {
+          setQrCode(nextQrCode);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Unable to generate Hop rider QR code.", error);
+          setQrCode("");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [group?.actions.canShowQr, group?.currentUserMember?.qrToken, group?.group.groupColor]);
 
   useEffect(() => {
     groupRef.current = group;
@@ -504,30 +524,46 @@ export function GroupClient({
   useEffect(() => {
     if (!scannerOpen || !group?.actions.canScanQr || !videoRef.current) return;
     let cancelled = false;
-    const scanner = new QrScanner(
-      videoRef.current,
-      (result) => {
-        void submitScannedQrTokenRef.current(result.data);
-      },
-      { preferredCamera: "environment", maxScansPerSecond: 12, returnDetailedScanResult: true },
-    );
-    scannerRef.current = scanner;
-    void scanner
-      .start()
-      .then(() => {
-        if (cancelled) {
+    let scanner: QrScannerInstance | null = null;
+    void import("qr-scanner")
+      .then(async ({ default: QrScanner }) => {
+        if (cancelled || !videoRef.current) return;
+        scanner = new QrScanner(
+          videoRef.current,
+          (result) => {
+            void submitScannedQrTokenRef.current(result.data);
+          },
+          {
+            preferredCamera: "environment",
+            maxScansPerSecond: 12,
+            returnDetailedScanResult: true,
+          },
+        );
+        scannerRef.current = scanner;
+        try {
+          await scanner.start();
+          if (cancelled) {
+            scanner.destroy();
+            return;
+          }
+          setScannerState("live");
+          setScannerStatus({
+            type: "info",
+            text: "Scanner is on. Point at each rider's QR code.",
+          });
+        } catch (error) {
+          if (scannerRef.current === scanner) scannerRef.current = null;
           scanner.destroy();
-          return;
+          if (cancelled) return;
+          setScannerOpen(false);
+          setScannerState("idle");
+          setScannerStatus({
+            type: "error",
+            text: error instanceof Error ? error.message : "Camera access was blocked.",
+          });
         }
-        setScannerState("live");
-        setScannerStatus({
-          type: "info",
-          text: "Scanner is on. Point at each rider's QR code.",
-        });
       })
       .catch((error) => {
-        if (scannerRef.current === scanner) scannerRef.current = null;
-        scanner.destroy();
         if (cancelled) return;
         setScannerOpen(false);
         setScannerState("idle");
@@ -539,7 +575,7 @@ export function GroupClient({
     return () => {
       cancelled = true;
       if (scannerRef.current === scanner) scannerRef.current = null;
-      scanner.destroy();
+      scanner?.destroy();
     };
   }, [group?.actions.canScanQr, scannerOpen]);
 
