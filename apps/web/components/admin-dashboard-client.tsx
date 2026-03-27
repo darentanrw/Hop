@@ -1,6 +1,5 @@
 "use client";
 
-import { CREDIBILITY_SUSPENSION_THRESHOLD } from "@hop/shared";
 import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -11,30 +10,19 @@ import {
   REPORT_CATEGORY_LABELS,
   REPORT_REVIEW_STATUSES,
   REPORT_SEVERITY_BANDS,
-  getCredibilityScoreLabel,
   isUnresolvedReviewStatus,
 } from "../lib/admin-dashboard";
-import { credibilityScoreNumberColor } from "../lib/credibility-score-color";
 
 type NoticeState = {
   tone: "success" | "error" | "info";
   text: string;
 } | null;
 
-type DashboardCredibility = {
-  score: number;
-  suspended: boolean;
-  successfulTrips: number;
-  cancelledTrips: number;
-  confirmedReportCount: number;
-};
-
 type DashboardActor = {
   userId: string;
   label: string;
   name: string | null;
   email: string | null;
-  credibility: DashboardCredibility | null;
 };
 
 type DashboardReport = {
@@ -94,10 +82,6 @@ type DashboardData = {
   totalReports: number;
   unresolvedReports: number;
   criticalOpenReports: number;
-  credibility: {
-    suspendedRiders: number;
-    lowCredibilityRiders: number;
-  };
   summary: DashboardSummary;
   reports: DashboardReport[];
   auditEvents: DashboardAuditEvent[];
@@ -136,31 +120,29 @@ const aiStatusOptions = [
 ];
 
 function formatTimestamp(value: string | null) {
-  if (!value) {
-    return "Not available";
-  }
-
+  if (!value) return "—";
   const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) {
-    return value;
-  }
-
+  if (Number.isNaN(timestamp)) return value;
   return new Date(timestamp).toLocaleString();
 }
 
+function relativeTime(value: string | null) {
+  if (!value) return "—";
+  const ms = Date.now() - Date.parse(value);
+  if (Number.isNaN(ms)) return value;
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function getSeverityLabel(report: DashboardReport) {
-  if (report.aiStatus === "pending") {
-    return "Scoring…";
-  }
-
-  if (report.aiStatus === "failed") {
-    return "AI unavailable";
-  }
-
-  if (report.severityScore === null || !report.severityBand) {
-    return "Severity unavailable";
-  }
-
+  if (report.aiStatus === "pending") return "Scoring…";
+  if (report.aiStatus === "failed") return "AI n/a";
+  if (report.severityScore === null || !report.severityBand) return "—";
   return `${report.severityScore} · ${report.severityBand}`;
 }
 
@@ -171,41 +153,57 @@ function getSummaryStatusLabel(summary: DashboardSummary) {
     case "pending":
       return "Refreshing";
     case "ready":
-      return summary.isStale ? "Ready · stale" : "Ready";
+      return summary.isStale ? "Stale" : "Ready";
     case "failed":
-      return "Refresh failed";
+      return "Failed";
   }
 }
 
-function renderCredibilityMeta(actor: DashboardActor | null) {
-  const credibility = actor?.credibility;
-  if (!credibility) {
-    return <span className="admin-meta-sub">Credibility unavailable</span>;
+function getSummaryStatusTone(summary: DashboardSummary) {
+  switch (summary.status) {
+    case "idle":
+      return "muted";
+    case "pending":
+      return "accent";
+    case "ready":
+      return summary.isStale ? "warning" : "success";
+    case "failed":
+      return "danger";
   }
+}
 
-  return (
-    <>
-      <span className="admin-meta-sub">
-        Credibility{" "}
-        <strong style={{ color: credibilityScoreNumberColor(credibility.score) }}>
-          {Math.round(credibility.score)}
-        </strong>
-        {" · "}
-        {credibility.suspended ? "Suspended" : getCredibilityScoreLabel(credibility.score)}
-      </span>
-      <span className="admin-meta-sub">
-        {credibility.successfulTrips} successes · {credibility.cancelledTrips} cancelled ·{" "}
-        {credibility.confirmedReportCount} confirmed reports
-      </span>
-    </>
-  );
+function getReviewStatusTone(status: string) {
+  switch (status) {
+    case "open":
+      return "accent";
+    case "in_review":
+      return "privacy";
+    case "resolved":
+      return "success";
+    case "dismissed":
+      return "muted";
+    default:
+      return "muted";
+  }
+}
+
+function getSeverityTone(band: string | null) {
+  switch (band) {
+    case "critical":
+      return "danger";
+    case "high":
+      return "accent";
+    case "medium":
+      return "privacy";
+    case "low":
+      return "muted";
+    default:
+      return "muted";
+  }
 }
 
 function toErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
+  if (error instanceof Error) return error.message;
   return "Something went wrong.";
 }
 
@@ -227,7 +225,9 @@ export function AdminDashboardClient() {
     action: "start" | "resolve" | "dismiss";
   } | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
+  const [expandedReport, setExpandedReport] = useState<string | null>(null);
   const autoRefreshRequested = useRef(false);
+
   const summary =
     dashboard?.summary ??
     ({
@@ -244,38 +244,24 @@ export function AdminDashboardClient() {
     } satisfies DashboardSummary);
 
   useEffect(() => {
-    if (!dashboard?.summary.aiEnabled) {
-      return;
-    }
-
-    if (dashboard.summary.status !== "idle" || autoRefreshRequested.current) {
-      return;
-    }
-
+    if (!dashboard?.summary.aiEnabled) return;
+    if (dashboard.summary.status !== "idle" || autoRefreshRequested.current) return;
     autoRefreshRequested.current = true;
     void refreshDashboardSummary({ force: false }).catch(() => undefined);
   }, [dashboard?.summary.aiEnabled, dashboard?.summary.status, refreshDashboardSummary]);
 
   const reports = dashboard?.reports ?? [];
   const filteredReports = reports.filter((report) => {
-    if (reviewFilter !== "all" && report.reviewStatus !== reviewFilter) {
-      return false;
-    }
-
-    if (severityFilter !== "all" && report.severityBand !== severityFilter) {
-      return false;
-    }
-
-    if (categoryFilter !== "all" && report.category !== categoryFilter) {
-      return false;
-    }
-
-    if (aiStatusFilter !== "all" && report.aiStatus !== aiStatusFilter) {
-      return false;
-    }
-
+    if (reviewFilter !== "all" && report.reviewStatus !== reviewFilter) return false;
+    if (severityFilter !== "all" && report.severityBand !== severityFilter) return false;
+    if (categoryFilter !== "all" && report.category !== categoryFilter) return false;
+    if (aiStatusFilter !== "all" && report.aiStatus !== aiStatusFilter) return false;
     return true;
   });
+
+  const activeFilters = [reviewFilter, severityFilter, categoryFilter, aiStatusFilter].filter(
+    (f) => f !== "all",
+  ).length;
 
   function getDraftNote(report: DashboardReport) {
     return draftNotes[report._id] ?? report.reviewNote ?? "";
@@ -284,7 +270,6 @@ export function AdminDashboardClient() {
   async function handleSummaryRefresh(force: boolean) {
     setSummaryBusy(true);
     setNotice(null);
-
     try {
       const result = await refreshDashboardSummary({ force });
       if (result.scheduled) {
@@ -307,15 +292,11 @@ export function AdminDashboardClient() {
   ) {
     setBusyAction({ reportId: report._id, action });
     setNotice(null);
-
     try {
       if (action === "start") {
-        await startReportReview({
-          reportId: report._id as Id<"reports">,
-        });
+        await startReportReview({ reportId: report._id as Id<"reports"> });
         setNotice({ tone: "success", text: "Report moved into review." });
       }
-
       if (action === "resolve") {
         await resolveReport({
           reportId: report._id as Id<"reports">,
@@ -324,7 +305,6 @@ export function AdminDashboardClient() {
         setDraftNotes((current) => ({ ...current, [report._id]: "" }));
         setNotice({ tone: "success", text: "Report resolved." });
       }
-
       if (action === "dismiss") {
         await dismissReport({
           reportId: report._id as Id<"reports">,
@@ -340,77 +320,109 @@ export function AdminDashboardClient() {
     }
   }
 
+  const isExpanded = (id: string) => expandedReport === id;
+  const toggleExpand = (id: string) =>
+    setExpandedReport((prev) => (prev === id ? null : id));
+
   return (
-    <div className="admin-dash">
-      <header className="admin-dash-header">
-        <div className="row" style={{ gap: 8 }}>
+    <div className="adm">
+      {/* Header */}
+      <header className="adm-header">
+        <div className="adm-header-left">
           <div
             className="hop-logo"
-            style={{ width: 26, height: 26, fontSize: 12, borderRadius: 7 }}
+            style={{ width: 28, height: 28, fontSize: 12, borderRadius: 8 }}
           >
             H
           </div>
-          <span className="pill pill-accent pill-dot" style={{ fontSize: 11 }}>
-            Admin
-          </span>
+          <div className="adm-header-title">
+            <h1 className="adm-wordmark">Hop</h1>
+            <span className="adm-badge">Admin</span>
+          </div>
         </div>
-        <Link href="/admin/simulator" className="btn btn-primary btn-sm">
-          Open simulator →
+        <Link href="/admin/simulator" className="btn btn-secondary btn-sm">
+          Simulator
+          <span className="adm-arrow">→</span>
         </Link>
       </header>
 
+      {/* Toast notice */}
       {notice ? (
         <div
-          className={`notice ${
-            notice.tone === "error"
-              ? "notice-error"
-              : notice.tone === "success"
-                ? "notice-success"
-                : "notice-info"
-          }`}
+          className={`adm-toast adm-toast--${notice.tone}`}
+          onClick={() => setNotice(null)}
+          role="status"
         >
+          <span className="adm-toast-dot" />
           {notice.text}
         </div>
       ) : null}
 
-      <div className="admin-kpi-strip">
-        <div className="admin-kpi">
-          <span className="admin-kpi-n">{dashboard?.users ?? "—"}</span>
-          <span className="admin-kpi-l">Riders</span>
+      {/* KPI strip */}
+      <div className="adm-kpis">
+        <div className="adm-kpi" data-tone="default">
+          <div className="adm-kpi-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path d="M2.5 14c0-3 2.5-4.5 5.5-4.5s5.5 1.5 5.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+            </svg>
+          </div>
+          <span className="adm-kpi-val">{dashboard?.users ?? "—"}</span>
+          <span className="adm-kpi-lbl">Riders</span>
         </div>
-        <div className="admin-kpi">
-          <span className="admin-kpi-n text-accent">{dashboard?.openAvailabilities ?? "—"}</span>
-          <span className="admin-kpi-l">Open pool</span>
+        <div className="adm-kpi" data-tone="accent">
+          <div className="adm-kpi-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <circle cx="8" cy="8" r="2" fill="currentColor" />
+            </svg>
+          </div>
+          <span className="adm-kpi-val">{dashboard?.openAvailabilities ?? "—"}</span>
+          <span className="adm-kpi-lbl">Open pool</span>
         </div>
-        <div className="admin-kpi">
-          <span className="admin-kpi-n">{dashboard?.tentativeGroups ?? "—"}</span>
-          <span className="admin-kpi-l">Tentative</span>
+        <div className="adm-kpi" data-tone="privacy">
+          <div className="adm-kpi-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="5" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              <path d="M5 5V4a3 3 0 016 0v1" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            </svg>
+          </div>
+          <span className="adm-kpi-val">{dashboard?.tentativeGroups ?? "—"}</span>
+          <span className="adm-kpi-lbl">Tentative</span>
         </div>
-        <div className="admin-kpi">
-          <span className="admin-kpi-n text-success">{dashboard?.revealedGroups ?? "—"}</span>
-          <span className="admin-kpi-l">Revealed</span>
+        <div className="adm-kpi" data-tone="success">
+          <div className="adm-kpi-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M4 8.5l3 3 5-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+          </div>
+          <span className="adm-kpi-val">{dashboard?.revealedGroups ?? "—"}</span>
+          <span className="adm-kpi-lbl">Revealed</span>
         </div>
-        <div className="admin-kpi">
-          <span className="admin-kpi-n text-danger">
-            {dashboard?.credibility.suspendedRiders ?? "—"}
-          </span>
-          <span className="admin-kpi-l">Suspended &lt; {CREDIBILITY_SUSPENSION_THRESHOLD}</span>
+
+        {/* Report KPIs */}
+        <div className="adm-kpi" data-tone="default">
+          <span className="adm-kpi-val">{dashboard?.totalReports ?? "—"}</span>
+          <span className="adm-kpi-lbl">Reports</span>
+        </div>
+        <div className="adm-kpi" data-tone="accent">
+          <span className="adm-kpi-val">{dashboard?.unresolvedReports ?? "—"}</span>
+          <span className="adm-kpi-lbl">Unresolved</span>
+        </div>
+        <div className="adm-kpi" data-tone="danger">
+          <span className="adm-kpi-val">{dashboard?.criticalOpenReports ?? "—"}</span>
+          <span className="adm-kpi-lbl">Critical</span>
         </div>
       </div>
 
-      <section className="admin-summary-card">
-        <div className="admin-summary-head">
-          <div className="stack-sm">
-            <div className="row" style={{ gap: 8, alignItems: "center" }}>
-              <h2 className="admin-summary-title">AI overview</h2>
-              <span className="pill pill-muted">{getSummaryStatusLabel(summary)}</span>
-            </div>
-            <p className="admin-summary-copy">
-              {summary.aiEnabled
-                ? (summary.headline ??
-                  "A cached AI dashboard summary will appear here once generated.")
-                : "Set OPENAI_API_KEY in the Convex environment to enable AI report scoring and the dashboard summary."}
-            </p>
+      {/* AI Overview */}
+      <section className="adm-ai" data-status={summary.status} data-stale={summary.isStale}>
+        <div className="adm-ai-header">
+          <div className="adm-ai-title-row">
+            <h2 className="adm-section-title">AI overview</h2>
+            <span className={`pill pill-${getSummaryStatusTone(summary)} pill-dot`}>
+              {getSummaryStatusLabel(summary)}
+            </span>
           </div>
           <button
             type="button"
@@ -418,315 +430,349 @@ export function AdminDashboardClient() {
             onClick={() => void handleSummaryRefresh(true)}
             disabled={summaryBusy || !summary.aiEnabled}
           >
-            {summaryBusy || summary.status === "pending" ? "Refreshing…" : "Refresh summary"}
+            {summaryBusy || summary.status === "pending" ? (
+              <>
+                <span className="adm-spinner" />
+                Refreshing…
+              </>
+            ) : (
+              "Refresh"
+            )}
           </button>
         </div>
 
-        <div className="admin-summary-stats">
-          <div className="admin-summary-stat">
-            <span className="admin-summary-stat-v">{dashboard?.totalReports ?? 0}</span>
-            <span className="admin-summary-stat-k">Total reports</span>
-          </div>
-          <div className="admin-summary-stat">
-            <span className="admin-summary-stat-v">{dashboard?.unresolvedReports ?? 0}</span>
-            <span className="admin-summary-stat-k">Unresolved</span>
-          </div>
-          <div className="admin-summary-stat">
-            <span className="admin-summary-stat-v">{dashboard?.criticalOpenReports ?? 0}</span>
-            <span className="admin-summary-stat-k">Critical open</span>
-          </div>
-          <div className="admin-summary-stat">
-            <span className="admin-summary-stat-v">
-              {summary.generatedAt ? formatTimestamp(summary.generatedAt) : "—"}
-            </span>
-            <span className="admin-summary-stat-k">Last generated</span>
-          </div>
-        </div>
+        <p className="adm-ai-headline">
+          {summary.aiEnabled
+            ? (summary.headline ??
+              "A cached AI dashboard summary will appear here once generated.")
+            : "Set OPENAI_API_KEY in the Convex environment to enable AI report scoring and the dashboard summary."}
+        </p>
 
-        <div className="admin-summary-body">
-          <div className="admin-summary-panel">
-            <h3 className="admin-col-title">Summary</h3>
-            <p className="admin-summary-paragraph">
-              {summary.body ??
-                "The AI overview will summarize queue pressure, credibility risk, and recent operator activity once it runs."}
-            </p>
-            {summary.error ? <p className="text-sm text-danger">{summary.error}</p> : null}
-          </div>
-
-          <div className="admin-summary-panel">
-            <h3 className="admin-col-title">Recommended focus</h3>
+        {summary.body || summary.recommendedFocus.length || summary.error ? (
+          <div className="adm-ai-body">
+            {summary.body ? (
+              <div className="adm-ai-panel">
+                <h3 className="adm-label">Summary</h3>
+                <p className="adm-ai-text">{summary.body}</p>
+              </div>
+            ) : null}
             {summary.recommendedFocus.length ? (
-              <ul className="admin-focus-list">
-                {summary.recommendedFocus.map((entry) => (
-                  <li key={entry}>{entry}</li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-muted text-sm">
-                No AI follow-up points yet. Use the live queue below while the summary refreshes.
-              </p>
-            )}
+              <div className="adm-ai-panel">
+                <h3 className="adm-label">Focus areas</h3>
+                <ul className="adm-focus-list">
+                  {summary.recommendedFocus.map((entry) => (
+                    <li key={entry}>
+                      <span className="adm-focus-marker" />
+                      {entry}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {summary.error ? (
+              <p className="adm-ai-error">{summary.error}</p>
+            ) : null}
           </div>
-        </div>
+        ) : null}
+
+        {summary.generatedAt ? (
+          <span className="adm-ai-meta">
+            Generated {relativeTime(summary.generatedAt)}
+            {summary.model ? ` · ${summary.model}` : ""}
+          </span>
+        ) : null}
       </section>
 
-      <div className="admin-shell-grid">
-        <section className="admin-col admin-report-panel">
-          <div className="admin-panel-head">
-            <div className="stack-sm">
-              <h3 className="admin-col-title">Report queue</h3>
-              <p className="text-sm text-muted">
-                Showing {filteredReports.length} of {reports.length} reports.
-              </p>
+      {/* Main content grid */}
+      <div className="adm-grid">
+        {/* Report queue */}
+        <section className="adm-reports">
+          <div className="adm-reports-header">
+            <div className="adm-reports-title-row">
+              <h2 className="adm-section-title">Report queue</h2>
+              <span className="adm-count">
+                {filteredReports.length}
+                {activeFilters > 0 ? ` of ${reports.length}` : ""}
+              </span>
             </div>
-            <div className="admin-filters">
-              <label className="admin-filter">
-                <span>Status</span>
-                <select
-                  value={reviewFilter}
-                  onChange={(event) => setReviewFilter(event.target.value)}
-                >
-                  {reviewStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="admin-filter">
-                <span>Severity</span>
-                <select
-                  value={severityFilter}
-                  onChange={(event) => setSeverityFilter(event.target.value)}
-                >
-                  {severityOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="admin-filter">
-                <span>Category</span>
-                <select
-                  value={categoryFilter}
-                  onChange={(event) => setCategoryFilter(event.target.value)}
-                >
-                  {categoryOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="admin-filter">
-                <span>AI</span>
-                <select
-                  value={aiStatusFilter}
-                  onChange={(event) => setAiStatusFilter(event.target.value)}
-                >
-                  {aiStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="adm-filters">
+              {[
+                { label: "Status", value: reviewFilter, set: setReviewFilter, opts: reviewStatusOptions },
+                { label: "Severity", value: severityFilter, set: setSeverityFilter, opts: severityOptions },
+                { label: "Category", value: categoryFilter, set: setCategoryFilter, opts: categoryOptions },
+                { label: "AI", value: aiStatusFilter, set: setAiStatusFilter, opts: aiStatusOptions },
+              ].map((filter) => (
+                <label className="adm-filter" key={filter.label}>
+                  <span>{filter.label}</span>
+                  <select
+                    value={filter.value}
+                    onChange={(e) => filter.set(e.target.value)}
+                    data-active={filter.value !== "all" ? "" : undefined}
+                  >
+                    {filter.opts.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
             </div>
           </div>
 
-          <div className="admin-report-list">
+          <div className="adm-report-scroll">
             {dashboard === undefined ? (
-              <div className="admin-empty-state">Loading report queue…</div>
-            ) : filteredReports.length ? (
+              <div className="adm-empty">
+                <span className="adm-spinner" />
+                Loading reports…
+              </div>
+            ) : filteredReports.length === 0 ? (
+              <div className="adm-empty">No reports match the selected filters.</div>
+            ) : (
               filteredReports.map((report) => {
                 const busy = busyAction?.reportId === report._id;
                 const unresolved = isUnresolvedReviewStatus(report.reviewStatus);
+                const expanded = isExpanded(report._id);
+                const severityTone = getSeverityTone(report.severityBand);
+                const reviewTone = getReviewStatusTone(report.reviewStatus);
 
                 return (
                   <article
-                    className="admin-report-card"
-                    data-review-status={report.reviewStatus}
-                    data-severity-band={report.severityBand ?? "none"}
+                    className="adm-report"
+                    data-severity={report.severityBand ?? "none"}
+                    data-status={report.reviewStatus}
                     key={report._id}
                   >
-                    <div className="admin-report-head">
-                      <div className="stack-sm">
-                        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                          <span className="pill pill-muted">{report.categoryLabel}</span>
-                          <span className="pill pill-accent">
+                    {/* Severity accent bar */}
+                    <div className={`adm-report-accent adm-report-accent--${severityTone}`} />
+
+                    <div className="adm-report-content">
+                      {/* Compact header — always visible */}
+                      <button
+                        type="button"
+                        className="adm-report-row"
+                        onClick={() => toggleExpand(report._id)}
+                        aria-expanded={expanded}
+                      >
+                        <div className="adm-report-primary">
+                          <span className={`adm-severity-chip adm-severity-chip--${severityTone}`}>
+                            {report.severityScore !== null ? report.severityScore : "—"}
+                          </span>
+                          <div className="adm-report-info">
+                            <span className="adm-report-title">
+                              {report.reportedUser
+                                ? `${report.reportedUser.label} reported by ${report.reporter.label}`
+                                : `Situation report from ${report.reporter.label}`}
+                            </span>
+                            <span className="adm-report-sub">
+                              {report.categoryLabel} · {report.group.label}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="adm-report-badges">
+                          <span className={`pill pill-${reviewTone}`}>
                             {report.reviewStatus.replace("_", " ")}
                           </span>
-                          <span className="pill pill-privacy">{getSeverityLabel(report)}</span>
+                          <span className="adm-report-time">{relativeTime(report.createdAt)}</span>
+                          <span className={`adm-chevron ${expanded ? "adm-chevron--open" : ""}`}>
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M4 5.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </span>
                         </div>
-                        <h4 className="admin-report-title">
-                          {report.reportedUser
-                            ? `${report.reportedUser.label} reported by ${report.reporter.label}`
-                            : `Situation report from ${report.reporter.label}`}
-                        </h4>
-                      </div>
-                      <span className="admin-report-time">{formatTimestamp(report.createdAt)}</span>
-                    </div>
+                      </button>
 
-                    <div className="admin-report-meta">
-                      <div className="admin-meta-block">
-                        <span className="admin-meta-k">Reporter</span>
-                        <span className="admin-meta-v">{report.reporter.label}</span>
-                        <span className="admin-meta-sub">
-                          {report.reporter.email ?? report.reporter.userId}
-                        </span>
-                        {renderCredibilityMeta(report.reporter)}
-                      </div>
-                      <div className="admin-meta-block">
-                        <span className="admin-meta-k">Reported</span>
-                        <span className="admin-meta-v">
-                          {report.reportedUser ? report.reportedUser.label : "Situation only"}
-                        </span>
-                        <span className="admin-meta-sub">
-                          {report.reportedUser?.email ??
-                            (report.reportedUser
-                              ? report.reportedUser.userId
-                              : "No specific rider selected")}
-                        </span>
-                        {renderCredibilityMeta(report.reportedUser)}
-                      </div>
-                      <div className="admin-meta-block">
-                        <span className="admin-meta-k">Group</span>
-                        <span className="admin-meta-v">{report.group.label}</span>
-                        <span className="admin-meta-sub">
-                          {report.group.status
-                            ? `${report.group.status} · ${report.group.reportCount} reports`
-                            : "Status unavailable"}
-                        </span>
-                      </div>
-                    </div>
+                      {/* Expanded details */}
+                      {expanded ? (
+                        <div className="adm-report-detail">
+                          {/* Description */}
+                          <div className="adm-report-desc">
+                            <p>{report.description}</p>
+                          </div>
 
-                    <div className="admin-report-section">
-                      <h5>Description</h5>
-                      <p>{report.description}</p>
-                    </div>
+                          {/* People and group meta */}
+                          <div className="adm-meta-grid">
+                            <div className="adm-meta">
+                              <span className="adm-label">Reporter</span>
+                              <span className="adm-meta-name">{report.reporter.label}</span>
+                              <span className="adm-meta-sub">
+                                {report.reporter.email ?? report.reporter.userId}
+                              </span>
+                            </div>
+                            <div className="adm-meta">
+                              <span className="adm-label">Reported</span>
+                              <span className="adm-meta-name">
+                                {report.reportedUser ? report.reportedUser.label : "Situation only"}
+                              </span>
+                              <span className="adm-meta-sub">
+                                {report.reportedUser?.email ??
+                                  (report.reportedUser
+                                    ? report.reportedUser.userId
+                                    : "No specific rider")}
+                              </span>
+                            </div>
+                            <div className="adm-meta">
+                              <span className="adm-label">Group</span>
+                              <span className="adm-meta-name">{report.group.label}</span>
+                              <span className="adm-meta-sub">
+                                {report.group.status
+                                  ? `${report.group.status} · ${report.group.reportCount} reports`
+                                  : "Status unavailable"}
+                              </span>
+                            </div>
+                          </div>
 
-                    <div className="admin-report-section admin-ai-grid">
-                      <div className="admin-ai-card">
-                        <h5>AI rationale</h5>
-                        <p>
-                          {report.aiStatus === "ready"
-                            ? (report.aiRationale ?? "No rationale returned.")
-                            : report.aiStatus === "pending"
-                              ? "Severity scoring is running in the background."
-                              : (report.aiError ??
-                                "Severity scoring is unavailable for this report.")}
-                        </p>
-                      </div>
-                      <div className="admin-ai-card">
-                        <h5>Recommended next step</h5>
-                        <p>
-                          {report.aiStatus === "ready"
-                            ? (report.aiRecommendedAction ?? "Review the report manually.")
-                            : unresolved
-                              ? "Review the report manually while the AI result is pending or unavailable."
-                              : "No further AI action suggested for this report state."}
-                        </p>
-                      </div>
-                    </div>
+                          {/* AI insights */}
+                          <div className="adm-ai-insights">
+                            <div className="adm-insight">
+                              <span className="adm-label">AI rationale</span>
+                              <p>
+                                {report.aiStatus === "ready"
+                                  ? (report.aiRationale ?? "No rationale returned.")
+                                  : report.aiStatus === "pending"
+                                    ? "Severity scoring is running…"
+                                    : (report.aiError ?? "Unavailable for this report.")}
+                              </p>
+                            </div>
+                            <div className="adm-insight">
+                              <span className="adm-label">Recommended action</span>
+                              <p>
+                                {report.aiStatus === "ready"
+                                  ? (report.aiRecommendedAction ?? "Review the report manually.")
+                                  : unresolved
+                                    ? "Review manually while AI is pending."
+                                    : "No further action suggested."}
+                              </p>
+                            </div>
+                          </div>
 
-                    {report.reviewedBy || report.reviewedAt || report.reviewNote ? (
-                      <div className="admin-report-section">
-                        <h5>Review history</h5>
-                        <p className="admin-review-history">
-                          {report.reviewedBy ? `${report.reviewedBy.label} · ` : ""}
-                          {report.reviewedAt
-                            ? formatTimestamp(report.reviewedAt)
-                            : "Time unavailable"}
-                        </p>
-                        {report.reviewNote ? <p>{report.reviewNote}</p> : null}
-                      </div>
-                    ) : null}
+                          {/* Severity bar */}
+                          {report.severityScore !== null ? (
+                            <div className="adm-severity-bar-wrap">
+                              <span className="adm-label">Severity</span>
+                              <div className="adm-severity-bar">
+                                <div
+                                  className={`adm-severity-fill adm-severity-fill--${severityTone}`}
+                                  style={{ width: `${report.severityScore}%` }}
+                                />
+                              </div>
+                              <span className="adm-severity-val">{getSeverityLabel(report)}</span>
+                            </div>
+                          ) : null}
 
-                    <div className="admin-report-actions">
-                      <label className="admin-note-field">
-                        <span>Review note</span>
-                        <textarea
-                          rows={3}
-                          value={getDraftNote(report)}
-                          onChange={(event) =>
-                            setDraftNotes((current) => ({
-                              ...current,
-                              [report._id]: event.target.value,
-                            }))
-                          }
-                          disabled={!unresolved || busy}
-                          placeholder="Optional note for resolving or dismissing this report"
-                        />
-                      </label>
+                          {/* Review history */}
+                          {report.reviewedBy || report.reviewedAt || report.reviewNote ? (
+                            <div className="adm-review-history">
+                              <span className="adm-label">Review history</span>
+                              <p>
+                                {report.reviewedBy ? `${report.reviewedBy.label} · ` : ""}
+                                {report.reviewedAt
+                                  ? formatTimestamp(report.reviewedAt)
+                                  : "Time unavailable"}
+                              </p>
+                              {report.reviewNote ? (
+                                <p className="adm-review-note">"{report.reviewNote}"</p>
+                              ) : null}
+                            </div>
+                          ) : null}
 
-                      <div className="admin-action-row">
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          disabled={busy || report.reviewStatus !== "open"}
-                          onClick={() => void handleReportAction("start", report)}
-                        >
-                          {busyAction?.reportId === report._id && busyAction.action === "start"
-                            ? "Saving…"
-                            : "Start review"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-sm"
-                          disabled={busy || !unresolved}
-                          onClick={() => void handleReportAction("resolve", report)}
-                        >
-                          {busyAction?.reportId === report._id && busyAction.action === "resolve"
-                            ? "Saving…"
-                            : "Resolve"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-danger btn-sm"
-                          disabled={busy || !unresolved}
-                          onClick={() => void handleReportAction("dismiss", report)}
-                        >
-                          {busyAction?.reportId === report._id && busyAction.action === "dismiss"
-                            ? "Saving…"
-                            : "Dismiss"}
-                        </button>
-                      </div>
+                          {/* Actions */}
+                          {unresolved ? (
+                            <div className="adm-actions">
+                              <label className="adm-note-field">
+                                <span className="adm-label">Note</span>
+                                <textarea
+                                  rows={2}
+                                  value={getDraftNote(report)}
+                                  onChange={(e) =>
+                                    setDraftNotes((curr) => ({
+                                      ...curr,
+                                      [report._id]: e.target.value,
+                                    }))
+                                  }
+                                  disabled={busy}
+                                  placeholder="Optional review note…"
+                                />
+                              </label>
+                              <div className="adm-action-btns">
+                                {report.reviewStatus === "open" ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary btn-sm"
+                                    disabled={busy}
+                                    onClick={() => void handleReportAction("start", report)}
+                                  >
+                                    {busyAction?.reportId === report._id &&
+                                    busyAction.action === "start"
+                                      ? "Saving…"
+                                      : "Start review"}
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-sm"
+                                  disabled={busy}
+                                  onClick={() => void handleReportAction("resolve", report)}
+                                >
+                                  {busyAction?.reportId === report._id &&
+                                  busyAction.action === "resolve"
+                                    ? "Saving…"
+                                    : "Resolve"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-danger btn-sm"
+                                  disabled={busy}
+                                  onClick={() => void handleReportAction("dismiss", report)}
+                                >
+                                  {busyAction?.reportId === report._id &&
+                                  busyAction.action === "dismiss"
+                                    ? "Saving…"
+                                    : "Dismiss"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </article>
                 );
               })
-            ) : (
-              <div className="admin-empty-state">No reports match the selected filters.</div>
             )}
           </div>
         </section>
 
-        <aside className="admin-col admin-audit-panel">
-          <div className="admin-panel-head">
-            <div className="stack-sm">
-              <h3 className="admin-col-title">Audit trail</h3>
-              <p className="text-sm text-muted">Most recent operator and system events.</p>
-            </div>
-          </div>
+        {/* Audit trail */}
+        <aside className="adm-audit">
+          <h2 className="adm-section-title">Audit trail</h2>
+          <p className="adm-audit-sub">Recent operator and system events</p>
 
           {dashboard?.auditEvents.length ? (
-            <div className="admin-audit">
-              {dashboard.auditEvents.map((event) => (
-                <div className="admin-audit-row" key={event._id}>
-                  <div>
-                    <span className="admin-audit-act">{event.action}</span>
-                    <span className="admin-audit-ts">{formatTimestamp(event.createdAt)}</span>
-                  </div>
-                  <div className="admin-audit-actor">
-                    <span>{event.actorLabel}</span>
-                    {event.actorEmail ? <span>{event.actorEmail}</span> : null}
+            <div className="adm-timeline">
+              {dashboard.auditEvents.map((event, i) => (
+                <div
+                  className="adm-timeline-item"
+                  key={event._id}
+                  style={{ animationDelay: `${i * 40}ms` }}
+                >
+                  <div className="adm-timeline-dot" />
+                  {i < dashboard.auditEvents.length - 1 ? (
+                    <div className="adm-timeline-line" />
+                  ) : null}
+                  <div className="adm-timeline-body">
+                    <span className="adm-timeline-action">{event.action}</span>
+                    <span className="adm-timeline-actor">
+                      {event.actorLabel}
+                      {event.actorEmail ? ` · ${event.actorEmail}` : ""}
+                    </span>
+                    <span className="adm-timeline-time">{relativeTime(event.createdAt)}</span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="admin-empty-state">No audit events yet.</div>
+            <div className="adm-empty">No audit events yet.</div>
           )}
         </aside>
       </div>
