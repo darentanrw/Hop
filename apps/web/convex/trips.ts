@@ -6,11 +6,21 @@ import {
   sumPartySizes,
 } from "@hop/shared";
 import { v } from "convex/values";
+import { isCurrentOpenAvailability } from "../lib/availability-state";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
+import {
+  buildConfirmedPushCopy,
+  buildCouldNotConfirmPushCopy,
+  buildMovedOnWithoutYouPushCopy,
+  buildPaymentRequestedPushCopy,
+  buildRemovedFromRidePushCopy,
+} from "../lib/push-notification-copy";
+import { buildGroupPatchForNewReport } from "../lib/reporting";
 import { checkRideEligibility, isMembershipInActiveRide } from "../lib/ride-eligibility";
 import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
+import { isGroupPastWindowBeforeDeparture } from "../lib/trip-state";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -94,6 +104,19 @@ async function findActiveGroupForUser(ctx: QueryCtx | MutationCtx, userId: Id<"u
       .sort((left, right) => right._creationTime - left._creationTime)[0] ?? null
   );
 }
+
+type PastRideEntry = {
+  groupId: Doc<"groups">["_id"];
+  groupName: string;
+  groupColor: string;
+  status: string;
+  pickupLabel: string;
+  meetingTime: string;
+  closedAt: string | null;
+  finalCostCents: number | null;
+  endedAt: string;
+  priority: number;
+};
 
 async function reopenAvailability(ctx: MutationCtx, availabilityId: string) {
   const availability = await ctx.db.get(availabilityId as Id<"availabilities">);
@@ -191,32 +214,47 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
         });
 
         await scheduleLifecycleNotifications(ctx, [
-          ...acceptedMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "group_confirmed",
-            eventKey: `${group._id}:group_confirmed:${member.userId}`,
-            title: `${group.groupName ?? "Hop Group"} is confirmed`,
-            body: `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
-            emailSubject: `${group.groupName ?? "Hop Group"} is confirmed`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Hop Group"} is confirmed`,
-              `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
-            ),
-          })),
-          ...removedMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "match_closed",
-            eventKey: `${group._id}:match_closed:${member.userId}`,
-            title: `${group.groupName ?? "Hop Group"} moved on without you`,
-            body: "This ride continued with the riders who acknowledged in time. You can look for another Hop ride.",
-            emailSubject: `${group.groupName ?? "Hop Group"} moved on without you`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Hop Group"} moved on without you`,
-              "This ride continued with the riders who acknowledged in time. You can look for another Hop ride.",
-            ),
-          })),
+          ...acceptedMembers.map((member) => {
+            const pushCopy = buildConfirmedPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+              meetingLocationLabel: group.meetingLocationLabel ?? group.pickupLabel,
+            });
+
+            return {
+              userId: member.userId as Id<"users">,
+              groupId: group._id,
+              kind: "group_confirmed",
+              eventKey: `${group._id}:group_confirmed:${member.userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: `${group.groupName ?? "Hop Group"} is confirmed`,
+              emailHtml: buildNotificationEmail(
+                `${group.groupName ?? "Hop Group"} is confirmed`,
+                `Your booking destination is already locked. Get ready to meet at ${group.meetingLocationLabel ?? group.pickupLabel}.`,
+              ),
+            };
+          }),
+          ...removedMembers.map((member) => {
+            const pushCopy = buildMovedOnWithoutYouPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+            });
+
+            return {
+              userId: member.userId as Id<"users">,
+              groupId: group._id,
+              kind: "match_closed",
+              eventKey: `${group._id}:match_closed:${member.userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: `${group.groupName ?? "Hop Group"} moved on without you`,
+              emailHtml: buildNotificationEmail(
+                `${group.groupName ?? "Hop Group"} moved on without you`,
+                "This ride continued with the riders who acknowledged in time. You can look for another Hop ride.",
+              ),
+            };
+          }),
         ]);
       } else {
         await ctx.db.patch(group._id, { status: "cancelled" });
@@ -243,19 +281,26 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
 
         await scheduleLifecycleNotifications(
           ctx,
-          activeMembers.map((member) => ({
-            userId: member.userId as Id<"users">,
-            groupId: group._id,
-            kind: "match_cancelled",
-            eventKey: `${group._id}:match_cancelled:${member.userId}`,
-            title: `${group.groupName ?? "Hop Group"} could not be confirmed`,
-            body: "Not enough riders acknowledged in time. You can head back into the queue for another ride.",
-            emailSubject: `${group.groupName ?? "Hop Group"} could not be confirmed`,
-            emailHtml: buildNotificationEmail(
-              `${group.groupName ?? "Hop Group"} could not be confirmed`,
-              "Not enough riders acknowledged in time. You can head back into the queue for another ride.",
-            ),
-          })),
+          activeMembers.map((member) => {
+            const pushCopy = buildCouldNotConfirmPushCopy({
+              windowStart: group.windowStart,
+              windowEnd: group.windowEnd,
+            });
+
+            return {
+              userId: member.userId as Id<"users">,
+              groupId: group._id,
+              kind: "match_cancelled",
+              eventKey: `${group._id}:match_cancelled:${member.userId}`,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              emailSubject: `${group.groupName ?? "Hop Group"} could not be confirmed`,
+              emailHtml: buildNotificationEmail(
+                `${group.groupName ?? "Hop Group"} could not be confirmed`,
+                "Not enough riders acknowledged in time. You can head back into the queue for another ride.",
+              ),
+            };
+          }),
         );
       }
     }
@@ -449,17 +494,59 @@ async function buildTripPayload(
 
 const PAST_RIDE_GROUP_STATUSES = new Set(["cancelled", "closed", "dissolved", "reported"]);
 
-function pastRideSortTime(group: GroupDoc): number {
-  const isoCandidates = [
-    group.closedAt,
-    group.departedAt,
-    group.meetingTime,
-    group.windowEnd,
-  ].filter(Boolean) as string[];
-  if (isoCandidates.length > 0) {
-    return Math.max(...isoCandidates.map((iso) => new Date(iso).getTime()));
+function buildPastRideEntry(membership: GroupMemberDoc, group: GroupDoc): PastRideEntry | null {
+  const endedAtFallback = new Date(group._creationTime).toISOString();
+
+  if ((membership.participationStatus ?? "active") === "removed_no_show") {
+    return {
+      groupId: group._id,
+      groupName: group.groupName ?? "Hop Group",
+      groupColor: group.groupColor ?? "#44d4c8",
+      status: "no_show",
+      pickupLabel: group.pickupLabel,
+      meetingTime: group.meetingTime ?? group.windowStart,
+      closedAt: null,
+      finalCostCents: null,
+      endedAt: group.departedAt ?? group.meetingTime ?? group.windowEnd ?? endedAtFallback,
+      priority: 3,
+    };
   }
-  return group._creationTime;
+
+  if (
+    (membership.participationStatus ?? "active") === "active" &&
+    isGroupPastWindowBeforeDeparture(group)
+  ) {
+    return {
+      groupId: group._id,
+      groupName: group.groupName ?? "Hop Group",
+      groupColor: group.groupColor ?? "#44d4c8",
+      status: "did_not_start",
+      pickupLabel: group.pickupLabel,
+      meetingTime: group.meetingTime ?? group.windowStart,
+      closedAt: null,
+      finalCostCents: null,
+      endedAt: group.windowEnd ?? group.meetingTime ?? endedAtFallback,
+      priority: 2,
+    };
+  }
+
+  if (!PAST_RIDE_GROUP_STATUSES.has(group.status)) {
+    return null;
+  }
+
+  return {
+    groupId: group._id,
+    groupName: group.groupName ?? "Hop Group",
+    groupColor: group.groupColor ?? "#44d4c8",
+    status: group.status,
+    pickupLabel: group.pickupLabel,
+    meetingTime: group.meetingTime ?? group.windowStart,
+    closedAt: group.closedAt ?? null,
+    finalCostCents: group.finalCostCents ?? null,
+    endedAt:
+      group.closedAt ?? group.departedAt ?? group.meetingTime ?? group.windowEnd ?? endedAtFallback,
+    priority: 1,
+  };
 }
 
 export const listPastRides = query({
@@ -473,39 +560,33 @@ export const listPastRides = query({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .collect();
 
-    const byGroupId = new Map<Id<"groups">, { sortTime: number; group: GroupDoc }>();
+    const byGroupId = new Map<Id<"groups">, PastRideEntry>();
 
     for (const membership of memberships) {
       const group = await ctx.db.get(membership.groupId);
-      if (!group || !PAST_RIDE_GROUP_STATUSES.has(group.status)) continue;
+      if (!group) continue;
 
-      const sortTime = pastRideSortTime(group);
+      const entry = buildPastRideEntry(membership, group);
+      if (!entry) continue;
       const prev = byGroupId.get(group._id);
-      if (prev && prev.sortTime >= sortTime) continue;
-      byGroupId.set(group._id, { sortTime, group });
+      const sortTime = new Date(entry.endedAt).getTime();
+      const prevSortTime = prev ? new Date(prev.endedAt).getTime() : Number.NEGATIVE_INFINITY;
+
+      if (
+        prev &&
+        (prev.priority > entry.priority ||
+          (prev.priority === entry.priority && prevSortTime >= sortTime))
+      ) {
+        continue;
+      }
+
+      byGroupId.set(group._id, entry);
     }
 
-    const rows = [...byGroupId.values()]
-      .sort((a, b) => b.sortTime - a.sortTime)
+    return [...byGroupId.values()]
+      .sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime())
       .slice(0, 50)
-      .map(({ group }) => ({
-        groupId: group._id,
-        groupName: group.groupName ?? "Hop Group",
-        groupColor: group.groupColor ?? "#44d4c8",
-        status: group.status,
-        pickupLabel: group.pickupLabel,
-        meetingTime: group.meetingTime ?? group.windowStart,
-        closedAt: group.closedAt ?? null,
-        finalCostCents: group.finalCostCents ?? null,
-        endedAt:
-          group.closedAt ??
-          group.departedAt ??
-          group.meetingTime ??
-          group.windowEnd ??
-          new Date(group._creationTime).toISOString(),
-      }));
-
-    return rows;
+      .map(({ priority, ...row }) => row);
   },
 });
 
@@ -532,13 +613,16 @@ export const getRideEligibility = query({
     const openAvailability = await ctx.db
       .query("availabilities")
       .withIndex("userId", (q) => q.eq("userId", userId))
-      .filter((q) => q.eq(q.field("status"), "open"))
-      .first();
+      .collect();
+
+    const hasOpenWindow = openAvailability.some((availability) =>
+      isCurrentOpenAvailability(availability),
+    );
 
     return {
       ...result,
-      hasOpenWindow: Boolean(openAvailability),
-      blocked: result.blocked || Boolean(openAvailability),
+      hasOpenWindow,
+      blocked: result.blocked || hasOpenWindow,
     };
   },
 });
@@ -703,6 +787,11 @@ export const departGroup = mutation({
         participationStatus: "removed_no_show",
       });
 
+      const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+      if (availability?.status === "matched") {
+        await ctx.db.patch(availability._id, { status: "cancelled" });
+      }
+
       const user = await ctx.db.get(member.userId as Id<"users">);
       if (user) {
         await ctx.db.patch(member.userId as Id<"users">, {
@@ -725,19 +814,26 @@ export const departGroup = mutation({
 
     await scheduleLifecycleNotifications(
       ctx,
-      absentMembers.map((member) => ({
-        userId: member.userId as Id<"users">,
-        groupId,
-        kind: "removed_no_show",
-        eventKey: `${groupId}:removed_no_show:${member.userId}`,
-        title: `You were removed from ${group.groupName ?? "Hop Group"}`,
-        body: "The group departed after the meetup grace period because your attendance was not verified.",
-        emailSubject: `You were removed from ${group.groupName ?? "Hop Group"}`,
-        emailHtml: buildNotificationEmail(
-          `You were removed from ${group.groupName ?? "Hop Group"}`,
-          "The group departed after the meetup grace period because your attendance was not verified.",
-        ),
-      })),
+      absentMembers.map((member) => {
+        const pushCopy = buildRemovedFromRidePushCopy({
+          windowStart: group.windowStart,
+          windowEnd: group.windowEnd,
+        });
+
+        return {
+          userId: member.userId as Id<"users">,
+          groupId,
+          kind: "removed_no_show",
+          eventKey: `${groupId}:removed_no_show:${member.userId}`,
+          title: pushCopy.title,
+          body: pushCopy.body,
+          emailSubject: `You were removed from ${group.groupName ?? "Hop Group"}`,
+          emailHtml: buildNotificationEmail(
+            `You were removed from ${group.groupName ?? "Hop Group"}`,
+            "The group departed after the meetup grace period because your attendance was not verified.",
+          ),
+        };
+      }),
     );
 
     return { ok: true };
@@ -817,13 +913,18 @@ export const submitReceipt = mutation({
         .filter((member) => member.userId !== userId)
         .map((member) => {
           const amountDueCents = split.get(member.userId) ?? 0;
+          const pushCopy = buildPaymentRequestedPushCopy({
+            windowStart: group.windowStart,
+            windowEnd: group.windowEnd,
+            amountLabel: formatCurrency(amountDueCents),
+          });
           return {
             userId: member.userId as Id<"users">,
             groupId,
             kind: "payment_requested",
             eventKey: `${groupId}:payment_requested:${member.userId}:${storageId}`,
-            title: `Payment proof is now due for ${group.groupName ?? "Hop Group"}`,
-            body: `Upload proof of your ${formatCurrency(amountDueCents)} payment within 24 hours.`,
+            title: pushCopy.title,
+            body: pushCopy.body,
             emailSubject: `Payment proof is now due for ${group.groupName ?? "Hop Group"}`,
             emailHtml: buildNotificationEmail(
               `Payment proof is now due for ${group.groupName ?? "Hop Group"}`,
@@ -1045,10 +1146,7 @@ export const createReport = mutation({
       aiStatus: "pending",
     });
 
-    await ctx.db.patch(args.groupId, {
-      status: "reported",
-      reportCount: (group.reportCount ?? 0) + 1,
-    });
+    await ctx.db.patch(args.groupId, buildGroupPatchForNewReport(group.reportCount));
 
     await ctx.db.insert("auditEvents", {
       action: "report.created",

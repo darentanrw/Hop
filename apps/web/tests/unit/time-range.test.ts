@@ -3,6 +3,7 @@ import {
   clampRange,
   formatRangeSummary,
   formatStoredWindow,
+  formatStoredWindowWithDate,
   slotFromPointerPosition,
   slotsToIsoRange,
   updateRangeForHandle,
@@ -41,6 +42,19 @@ describe("time range utilities", () => {
     const formatted = formatStoredWindow("2026-03-20T10:00:00.000Z", "2026-03-20T12:00:00.000Z");
 
     expect(formatted).toContain("Fri");
+    expect(formatted).toContain("6:00");
+    expect(formatted).toContain("8:00");
+  });
+
+  test("formats stored windows with a full date for notifications", () => {
+    const formatted = formatStoredWindowWithDate(
+      "2026-03-20T10:00:00.000Z",
+      "2026-03-20T12:00:00.000Z",
+    );
+
+    expect(formatted).toContain("Fri");
+    expect(formatted).toContain("Mar");
+    expect(formatted).toContain("20");
     expect(formatted).toContain("6:00");
     expect(formatted).toContain("8:00");
   });

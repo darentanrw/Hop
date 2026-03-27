@@ -1,3 +1,5 @@
+import { isGroupPastWindowBeforeDeparture } from "./trip-state";
+
 export const ACTIVE_GROUP_STATUSES = new Set([
   "tentative",
   "semi_locked",
@@ -25,6 +27,7 @@ export interface MembershipLike {
 export interface GroupLike {
   status: string;
   bookerUserId?: string | null;
+  windowEnd?: string | null;
 }
 
 export interface RideEligibility {
@@ -100,6 +103,10 @@ export function isMembershipInActiveRide(
   }
 
   if ((membership.participationStatus ?? "active") !== "active") {
+    return false;
+  }
+
+  if (isGroupPastWindowBeforeDeparture(group)) {
     return false;
   }
 

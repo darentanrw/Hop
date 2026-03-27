@@ -4,14 +4,19 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
+import { isAvailabilityVisibleInWindows } from "../lib/availability-state";
 import {
   type DestinationLabelCache,
   loadDestinationLabelCache,
   resolveDestinationLabel,
 } from "../lib/destination-storage";
 
+export type AvailabilityWindowRow = Doc<"availabilities"> & {
+  dashboardStatus?: string | null;
+};
+
 interface AvailabilityListProps {
-  availabilities?: Doc<"availabilities">[];
+  availabilities?: AvailabilityWindowRow[];
 }
 
 function formatWindow(start: string, end: string) {
@@ -30,6 +35,8 @@ function formatWindow(start: string, end: string) {
 const STATUS_PILL: Record<string, { label: string; cls: string }> = {
   open: { label: "Searching", cls: "pill-accent pill-dot pill-pulse" },
   matched: { label: "Matched", cls: "pill-success" },
+  confirming: { label: "Confirming", cls: "pill-accent pill-dot pill-pulse" },
+  confirmed: { label: "Confirmed", cls: "pill-success" },
   cancelled: { label: "Cancelled", cls: "pill-muted" },
 };
 
@@ -52,9 +59,10 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
   }, []);
 
   const availabilities = liveAvailabilities ?? initialAvailabilities;
+  const now = Date.now();
   const activeItems = (availabilities ?? [])
     .filter((availability) => {
-      return availability.status !== "cancelled" && !deletedIds.has(availability._id);
+      return isAvailabilityVisibleInWindows(availability, now) && !deletedIds.has(availability._id);
     })
     .sort((a, b) => new Date(a.windowStart).getTime() - new Date(b.windowStart).getTime());
 
@@ -83,7 +91,9 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
         className="card"
         style={{ textAlign: "center", padding: "24px 16px", background: "transparent" }}
       >
-        <p className="text-muted text-sm">No windows yet. Add one to start matching.</p>
+        <p className="text-muted text-sm">
+          No active windows right now. Add one to start matching.
+        </p>
       </div>
     );
   }
@@ -98,7 +108,8 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
           availability.sealedDestinationRef,
           destinationLabels,
         );
-        const pill = STATUS_PILL[availability.status] ?? STATUS_PILL.open;
+        const windowStatus = availability.dashboardStatus ?? availability.status;
+        const pill = STATUS_PILL[windowStatus] ?? STATUS_PILL.open;
         const isDeleting = deletingId === availability._id;
 
         return (
@@ -107,19 +118,21 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
               className="avail-icon"
               style={{
                 background:
-                  availability.status === "open"
+                  windowStatus === "open" || windowStatus === "confirming"
                     ? "var(--accent-subtle)"
-                    : availability.status === "matched"
+                    : windowStatus === "matched" || windowStatus === "confirmed"
                       ? "var(--success-subtle)"
                       : "var(--surface-hover)",
                 fontSize: 18,
               }}
             >
-              {availability.status === "open"
+              {windowStatus === "open"
                 ? "🔍"
-                : availability.status === "matched"
-                  ? "✓"
-                  : "✕"}
+                : windowStatus === "confirming"
+                  ? "⏳"
+                  : windowStatus === "matched" || windowStatus === "confirmed"
+                    ? "✓"
+                    : "✕"}
             </div>
             <div className="avail-info" style={{ flex: 1, minWidth: 0 }}>
               <div className="avail-time">{day}</div>

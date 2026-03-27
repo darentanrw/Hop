@@ -192,6 +192,16 @@ export function formatStoredWindow(windowStart: string, windowEnd: string) {
   return `${dayLabel} ${startLabel} - ${endLabel}`;
 }
 
+export function formatStoredWindowWithDate(windowStart: string, windowEnd: string) {
+  const start = new Date(windowStart);
+  const end = new Date(windowEnd);
+  const dateLabel = dateFormatter.format(start);
+  const startLabel = timeFormatter.format(start);
+  const endLabel = timeFormatter.format(end);
+
+  return `${dateLabel}, ${startLabel} - ${endLabel}`;
+}
+
 export function slotFromPointerPosition(clientX: number, trackLeft: number, trackWidth: number) {
   if (trackWidth <= 0) return 0;
   const normalized = Math.max(0, Math.min(1, (clientX - trackLeft) / trackWidth));

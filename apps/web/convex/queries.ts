@@ -1,6 +1,8 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { calculateCredibilityScore, isCredibilitySuspended } from "@hop/shared";
 import { v } from "convex/values";
+import { resolveDashboardWindowState } from "../lib/dashboard-windows";
+import { isGroupJoinableForLateJoin } from "../lib/late-join";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalQuery, query } from "./_generated/server";
@@ -84,10 +86,50 @@ export const listAvailabilities = query({
   handler: async (ctx) => {
     const profile = await getRiderProfileInternal(ctx);
     if (!profile) return [];
-    return await ctx.db
+    const availabilities = await ctx.db
       .query("availabilities")
       .withIndex("userId", (q) => q.eq("userId", profile.userId))
       .collect();
+    const memberships = await ctx.db
+      .query("groupMembers")
+      .withIndex("userId", (q) => q.eq("userId", profile.userId))
+      .collect();
+
+    const uniqueGroupIds = [...new Set(memberships.map((membership) => membership.groupId))];
+    const groups = await Promise.all(
+      uniqueGroupIds.map(async (groupId) => [groupId, await ctx.db.get(groupId)] as const),
+    );
+    const groupById = new Map(groups);
+    const latestMembershipByAvailabilityId = new Map<
+      string,
+      { createdAt: number; groupStatus: string | null; participationStatus: string | null }
+    >();
+
+    for (const membership of memberships) {
+      const existing = latestMembershipByAvailabilityId.get(membership.availabilityId);
+      if (existing && existing.createdAt >= membership._creationTime) continue;
+
+      latestMembershipByAvailabilityId.set(membership.availabilityId, {
+        createdAt: membership._creationTime,
+        groupStatus: groupById.get(membership.groupId)?.status ?? null,
+        participationStatus: membership.participationStatus ?? "active",
+      });
+    }
+
+    return availabilities.flatMap((availability) => {
+      const association = latestMembershipByAvailabilityId.get(availability._id);
+      const state = resolveDashboardWindowState({
+        availabilityStatus: availability.status,
+        groupStatus: association?.groupStatus ?? null,
+        participationStatus: association?.participationStatus ?? null,
+      });
+
+      if (state.hidden) {
+        return [];
+      }
+
+      return [{ ...availability, dashboardStatus: state.displayStatus }];
+    });
   },
 });
 
@@ -255,10 +297,9 @@ export const getAvailabilityById = internalQuery({
 export const getSemiLockedGroupRouteRefs = internalQuery({
   args: {},
   handler: async (ctx) => {
+    const now = Date.now();
     const groups = await ctx.db.query("groups").collect();
-    const joinableGroups = groups.filter(
-      (g) => g.status === "semi_locked" || g.status === "tentative",
-    );
+    const joinableGroups = groups.filter((group) => isGroupJoinableForLateJoin(group, now));
     const allAvailIds = joinableGroups.flatMap((g) => g.availabilityIds);
     const refs: string[] = [];
     for (const id of allAvailIds) {

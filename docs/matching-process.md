@@ -148,6 +148,7 @@ Matching can now take two paths:
 
 - if the shared ride window is more than 3 hours away and the group is not full, it starts as `semi_locked`
 - if the group is already full, or the shared ride window is within 3 hours, it starts as `matched_pending_ack`
+- a `matched_pending_ack` group can still accept a compatible late joiner while its confirmation deadline is still active; when that happens, the group keeps the same slot, the new rider is added, and the 30-minute acknowledgement window resets for everyone
 - at T-3h, `lockGroups` finalizes any remaining `semi_locked`/`tentative` group into `matched_pending_ack`
 - `hardLockGroups` is now mainly a fallback if something joinable somehow survives past the T-3h lock
 
@@ -179,7 +180,7 @@ Current UI keeps this alive by polling every 15 seconds on the group page.
 
 ## Edge Cases And Oddities
 
-- **Semi-locked late join is automatic in matching now.** `runMatching` first tries to place riders into compatible joinable groups using the part of their window that is still outside the 3-hour lock horizon, then falls back to a last-minute-only pass for the sub-3-hour slice.
+- **Late join is automatic in matching now.** `runMatching` first tries to place riders into compatible joinable groups using the part of their window that is still outside the 3-hour lock horizon, then does the same for the sub-3-hour slice before creating brand-new last-minute groups. That means rushed riders can still join an unexpired `matched_pending_ack` group, and doing so resets the acknowledgement window for the whole group.
 
 - **The algorithm is greedy, not optimal.** It always prefers finding a 4-person group before considering any 3- or 2-person partition, even if a different partition would give a better total outcome across the whole pool.
 

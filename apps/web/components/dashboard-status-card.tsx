@@ -4,6 +4,7 @@ import { CREDIBILITY_SUSPENSION_THRESHOLD } from "@hop/shared";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../convex/_generated/api";
+import { isCurrentOpenAvailability } from "../lib/availability-state";
 
 type ActiveTripSnapshot = {
   group: {
@@ -18,6 +19,7 @@ type ActiveTripSnapshot = {
 
 type AvailabilitySnapshot = Array<{
   status: string;
+  windowEnd: string;
 }>;
 
 type StatusState =
@@ -292,7 +294,10 @@ export function DashboardStatusCard({
   const liveAvailabilities = useQuery(api.queries.listAvailabilities);
   const group = liveGroup === undefined ? initialGroup : liveGroup;
   const availabilities = liveAvailabilities ?? initialAvailabilities;
-  const openCount = availabilities.filter((availability) => availability.status === "open").length;
+  const now = Date.now();
+  const openCount = availabilities.filter((availability) =>
+    isCurrentOpenAvailability(availability, now),
+  ).length;
   const state = resolveStatus(group, openCount);
 
   return <StatusCard state={state} schedulingBlocked={schedulingBlocked} />;
