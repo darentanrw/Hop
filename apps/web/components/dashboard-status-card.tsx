@@ -1,5 +1,6 @@
 "use client";
 
+import { CREDIBILITY_SUSPENSION_THRESHOLD } from "@hop/shared";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../convex/_generated/api";
@@ -96,7 +97,7 @@ function StatusCard({
         <h3 style={{ marginBottom: 6 }}>Not looking for rides</h3>
         <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto 16px" }}>
           {schedulingBlocked
-            ? "Your account has been suspended as your credibility score has fallen below 30. You can no longer schedule new rides."
+            ? `Your account has been suspended as your credibility score has fallen below ${CREDIBILITY_SUSPENSION_THRESHOLD}. You can no longer schedule new rides.`
             : "Add a time window below to start matching with other riders."}
         </p>
         {schedulingBlocked ? null : (

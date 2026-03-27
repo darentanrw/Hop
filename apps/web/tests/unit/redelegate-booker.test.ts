@@ -238,6 +238,19 @@ describe("selectBookerUserId (booker selection for redelegation)", () => {
     ]);
     expect(selectBookerUserId(["user-x", "user-y", "user-z"], scores)).toBe("user-y");
   });
+
+  it("uses custom defaultScore when provided", () => {
+    const scores = new Map([["user-a", 80]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores, 90)).toBe("user-b");
+    expect(selectBookerUserId(["user-a", "user-b"], scores, 70)).toBe("user-a");
+  });
+
+  it("default defaultScore equals CREDIBILITY_STARTING_POINTS", () => {
+    const scores = new Map([["user-a", 74]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores)).toBe("user-b");
+    const scores2 = new Map([["user-a", 76]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores2)).toBe("user-a");
+  });
 });
 
 // ---------------------------------------------------------------------------

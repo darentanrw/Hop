@@ -1,12 +1,15 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { calculateCredibilityScore, isCredibilitySuspended } from "@hop/shared";
+import {
+  CREDIBILITY_SUSPENSION_THRESHOLD,
+  calculateCredibilityScore,
+  isCredibilitySuspended,
+} from "@hop/shared";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { isAdminUserEmail } from "./adminAccess";
 
 /** Thrown when a user below the credibility threshold tries to create a new ride window. */
-export const SCHEDULING_NOT_ALLOWED_ERROR =
-  "Your account has been suspended as your credibility score has fallen below 30. Contact help@hophome.app if you require assistance.";
+export const SCHEDULING_NOT_ALLOWED_ERROR = `Your account has been suspended as your credibility score has fallen below ${CREDIBILITY_SUSPENSION_THRESHOLD}. Contact help@hophome.app if you require assistance.`;
 
 export async function assertUserCanScheduleNewRide(ctx: MutationCtx, effectiveUserId: Id<"users">) {
   const authUserId = await getAuthUserId(ctx);

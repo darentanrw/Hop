@@ -707,28 +707,25 @@ export const submitReceipt = mutation({
     );
     const submittedAt = nowIso();
 
+    const shouldCreditBooker = !group.bookerReceiptCredibilityCredited && group.bookerUserId;
+
     await ctx.db.patch(groupId, {
       status: "payment_pending",
       finalCostCents: totalCostCents,
       receiptStorageId: storageId,
       receiptSubmittedAt: submittedAt,
       paymentDueAt: addHours(submittedAt, PAYMENT_WINDOW_HOURS),
+      ...(shouldCreditBooker ? { bookerReceiptCredibilityCredited: true } : {}),
     });
 
-    const latestAfterReceipt = await ctx.db.get(groupId);
-    if (
-      latestAfterReceipt &&
-      !latestAfterReceipt.bookerReceiptCredibilityCredited &&
-      latestAfterReceipt.bookerUserId
-    ) {
-      const bookerId = latestAfterReceipt.bookerUserId as Id<"users">;
+    if (shouldCreditBooker) {
+      const bookerId = group.bookerUserId as Id<"users">;
       const bookerUser = await ctx.db.get(bookerId);
       if (bookerUser) {
         await ctx.db.patch(bookerId, {
           successfulTrips: (bookerUser.successfulTrips ?? 0) + 1,
         });
       }
-      await ctx.db.patch(groupId, { bookerReceiptCredibilityCredited: true });
     }
 
     for (const member of activeMembers) {
@@ -973,7 +970,7 @@ export const createReport = mutation({
     });
 
     await ctx.db.patch(args.groupId, {
-      status: group.status === "closed" ? "reported" : "reported",
+      status: "reported",
       reportCount: (group.reportCount ?? 0) + 1,
     });
 

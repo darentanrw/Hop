@@ -346,3 +346,190 @@ describe("calculateCredibilityScore — determinism", () => {
     expect(calculateCredibilityScore(profile)).toBe(calculateCredibilityScore({ ...profile }));
   });
 });
+
+describe("suspension — trip history scenarios", () => {
+  it("new user (0 trips) is NOT suspended (75 ≥ 30)", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 0,
+      confirmedReportCount: 0,
+    });
+    expect(score).toBe(75);
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+
+  it("5 cancellations from baseline leaves score at 25 → suspended", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 5,
+      confirmedReportCount: 0,
+    });
+    expect(score).toBe(25);
+    expect(isCredibilitySuspended(score)).toBe(true);
+  });
+
+  it("4 cancellations from baseline leaves score at 35 → NOT suspended", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 4,
+      confirmedReportCount: 0,
+    });
+    expect(score).toBe(35);
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+
+  it("exactly at threshold boundary: 75 − 4×10 − 0 = 35, minus one more = 25", () => {
+    const atFour = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 4,
+      confirmedReportCount: 0,
+    });
+    const atFive = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 5,
+      confirmedReportCount: 0,
+    });
+    expect(isCredibilitySuspended(atFour)).toBe(false);
+    expect(isCredibilitySuspended(atFive)).toBe(true);
+  });
+
+  it("one confirmed report from baseline (score 50) is NOT suspended", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 0,
+      confirmedReportCount: 1,
+    });
+    expect(score).toBe(50);
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+
+  it("two confirmed reports from baseline (score 25) IS suspended", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 0,
+      confirmedReportCount: 2,
+    });
+    expect(score).toBe(25);
+    expect(isCredibilitySuspended(score)).toBe(true);
+  });
+
+  it("1 cancel + 1 confirmed report = 75 − 10 − 25 = 40 → NOT suspended", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 1,
+      confirmedReportCount: 1,
+    });
+    expect(score).toBe(40);
+    expect(isCredibilitySuspended(score)).toBe(false);
+  });
+
+  it("3 cancels + 1 confirmed report = 75 − 30 − 25 = 20 → suspended", () => {
+    const score = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 3,
+      confirmedReportCount: 1,
+    });
+    expect(score).toBe(20);
+    expect(isCredibilitySuspended(score)).toBe(true);
+  });
+});
+
+describe("suspension — recovery via successful trips", () => {
+  it("user at 25 (suspended) recovers to 30 with 1 success → no longer suspended", () => {
+    const suspended = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 5,
+      confirmedReportCount: 0,
+    });
+    expect(suspended).toBe(25);
+    expect(isCredibilitySuspended(suspended)).toBe(true);
+
+    const recovered = calculateCredibilityScore({
+      successfulTrips: 1,
+      cancelledTrips: 5,
+      confirmedReportCount: 0,
+    });
+    expect(recovered).toBe(30);
+    expect(isCredibilitySuspended(recovered)).toBe(false);
+  });
+
+  it("user at 0 (floor) needs 6 successes to reach 30 and exit suspension", () => {
+    const atFloor = calculateCredibilityScore({
+      successfulTrips: 0,
+      cancelledTrips: 8,
+      confirmedReportCount: 0,
+    });
+    expect(atFloor).toBe(0);
+    expect(isCredibilitySuspended(atFloor)).toBe(true);
+
+    const with5 = calculateCredibilityScore({
+      successfulTrips: 5,
+      cancelledTrips: 8,
+      confirmedReportCount: 0,
+    });
+    expect(with5).toBe(20);
+    expect(isCredibilitySuspended(with5)).toBe(true);
+
+    const with6 = calculateCredibilityScore({
+      successfulTrips: 6,
+      cancelledTrips: 8,
+      confirmedReportCount: 0,
+    });
+    expect(with6).toBe(25);
+    expect(isCredibilitySuspended(with6)).toBe(true);
+
+    const with8 = calculateCredibilityScore({
+      successfulTrips: 8,
+      cancelledTrips: 8,
+      confirmedReportCount: 0,
+    });
+    expect(with8).toBe(35);
+    expect(isCredibilitySuspended(with8)).toBe(false);
+  });
+});
+
+describe("suspension threshold is reachable from realistic trip histories", () => {
+  it("exactly 5 cancels (no successes, no reports) is the first profile to cross into suspension", () => {
+    for (let c = 0; c <= 4; c++) {
+      expect(
+        isCredibilitySuspended(
+          calculateCredibilityScore({
+            successfulTrips: 0,
+            cancelledTrips: c,
+            confirmedReportCount: 0,
+          }),
+        ),
+      ).toBe(false);
+    }
+    expect(
+      isCredibilitySuspended(
+        calculateCredibilityScore({
+          successfulTrips: 0,
+          cancelledTrips: 5,
+          confirmedReportCount: 0,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("exactly 2 confirmed reports (no trips) is the first report count to cross into suspension", () => {
+    expect(
+      isCredibilitySuspended(
+        calculateCredibilityScore({
+          successfulTrips: 0,
+          cancelledTrips: 0,
+          confirmedReportCount: 1,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isCredibilitySuspended(
+        calculateCredibilityScore({
+          successfulTrips: 0,
+          cancelledTrips: 0,
+          confirmedReportCount: 2,
+        }),
+      ),
+    ).toBe(true);
+  });
+});
