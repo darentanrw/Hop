@@ -321,8 +321,7 @@ export function AdminDashboardClient() {
   }
 
   const isExpanded = (id: string) => expandedReport === id;
-  const toggleExpand = (id: string) =>
-    setExpandedReport((prev) => (prev === id ? null : id));
+  const toggleExpand = (id: string) => setExpandedReport((prev) => (prev === id ? null : id));
 
   return (
     <div className="adm">
@@ -348,13 +347,19 @@ export function AdminDashboardClient() {
 
       {/* Toast notice */}
       {notice ? (
-        <div
-          className={`adm-toast adm-toast--${notice.tone}`}
-          onClick={() => setNotice(null)}
-          role="status"
-        >
-          <span className="adm-toast-dot" />
-          {notice.text}
+        <div className={`adm-toast adm-toast--${notice.tone}`}>
+          <output className="adm-toast-message" aria-live="polite">
+            <span className="adm-toast-dot" />
+            {notice.text}
+          </output>
+          <button
+            type="button"
+            className="adm-toast-close"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss notice"
+          >
+            ×
+          </button>
         </div>
       ) : null}
 
@@ -362,9 +367,22 @@ export function AdminDashboardClient() {
       <div className="adm-kpis">
         <div className="adm-kpi" data-tone="default">
           <div className="adm-kpi-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              focusable="false"
+            >
               <circle cx="8" cy="5.5" r="3" stroke="currentColor" strokeWidth="1.5" fill="none" />
-              <path d="M2.5 14c0-3 2.5-4.5 5.5-4.5s5.5 1.5 5.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+              <path
+                d="M2.5 14c0-3 2.5-4.5 5.5-4.5s5.5 1.5 5.5 4.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                fill="none"
+              />
             </svg>
           </div>
           <span className="adm-kpi-val">{dashboard?.users ?? "—"}</span>
@@ -372,7 +390,14 @@ export function AdminDashboardClient() {
         </div>
         <div className="adm-kpi" data-tone="accent">
           <div className="adm-kpi-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              focusable="false"
+            >
               <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
               <circle cx="8" cy="8" r="2" fill="currentColor" />
             </svg>
@@ -382,8 +407,24 @@ export function AdminDashboardClient() {
         </div>
         <div className="adm-kpi" data-tone="privacy">
           <div className="adm-kpi-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="5" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <rect
+                x="2"
+                y="5"
+                width="12"
+                height="8"
+                rx="2"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                fill="none"
+              />
               <path d="M5 5V4a3 3 0 016 0v1" stroke="currentColor" strokeWidth="1.5" fill="none" />
             </svg>
           </div>
@@ -392,8 +433,22 @@ export function AdminDashboardClient() {
         </div>
         <div className="adm-kpi" data-tone="success">
           <div className="adm-kpi-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M4 8.5l3 3 5-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M4 8.5l3 3 5-6"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
             </svg>
           </div>
           <span className="adm-kpi-val">{dashboard?.revealedGroups ?? "—"}</span>
@@ -443,8 +498,7 @@ export function AdminDashboardClient() {
 
         <p className="adm-ai-headline">
           {summary.aiEnabled
-            ? (summary.headline ??
-              "A cached AI dashboard summary will appear here once generated.")
+            ? (summary.headline ?? "A cached AI dashboard summary will appear here once generated.")
             : "Set OPENAI_API_KEY in the Convex environment to enable AI report scoring and the dashboard summary."}
         </p>
 
@@ -469,9 +523,7 @@ export function AdminDashboardClient() {
                 </ul>
               </div>
             ) : null}
-            {summary.error ? (
-              <p className="adm-ai-error">{summary.error}</p>
-            ) : null}
+            {summary.error ? <p className="adm-ai-error">{summary.error}</p> : null}
           </div>
         ) : null}
 
@@ -497,10 +549,30 @@ export function AdminDashboardClient() {
             </div>
             <div className="adm-filters">
               {[
-                { label: "Status", value: reviewFilter, set: setReviewFilter, opts: reviewStatusOptions },
-                { label: "Severity", value: severityFilter, set: setSeverityFilter, opts: severityOptions },
-                { label: "Category", value: categoryFilter, set: setCategoryFilter, opts: categoryOptions },
-                { label: "AI", value: aiStatusFilter, set: setAiStatusFilter, opts: aiStatusOptions },
+                {
+                  label: "Status",
+                  value: reviewFilter,
+                  set: setReviewFilter,
+                  opts: reviewStatusOptions,
+                },
+                {
+                  label: "Severity",
+                  value: severityFilter,
+                  set: setSeverityFilter,
+                  opts: severityOptions,
+                },
+                {
+                  label: "Category",
+                  value: categoryFilter,
+                  set: setCategoryFilter,
+                  opts: categoryOptions,
+                },
+                {
+                  label: "AI",
+                  value: aiStatusFilter,
+                  set: setAiStatusFilter,
+                  opts: aiStatusOptions,
+                },
               ].map((filter) => (
                 <label className="adm-filter" key={filter.label}>
                   <span>{filter.label}</span>
@@ -575,8 +647,21 @@ export function AdminDashboardClient() {
                           </span>
                           <span className="adm-report-time">{relativeTime(report.createdAt)}</span>
                           <span className={`adm-chevron ${expanded ? "adm-chevron--open" : ""}`}>
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                              <path d="M4 5.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 14 14"
+                              fill="none"
+                              aria-hidden="true"
+                              focusable="false"
+                            >
+                              <path
+                                d="M4 5.5l3 3 3-3"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
                             </svg>
                           </span>
                         </div>
