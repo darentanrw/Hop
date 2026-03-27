@@ -161,6 +161,9 @@ export function clearMatcherStore() {
 
 const SCORING_CONCURRENCY = 8;
 
+/** Below this haversine distance (km), treat as one stop — skip live routing. */
+const COLOCATED_KM = 0.05;
+
 async function runWithConcurrency<T>(
   tasks: Array<() => Promise<T>>,
   concurrency: number,
@@ -239,22 +242,26 @@ export async function scoreRouteDescriptors(
     const { leftRef, rightRef, left, right, spreadDistanceKm } = pair;
 
     let detourMinutes: number;
-    try {
-      const [routeToLeft, routeToRight, routeLeftToRight, routeRightToLeft] = await Promise.all([
-        getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, left.lat, left.lng),
-        getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, right.lat, right.lng),
-        getDrivingRoute(left.lat, left.lng, right.lat, right.lng),
-        getDrivingRoute(right.lat, right.lng, left.lat, left.lng),
-      ]);
+    if (spreadDistanceKm < COLOCATED_KM) {
+      detourMinutes = 0;
+    } else {
+      try {
+        const [routeToLeft, routeToRight, routeLeftToRight, routeRightToLeft] = await Promise.all([
+          getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, left.lat, left.lng),
+          getDrivingRoute(PICKUP_ORIGIN_LAT, PICKUP_ORIGIN_LNG, right.lat, right.lng),
+          getDrivingRoute(left.lat, left.lng, right.lat, right.lng),
+          getDrivingRoute(right.lat, right.lng, left.lat, left.lng),
+        ]);
 
-      const longestSingleTrip = Math.max(routeToLeft.timeSeconds, routeToRight.timeSeconds);
-      const sequentialTrip = Math.min(
-        routeToLeft.timeSeconds + routeLeftToRight.timeSeconds,
-        routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
-      );
-      detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
-    } catch {
-      return null;
+        const longestSingleTrip = Math.max(routeToLeft.timeSeconds, routeToRight.timeSeconds);
+        const sequentialTrip = Math.min(
+          routeToLeft.timeSeconds + routeLeftToRight.timeSeconds,
+          routeToRight.timeSeconds + routeRightToLeft.timeSeconds,
+        );
+        detourMinutes = Math.max(0, (sequentialTrip - longestSingleTrip) / 60);
+      } catch {
+        return null;
+      }
     }
 
     if (detourMinutes > MAX_DETOUR_MINUTES) {

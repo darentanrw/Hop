@@ -6,8 +6,12 @@ export const PICKUP_ORIGIN_LNG = 103.7734;
 export const ACK_WINDOW_MINUTES = 30;
 export const MIN_TIME_OVERLAP_MINUTES = 0;
 export const SMALL_GROUP_RELEASE_HOURS = 36;
+/** Maximum passenger seats in one vehicle (sum of partySize across all accounts). */
 export const MAX_GROUP_SIZE = 4;
+/** Minimum distinct accounts required for a valid ride group. A single account should book a private ride instead. */
 export const MIN_GROUP_SIZE = 2;
+/** Maximum people under one account's booking (e.g. you + friends sharing a seat allocation). */
+export const MAX_PARTY_SIZE = 3;
 export const MAX_DETOUR_MINUTES = 12;
 export const MEETUP_GRACE_MINUTES = 5;
 export const PAYMENT_WINDOW_HOURS = 24;
@@ -17,28 +21,41 @@ export const LOCK_HOURS_BEFORE = 3;
 export const HARD_LOCK_MINUTES_BEFORE = 30;
 export const GEOHASH_PRECISION = 6;
 
+/** Starting credibility before any trips (displayed as 0–100). */
+export const CREDIBILITY_STARTING_POINTS = 75;
+/** Points added per successful trip (booker receipt upload or verified rider payment). */
+export const CREDIBILITY_SUCCESS_POINTS = 5;
+/** Points subtracted per cancelled trip (user-initiated cancel, failed ack, or no-show). */
+export const CREDIBILITY_CANCEL_POINTS = 10;
+/** Points subtracted per admin-confirmed report against the user. */
+export const CREDIBILITY_CONFIRMED_REPORT_PENALTY = 25;
+
+export const CREDIBILITY_MIN_SCORE = 0;
+export const CREDIBILITY_MAX_SCORE = 100;
+
+/** Scores strictly below this cannot use ride features (app redirects + mutations reject). */
+export const CREDIBILITY_SUSPENSION_THRESHOLD = 30;
+
+export function isCredibilitySuspended(score: number): boolean {
+  return score < CREDIBILITY_SUSPENSION_THRESHOLD;
+}
+
 /**
- * Calculate user credibility score (0.5–1.0) based on trip history.
- * Weighted factors: 70% trip success rate, 30% report impact.
- * Each report reduces the report impact factor by 10 percentage points,
- * which translates to up to 3 percentage points off the final score per report
- * when the success rate is 100%. New users with no trips start at 0.75.
+ * Additive credibility score on a 0–100 scale.
+ * Successes and cancellations do not dilute over time (unlike a ratio).
+ * Only admin-confirmed reports count toward report penalties.
  */
 export function calculateCredibilityScore(user: {
   successfulTrips: number;
   cancelledTrips: number;
-  reportedCount: number;
+  confirmedReportCount: number;
 }): number {
-  const totalTrips = user.successfulTrips + user.cancelledTrips;
-  if (totalTrips === 0) {
-    return 0.75; // New user baseline
-  }
-
-  const successRate = user.successfulTrips / totalTrips;
-  const reportFactor = Math.max(0, 1 - user.reportedCount * 0.1);
-  const credibility = 0.7 * successRate + 0.3 * reportFactor;
-
-  return Math.max(0.5, Math.min(1.0, credibility));
+  const raw =
+    CREDIBILITY_STARTING_POINTS +
+    CREDIBILITY_SUCCESS_POINTS * user.successfulTrips -
+    CREDIBILITY_CANCEL_POINTS * user.cancelledTrips -
+    CREDIBILITY_CONFIRMED_REPORT_PENALTY * user.confirmedReportCount;
+  return Math.max(CREDIBILITY_MIN_SCORE, Math.min(CREDIBILITY_MAX_SCORE, raw));
 }
 
 export type SelfDeclaredGender = "woman" | "man" | "nonbinary" | "prefer_not_to_say";
@@ -69,7 +86,11 @@ export interface RiderProfile {
   sameGenderOnly: boolean;
   successfulTrips?: number;
   cancelledTrips?: number;
+  /** @deprecated Legacy field; scoring uses confirmedReportCount only. */
   reportedCount?: number;
+  confirmedReportCount?: number;
+  /** When true, the user cannot open new ride windows until score reaches `CREDIBILITY_SUSPENSION_THRESHOLD`. */
+  credibilitySuspended?: boolean;
 }
 
 export interface AvailabilityEntry {
@@ -79,6 +100,8 @@ export interface AvailabilityEntry {
   windowEnd: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
+  /** Passengers traveling on this booking (1–MAX_PARTY_SIZE); counts toward vehicle capacity. */
+  partySize?: number;
   sealedDestinationRef: string;
   routeDescriptorRef: string;
   createdAt: string;
@@ -156,6 +179,33 @@ export function isNusAliasFormat(email: string) {
 export function clampGroupSize(value: number, fallback: number) {
   if (!Number.isFinite(value)) return fallback;
   return Math.min(MAX_GROUP_SIZE, Math.max(MIN_GROUP_SIZE, Math.floor(value)));
+}
+
+export function clampPartySize(value: unknown): number {
+  const n = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.min(MAX_PARTY_SIZE, Math.max(1, n));
+}
+
+export function sumPartySizes(members: readonly { partySize?: number | null }[]): number {
+  return members.reduce((sum, m) => sum + (m.partySize ?? 1), 0);
+}
+
+/**
+ * Total passenger seats for a group; prefers stored `passengerSeatTotal`, else sums member `partySize`,
+ * else falls back to legacy `groupSize` (account count when party sizes were always 1).
+ */
+export function groupPassengerSeatTotal(
+  group: { passengerSeatTotal?: number | null; groupSize: number },
+  members: readonly { partySize?: number | null }[],
+): number {
+  if (group.passengerSeatTotal != null) {
+    return group.passengerSeatTotal;
+  }
+  const fromMembers = sumPartySizes(members);
+  if (fromMembers > 0) {
+    return fromMembers;
+  }
+  return group.groupSize;
 }
 
 export function overlapMinutes(

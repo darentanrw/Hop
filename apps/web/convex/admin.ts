@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
+import { MAX_GROUP_SIZE, MIN_GROUP_SIZE, sumPartySizes } from "@hop/shared";
 import { v } from "convex/values";
 import { selectBookerUserId } from "../lib/group-lifecycle";
 import { isMembershipInActiveRide } from "../lib/ride-eligibility";
@@ -114,6 +114,7 @@ async function createQaBot(ctx: MutationCtx, index: number) {
     successfulTrips: 0,
     cancelledTrips: 0,
     reportedCount: 0,
+    confirmedReportCount: 0,
   });
 
   return {
@@ -399,7 +400,16 @@ export const forceLockGroups = mutation({
       throw new Error(`Group is "${activeGroup.status}", expected "tentative".`);
     }
 
-    const newStatus = activeGroup.groupSize >= MAX_GROUP_SIZE ? "locked" : "semi_locked";
+    const lockMembers = await ctx.db
+      .query("groupMembers")
+      .withIndex("groupId", (q) => q.eq("groupId", activeGroup._id))
+      .collect();
+    const activeLockMembers = lockMembers.filter((m) => m.participationStatus === "active");
+    const seatTotal =
+      activeGroup.passengerSeatTotal != null
+        ? activeGroup.passengerSeatTotal
+        : sumPartySizes(activeLockMembers) || activeGroup.groupSize;
+    const newStatus = seatTotal >= MAX_GROUP_SIZE ? "locked" : "semi_locked";
     await ctx.db.patch(activeGroup._id, { status: newStatus });
 
     await ctx.db.insert("auditEvents", {
@@ -703,5 +713,56 @@ export const migrateOldAvailabilities = internalMutation({
     });
 
     return { cancelledAvailabilities, dissolvedGroups };
+  },
+});
+
+export const confirmReport = mutation({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, { reportId }) => {
+    const { userId } = await requireAdmin(ctx);
+    const report = await ctx.db.get(reportId);
+    if (!report) throw new Error("Report not found");
+    if (report.reviewStatus === "confirmed") return { ok: true as const };
+    if (report.reviewStatus === "dismissed") {
+      throw new Error("This report was dismissed.");
+    }
+    await ctx.db.patch(reportId, { reviewStatus: "confirmed" });
+    if (report.reportedUserId) {
+      const reportedUserId = report.reportedUserId as Id<"users">;
+      const reportedUser = await ctx.db.get(reportedUserId);
+      if (reportedUser) {
+        await ctx.db.patch(reportedUserId, {
+          confirmedReportCount: (reportedUser.confirmedReportCount ?? 0) + 1,
+        });
+      }
+    }
+    await ctx.db.insert("auditEvents", {
+      action: "admin.report.confirmed",
+      actorId: userId,
+      metadata: { reportId },
+      createdAt: nowIso(),
+    });
+    return { ok: true as const };
+  },
+});
+
+export const dismissReport = mutation({
+  args: { reportId: v.id("reports") },
+  handler: async (ctx, { reportId }) => {
+    const { userId } = await requireAdmin(ctx);
+    const report = await ctx.db.get(reportId);
+    if (!report) throw new Error("Report not found");
+    if (report.reviewStatus === "confirmed") {
+      throw new Error("Cannot dismiss a report that was already confirmed.");
+    }
+    if (report.reviewStatus === "dismissed") return { ok: true as const };
+    await ctx.db.patch(reportId, { reviewStatus: "dismissed" });
+    await ctx.db.insert("auditEvents", {
+      action: "admin.report.dismissed",
+      actorId: userId,
+      metadata: { reportId },
+      createdAt: nowIso(),
+    });
+    return { ok: true as const };
   },
 });

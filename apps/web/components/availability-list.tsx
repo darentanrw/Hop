@@ -140,6 +140,10 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
                 </span>
               </div>
               <div className="avail-meta">{range}</div>
+              <div className="avail-meta text-muted" style={{ fontSize: 12 }}>
+                Party: {availability.partySize ?? 1}{" "}
+                {(availability.partySize ?? 1) === 1 ? "person" : "people"}
+              </div>
             </div>
             <div
               style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}

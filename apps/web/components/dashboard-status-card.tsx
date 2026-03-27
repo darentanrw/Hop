@@ -1,5 +1,6 @@
 "use client";
 
+import { CREDIBILITY_SUSPENSION_THRESHOLD } from "@hop/shared";
 import { useQuery } from "convex/react";
 import Link from "next/link";
 import { api } from "../convex/_generated/api";
@@ -70,7 +71,13 @@ function resolveStatus(group: ActiveTripSnapshot, openCount: number): StatusStat
   };
 }
 
-function StatusCard({ state }: { state: StatusState }) {
+function StatusCard({
+  state,
+  schedulingBlocked,
+}: {
+  state: StatusState;
+  schedulingBlocked: boolean;
+}) {
   if (state.kind === "idle") {
     return (
       <div className="card" style={{ textAlign: "center", padding: "28px 20px" }}>
@@ -90,16 +97,20 @@ function StatusCard({ state }: { state: StatusState }) {
           🚗
         </div>
         <h3 style={{ marginBottom: 6 }}>Not looking for rides</h3>
-        <p className="text-sm text-muted" style={{ maxWidth: 240, margin: "0 auto 16px" }}>
-          Add a time window below to start matching with other riders.
+        <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto 16px" }}>
+          {schedulingBlocked
+            ? `Your account has been suspended as your credibility score has fallen below ${CREDIBILITY_SUSPENSION_THRESHOLD}. You can no longer schedule new rides.`
+            : "Add a time window below to start matching with other riders."}
         </p>
-        <Link
-          href="/availability"
-          className="btn btn-primary btn-sm"
-          style={{ display: "inline-flex" }}
-        >
-          Add a window
-        </Link>
+        {schedulingBlocked ? null : (
+          <Link
+            href="/availability"
+            className="btn btn-primary btn-sm"
+            style={{ display: "inline-flex" }}
+          >
+            Add a window
+          </Link>
+        )}
       </div>
     );
   }
@@ -273,9 +284,11 @@ function StatusCard({ state }: { state: StatusState }) {
 export function DashboardStatusCard({
   initialGroup,
   initialAvailabilities,
+  schedulingBlocked,
 }: {
   initialGroup: ActiveTripSnapshot;
   initialAvailabilities: AvailabilitySnapshot;
+  schedulingBlocked: boolean;
 }) {
   const liveGroup = useQuery(api.trips.getActiveTrip, {});
   const liveAvailabilities = useQuery(api.queries.listAvailabilities);
@@ -287,5 +300,5 @@ export function DashboardStatusCard({
   ).length;
   const state = resolveStatus(group, openCount);
 
-  return <StatusCard state={state} />;
+  return <StatusCard state={state} schedulingBlocked={schedulingBlocked} />;
 }
