@@ -16,6 +16,7 @@ import {
   buildPaymentRequestedPushCopy,
   buildRemovedFromRidePushCopy,
 } from "../lib/push-notification-copy";
+import { buildGroupPatchForNewReport } from "../lib/reporting";
 import { checkRideEligibility, isMembershipInActiveRide } from "../lib/ride-eligibility";
 import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
@@ -1144,10 +1145,7 @@ export const createReport = mutation({
       reviewStatus: "pending",
     });
 
-    await ctx.db.patch(args.groupId, {
-      status: "reported",
-      reportCount: (group.reportCount ?? 0) + 1,
-    });
+    await ctx.db.patch(args.groupId, buildGroupPatchForNewReport(group.reportCount));
 
     return { ok: true };
   },
