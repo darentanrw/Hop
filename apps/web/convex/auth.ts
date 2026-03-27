@@ -114,6 +114,7 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         successfulTrips: 0,
         cancelledTrips: 0,
         reportedCount: 0,
+        confirmedReportCount: 0,
       });
 
       if (localQaEnabled && isAnonymous) {

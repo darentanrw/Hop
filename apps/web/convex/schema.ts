@@ -76,6 +76,7 @@ const schema = defineSchema({
     successfulTrips: v.optional(v.number()),
     cancelledTrips: v.optional(v.number()),
     reportedCount: v.optional(v.number()),
+    confirmedReportCount: v.optional(v.number()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -166,6 +167,7 @@ const schema = defineSchema({
     generalAreaLabels: v.optional(v.array(v.string())),
     reportCount: v.optional(v.number()),
     rewardedUserIds: v.optional(v.array(v.string())),
+    bookerReceiptCredibilityCredited: v.optional(v.boolean()),
   }),
   groupMembers: defineTable({
     groupId: v.id("groups"),
@@ -217,6 +219,9 @@ const schema = defineSchema({
     category: reportCategory,
     description: v.string(),
     createdAt: v.string(),
+    reviewStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("confirmed"), v.literal("dismissed")),
+    ),
   }).index("groupId", ["groupId"]),
   groupMessages: defineTable({
     groupId: v.id("groups"),

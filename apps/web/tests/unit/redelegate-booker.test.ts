@@ -207,24 +207,24 @@ describe("selectBookerUserId (booker selection for redelegation)", () => {
 
   it("selects the candidate with the highest credibility score", () => {
     const scores = new Map([
-      ["user-a", 0.6],
-      ["user-b", 0.9],
-      ["user-c", 0.7],
+      ["user-a", 60],
+      ["user-b", 90],
+      ["user-c", 70],
     ]);
     expect(selectBookerUserId(["user-a", "user-b", "user-c"], scores)).toBe("user-b");
   });
 
   it("breaks ties by alphabetical order", () => {
     const scores = new Map([
-      ["user-b", 0.8],
-      ["user-a", 0.8],
+      ["user-b", 80],
+      ["user-a", 80],
     ]);
     expect(selectBookerUserId(["user-b", "user-a"], scores)).toBe("user-a");
   });
 
-  it("uses default 0.5 for candidates missing from the scores map", () => {
-    const scores = new Map([["user-a", 0.5]]);
-    expect(selectBookerUserId(["user-a", "user-b"], scores)).toBe("user-a");
+  it("uses starting credibility for candidates missing from the scores map", () => {
+    const scores = new Map([["user-a", 50]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores)).toBe("user-b");
   });
 
   it("picks the single candidate from a one-member list", () => {
@@ -233,10 +233,23 @@ describe("selectBookerUserId (booker selection for redelegation)", () => {
 
   it("correctly picks from volunteers when only some have scores", () => {
     const scores = new Map([
-      ["user-x", 0.7],
-      ["user-y", 0.9],
+      ["user-x", 70],
+      ["user-y", 90],
     ]);
     expect(selectBookerUserId(["user-x", "user-y", "user-z"], scores)).toBe("user-y");
+  });
+
+  it("uses custom defaultScore when provided", () => {
+    const scores = new Map([["user-a", 80]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores, 90)).toBe("user-b");
+    expect(selectBookerUserId(["user-a", "user-b"], scores, 70)).toBe("user-a");
+  });
+
+  it("default defaultScore equals CREDIBILITY_STARTING_POINTS", () => {
+    const scores = new Map([["user-a", 74]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores)).toBe("user-b");
+    const scores2 = new Map([["user-a", 76]]);
+    expect(selectBookerUserId(["user-a", "user-b"], scores2)).toBe("user-a");
   });
 });
 

@@ -1,11 +1,26 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { fetchQuery } from "convex/nextjs";
 import { NextResponse } from "next/server";
+import { api } from "../../../../convex/_generated/api";
 import { getMatcherBaseUrl } from "../../../../lib/matcher-base-url";
 
 export async function POST(request: Request) {
   const token = await convexAuthNextjsToken();
   if (!token) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const [riderProfile, adminAccess] = await Promise.all([
+    fetchQuery(api.queries.getRiderProfile, {}, { token }),
+    fetchQuery(api.admin.adminAccess, {}, { token }),
+  ]);
+  if (riderProfile?.credibilitySuspended && !adminAccess.isAdmin) {
+    return NextResponse.json(
+      {
+        error: "You can't schedule new rides as your account is suspended.",
+      },
+      { status: 403 },
+    );
   }
 
   const payload = (await request.json().catch(() => null)) as { address?: unknown } | null;

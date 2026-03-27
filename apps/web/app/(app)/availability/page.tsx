@@ -8,8 +8,13 @@ export default async function AvailabilityPage() {
   const token = await convexAuthNextjsToken();
   if (!token) redirect("/login");
 
-  const riderProfile = await fetchQuery(api.queries.getRiderProfile, {}, { token });
+  const [riderProfile, adminAccess] = await Promise.all([
+    fetchQuery(api.queries.getRiderProfile, {}, { token }),
+    fetchQuery(api.admin.adminAccess, {}, { token }),
+  ]);
   if (!riderProfile) redirect("/onboarding");
+
+  const schedulingBlocked = Boolean(riderProfile.credibilitySuspended && !adminAccess.isAdmin);
 
   return (
     <div className="stack-lg stagger">
@@ -20,7 +25,13 @@ export default async function AvailabilityPage() {
         </p>
       </div>
 
-      <AvailabilityForm profile={riderProfile} />
+      {schedulingBlocked ? (
+        <div className="notice notice-info" style={{ marginTop: 8 }}>
+          You can&apos;t schedule new rides as your account is suspended.
+        </div>
+      ) : (
+        <AvailabilityForm profile={riderProfile} />
+      )}
     </div>
   );
 }

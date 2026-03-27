@@ -38,6 +38,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalAction, internalMutation, mutation } from "./_generated/server";
+import { assertUserCanScheduleNewRide } from "./credibilitySuspension";
 import { resolveQaActingUserId } from "./localQa";
 import { syncLifecycleForGroup } from "./trips";
 
@@ -421,6 +422,7 @@ export const createAvailability = mutation({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+    await assertUserCanScheduleNewRide(ctx, userId);
 
     const existingMembers = await ctx.db
       .query("groupMembers")
@@ -567,7 +569,6 @@ export const cancelTripParticipation = mutation({
       await ctx.db.patch(availability._id, { status: "cancelled" });
     }
 
-    // Increment cancellation count (only once, since we check above)
     const user = await ctx.db.get(userId);
     if (user) {
       await ctx.db.patch(userId, {
@@ -645,7 +646,7 @@ export const cancelTripParticipation = mutation({
                 const score = calculateCredibilityScore({
                   successfulTrips: user.successfulTrips ?? 0,
                   cancelledTrips: user.cancelledTrips ?? 0,
-                  reportedCount: user.reportedCount ?? 0,
+                  confirmedReportCount: user.confirmedReportCount ?? 0,
                 });
                 credibilityScores.set(remainingUserId, score);
               }
@@ -841,7 +842,7 @@ export const createTentativeGroup = internalMutation({
         const score = calculateCredibilityScore({
           successfulTrips: user.successfulTrips ?? 0,
           cancelledTrips: user.cancelledTrips ?? 0,
-          reportedCount: user.reportedCount ?? 0,
+          confirmedReportCount: user.confirmedReportCount ?? 0,
         });
         credibilityScores.set(userId, score);
       }
@@ -1053,8 +1054,7 @@ export const expireStaleOpenAvailabilities = internalMutation({
 export const runMatching = action({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    if (!(await getAuthUserId(ctx))) throw new Error("Not authenticated");
 
     await ctx.runMutation(internal.mutations.expireStaleOpenAvailabilities, {});
 
@@ -1142,8 +1142,7 @@ export const runMatchingWithEdges = action({
     ),
   },
   handler: async (ctx, { edges }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    if (!(await getAuthUserId(ctx))) throw new Error("Not authenticated");
 
     const candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,

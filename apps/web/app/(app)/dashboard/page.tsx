@@ -11,11 +11,12 @@ export default async function DashboardPage() {
   const token = await convexAuthNextjsToken();
   if (!token) return null;
 
-  const [riderProfile, availabilities, group, eligibility, pastRides] = await Promise.all([
+  const [riderProfile, availabilities, group, eligibility, adminAccess, pastRides] = await Promise.all([
     fetchQuery(api.queries.getRiderProfile, {}, { token }),
     fetchQuery(api.queries.listAvailabilities, {}, { token }),
     fetchQuery(api.trips.getActiveTrip, {}, { token }),
     fetchQuery(api.trips.getRideEligibility, {}, { token }),
+    fetchQuery(api.admin.adminAccess, {}, { token }),
     fetchQuery(api.trips.listPastRides, {}, { token }),
   ]);
   const dashboardNotice = getDashboardNotice({
@@ -25,6 +26,8 @@ export default async function DashboardPage() {
 
   if (!riderProfile) return null;
 
+  const schedulingBlocked = Boolean(riderProfile.credibilitySuspended && !adminAccess.isAdmin);
+
   return (
     <div className="stack-lg stagger">
       <DashboardBackgroundSync />
@@ -32,9 +35,24 @@ export default async function DashboardPage() {
       {dashboardNotice ? (
         <div className="notice notice-error">{dashboardNotice}</div>
       ) : (
-        <DashboardStatusCard initialGroup={group} initialAvailabilities={availabilities ?? []} />
+        <DashboardStatusCard
+          initialGroup={group}
+          initialAvailabilities={availabilities ?? []}
+          schedulingBlocked={schedulingBlocked}
+        />
       )}
 
+      <div>
+        <div className="section-header" style={{ marginBottom: 12 }}>
+          <h2>Your windows</h2>
+          {!eligibility?.blocked && !schedulingBlocked && (
+            <Link href="/availability" style={{ fontSize: 13, fontWeight: 600 }}>
+              + Add
+            </Link>
+          )}
+        </div>
+        <AvailabilityList availabilities={availabilities ?? []} />
+      </div>
       <DashboardRidesTabs
         initialAvailabilities={availabilities ?? []}
         initialPastRides={pastRides ?? []}
