@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Doc } from "../convex/_generated/dataModel";
-import { AvailabilityList } from "./availability-list";
+import { AvailabilityList, type AvailabilityWindowRow } from "./availability-list";
 
 export type PastRideSummary = {
   groupId: Doc<"groups">["_id"];
@@ -18,8 +18,6 @@ export type PastRideSummary = {
   finalCostCents: number | null;
   endedAt: string;
 };
-
-type AvailabilityRow = Doc<"availabilities">;
 
 function formatPastRideWhen(iso: string) {
   return new Date(iso).toLocaleString("en-SG", {
@@ -136,7 +134,7 @@ export function DashboardRidesTabs({
   initialPastRides,
   showAddLink,
 }: {
-  initialAvailabilities: AvailabilityRow[];
+  initialAvailabilities: AvailabilityWindowRow[];
   initialPastRides: PastRideSummary[];
   showAddLink: boolean;
 }) {
