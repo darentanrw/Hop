@@ -9,7 +9,6 @@ import {
   MAX_SPREAD_KM,
   MEETUP_GRACE_MINUTES,
   MIN_GROUP_SIZE,
-  MIN_TIME_OVERLAP_MINUTES,
   PICKUP_ORIGIN_ID,
   PICKUP_ORIGIN_LABEL,
   SMALL_GROUP_RELEASE_HOURS,
@@ -30,6 +29,11 @@ import {
   getGroupTheme,
   selectBookerUserId,
 } from "../lib/group-lifecycle";
+import {
+  buildLateJoinConfirmationDeadline,
+  canGroupAcceptLateJoin,
+  shouldResetAcknowledgementsForLateJoin,
+} from "../lib/late-join";
 import { getMatcherBaseUrl } from "../lib/matcher-base-url";
 import type { CompatibilityEdge, MatchingCandidate, SelectedGroup } from "../lib/matching";
 import { formGroups } from "../lib/matching";
@@ -39,6 +43,7 @@ import {
   buildLateJoinPushCopy,
   buildLockedPushCopy,
   buildMatchedPushCopy,
+  formatRideWindowForPush,
 } from "../lib/push-notification-copy";
 import { checkRideEligibility } from "../lib/ride-eligibility";
 import { isGroupPastWindowBeforeDeparture } from "../lib/trip-state";
@@ -1088,7 +1093,7 @@ export const runMatching = action({
       {},
     )) as MatchingCandidate[];
     const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
-    const joined = await attemptAutomaticLateJoins(
+    let joined = await attemptAutomaticLateJoins(
       ctx,
       buildRegularCandidates(candidates, lockHorizon),
     );
@@ -1101,6 +1106,12 @@ export const runMatching = action({
       ctx,
       buildRegularCandidates(candidates, lockHorizon),
     );
+
+    candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    joined += await attemptAutomaticLateJoins(ctx, buildRushedCandidates(candidates, lockHorizon));
 
     candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
@@ -1125,7 +1136,7 @@ export const runMatchingCron = internalAction({
       {},
     )) as MatchingCandidate[];
     const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
-    const joined = await attemptAutomaticLateJoins(
+    let joined = await attemptAutomaticLateJoins(
       ctx,
       buildRegularCandidates(candidates, lockHorizon),
     );
@@ -1138,6 +1149,12 @@ export const runMatchingCron = internalAction({
       ctx,
       buildRegularCandidates(candidates, lockHorizon),
     );
+
+    candidates = (await ctx.runQuery(
+      internal.queries.getMatchingCandidates,
+      {},
+    )) as MatchingCandidate[];
+    joined += await attemptAutomaticLateJoins(ctx, buildRushedCandidates(candidates, lockHorizon));
 
     candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
@@ -1512,11 +1529,9 @@ export const attemptLateJoin = internalMutation({
     }
 
     const joiner = { windowStart: args.windowStart, windowEnd: args.windowEnd };
+    const now = Date.now();
     const groups = await ctx.db.query("groups").collect();
-    const candidateGroups = groups.filter((g) => {
-      if (g.status !== "semi_locked" && g.status !== "tentative") return false;
-      return overlapMinutes(joiner, g) > MIN_TIME_OVERLAP_MINUTES;
-    });
+    const candidateGroups = groups.filter((group) => canGroupAcceptLateJoin(group, joiner, now));
 
     const joinerAvailability = await ctx.db.get(args.availabilityId);
 
@@ -1663,6 +1678,9 @@ export const attemptLateJoin = internalMutation({
     const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
     const shouldLockNow =
       newPassengerSeatTotal >= MAX_GROUP_SIZE || new Date(sharedStart).getTime() <= lockHorizon;
+    const shouldResetAcknowledgements =
+      shouldLockNow && shouldResetAcknowledgementsForLateJoin(targetGroup.status);
+    const confirmationDeadline = buildLateJoinConfirmationDeadline();
 
     await ctx.db.patch(targetGroup._id, {
       groupSize: newMemberUserIds.length,
@@ -1707,6 +1725,16 @@ export const attemptLateJoin = internalMutation({
       paymentStatus: "none",
     });
 
+    if (shouldResetAcknowledgements) {
+      for (const member of targetActiveMembers) {
+        await ctx.db.patch(member._id, {
+          accepted: null,
+          acknowledgementStatus: "pending",
+          acknowledgedAt: null,
+        });
+      }
+    }
+
     if (shouldLockNow) {
       const bookerUserId = selectBookerUserId(newMemberUserIds);
       const loginUrl = buildLoginUrl();
@@ -1714,7 +1742,7 @@ export const attemptLateJoin = internalMutation({
         status: "matched_pending_ack",
         groupSize: newMemberUserIds.length,
         passengerSeatTotal: newPassengerSeatTotal,
-        confirmationDeadline: new Date(Date.now() + ACK_WINDOW_MINUTES * 60_000).toISOString(),
+        confirmationDeadline,
         bookerUserId: bookerUserId ?? targetGroup.bookerUserId,
       });
 
@@ -1722,27 +1750,37 @@ export const attemptLateJoin = internalMutation({
         ctx,
         [...targetActiveMembers.map((member) => member.userId), args.userId as string].map(
           (userId) => {
-            const pushCopy = buildLockedPushCopy({
-              windowStart: sharedStart,
-              windowEnd: sharedEnd,
-            });
+            const rideLabel = formatRideWindowForPush(sharedStart, sharedEnd);
+            const pushCopy = shouldResetAcknowledgements
+              ? {
+                  title: "Ride updated",
+                  body: `Your ${rideLabel} ride changed. Confirm again within 30 minutes to keep your spot.`,
+                }
+              : buildLockedPushCopy({
+                  windowStart: sharedStart,
+                  windowEnd: sharedEnd,
+                });
+            const emailTitle = shouldResetAcknowledgements
+              ? "Your ride changed"
+              : "Your group is locked";
+            const emailBody = shouldResetAcknowledgements
+              ? `Your ${rideLabel} ride changed. Confirm again within 30 minutes to keep your spot.`
+              : "Your group is locked. Confirm your ride within 30 minutes to keep your spot.";
 
             return {
               userId: userId as Id<"users">,
               groupId: targetGroup._id,
               kind: "group_locked",
-              eventKey: `${targetGroup._id}:late_join_locked:${userId}`,
+              eventKey: `${targetGroup._id}:late_join_locked:${args.userId}:${userId}`,
               title: pushCopy.title,
               body: pushCopy.body,
-              emailSubject: "Your Hop group is locked — confirm in 30 minutes",
-              emailHtml: buildNotificationEmail(
-                "Your group is locked",
-                "Your group is locked. Confirm your ride within 30 minutes to keep your spot.",
-                {
-                  href: loginUrl,
-                  label: "Log in to confirm ride",
-                },
-              ),
+              emailSubject: shouldResetAcknowledgements
+                ? "Your Hop ride changed — confirm again"
+                : "Your Hop group is locked — confirm in 30 minutes",
+              emailHtml: buildNotificationEmail(emailTitle, emailBody, {
+                href: loginUrl,
+                label: "Log in to confirm ride",
+              }),
             };
           },
         ),
