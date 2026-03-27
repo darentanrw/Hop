@@ -42,7 +42,6 @@ export default async function DashboardPage() {
           schedulingBlocked={schedulingBlocked}
         />
       )}
-
       <DashboardRidesTabs
         initialAvailabilities={availabilities ?? []}
         initialPastRides={pastRides ?? []}

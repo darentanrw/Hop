@@ -1,6 +1,8 @@
+import "leaflet/dist/leaflet.css";
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { fetchQuery } from "convex/nextjs";
 import { redirect } from "next/navigation";
+import { ConvexAppProvider } from "../../components/convex-app-provider";
 import { api } from "../../convex/_generated/api";
 import { resolveAdminRedirect } from "../../lib/admin-guard";
 
@@ -18,5 +20,5 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect(redirectPath);
   }
 
-  return children;
+  return <ConvexAppProvider>{children}</ConvexAppProvider>;
 }

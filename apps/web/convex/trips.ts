@@ -1135,17 +1135,34 @@ export const createReport = mutation({
     const group = await ctx.db.get(args.groupId);
     if (!group) throw new Error("Group not found");
 
-    await ctx.db.insert("reports", {
+    const reportId = await ctx.db.insert("reports", {
       groupId: args.groupId,
       reporterUserId: userId,
       reportedUserId: args.reportedUserId,
       category: args.category,
       description: args.description.trim(),
       createdAt: nowIso(),
-      reviewStatus: "pending",
+      reviewStatus: "open",
+      aiStatus: "pending",
     });
 
     await ctx.db.patch(args.groupId, buildGroupPatchForNewReport(group.reportCount));
+
+    await ctx.db.insert("auditEvents", {
+      action: "report.created",
+      actorId: userId,
+      metadata: {
+        reportId,
+        groupId: args.groupId,
+        category: args.category,
+        reportedUserId: args.reportedUserId ?? null,
+      },
+      createdAt: nowIso(),
+    });
+
+    await ctx.scheduler.runAfter(0, internal.admin.scoreReportSeverity, {
+      reportId,
+    });
 
     return { ok: true };
   },
