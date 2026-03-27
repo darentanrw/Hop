@@ -1010,11 +1010,29 @@ async function createGroupsFromSelection(ctx: ActionCtx, selectedGroups: Selecte
   return created;
 }
 
+export const expireStaleOpenAvailabilities = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const availabilities = await ctx.db.query("availabilities").collect();
+    let cancelledCount = 0;
+    for (const row of availabilities) {
+      if (row.status !== "open") continue;
+      if (new Date(row.windowEnd).getTime() > now) continue;
+      await ctx.db.patch(row._id, { status: "cancelled" });
+      cancelledCount += 1;
+    }
+    return { cancelledCount };
+  },
+});
+
 export const runMatching = action({
   args: {},
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+
+    await ctx.runMutation(internal.mutations.expireStaleOpenAvailabilities, {});
 
     let candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
@@ -1051,6 +1069,8 @@ export const runMatching = action({
 export const runMatchingCron = internalAction({
   args: {},
   handler: async (ctx) => {
+    await ctx.runMutation(internal.mutations.expireStaleOpenAvailabilities, {});
+
     let candidates = (await ctx.runQuery(
       internal.queries.getMatchingCandidates,
       {},

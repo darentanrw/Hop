@@ -156,9 +156,11 @@ export const adminSnapshot = query({
 export const getMatchingCandidates = internalQuery({
   args: {},
   handler: async (ctx) => {
+    const now = Date.now();
     const availabilities = await ctx.db.query("availabilities").collect();
     const openAvailabilities = availabilities.filter(
-      (availability) => availability.status === "open",
+      (availability) =>
+        availability.status === "open" && new Date(availability.windowEnd).getTime() > now,
     );
     const users = await ctx.db.query("users").collect();
     const userById = new Map(users.map((user) => [user._id, user]));
