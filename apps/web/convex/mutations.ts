@@ -15,7 +15,9 @@ import {
   SMALL_GROUP_RELEASE_HOURS,
   arePreferencesCompatible,
   calculateCredibilityScore,
+  clampPartySize,
   overlapMinutes,
+  sumPartySizes,
 } from "@hop/shared";
 import { v } from "convex/values";
 import { buildLockedGroupDestinations } from "../lib/group-destinations";
@@ -267,7 +269,7 @@ async function attemptAutomaticLateJoins(ctx: ActionCtx, candidates: MatchingCan
 }
 
 async function createGroupsForCandidates(ctx: ActionCtx, candidates: MatchingCandidate[]) {
-  if (candidates.length < 2) {
+  if (candidates.length === 0) {
     return 0;
   }
 
@@ -412,6 +414,7 @@ export const createAvailability = mutation({
       v.literal("prefer_not_to_say"),
     ),
     sameGenderOnly: v.boolean(),
+    partySize: v.optional(v.number()),
     sealedDestinationRef: v.string(),
     routeDescriptorRef: v.string(),
   },
@@ -449,9 +452,13 @@ export const createAvailability = mutation({
       throw new Error("You already have an open ride window. Cancel it before creating another.");
     }
 
+    const { partySize: rawPartySize, ...rest } = args;
+    const partySize = clampPartySize(rawPartySize ?? 1);
+
     return await ctx.db.insert("availabilities", {
       userId,
-      ...args,
+      ...rest,
+      partySize,
       minGroupSize: MIN_GROUP_SIZE,
       maxGroupSize: MAX_GROUP_SIZE,
       createdAt: new Date().toISOString(),
@@ -572,6 +579,7 @@ export const cancelTripParticipation = mutation({
       memberUserIds: typeof group.memberUserIds;
       availabilityIds: typeof group.availabilityIds;
       groupSize: number;
+      passengerSeatTotal: number;
       bookerUserId: string | undefined;
       status: typeof group.status;
     }> = {};
@@ -589,8 +597,15 @@ export const cancelTripParticipation = mutation({
       groupPatch.memberUserIds = updatedMemberUserIds;
       groupPatch.groupSize = updatedMemberUserIds.length;
 
-      if (updatedMemberUserIds.length < 2) {
-        // Fewer than 2 riders left — group can't proceed. Cancel it immediately and
+      const stillInGroupActive = members.filter(
+        (m) =>
+          updatedMemberUserIds.includes(m.userId) &&
+          (m.participationStatus ?? "active") === "active",
+      );
+      const remainingPassengerSeats = sumPartySizes(stillInGroupActive);
+
+      if (updatedMemberUserIds.length < 2 || remainingPassengerSeats < MIN_GROUP_SIZE) {
+        // Not enough accounts or passengers left — group can't proceed. Cancel it immediately and
         // reopen the remaining riders' availabilities so they return to the matching pool.
         groupPatch.bookerUserId = undefined;
         groupPatch.status = "cancelled";
@@ -610,6 +625,7 @@ export const cancelTripParticipation = mutation({
           }
         }
       } else {
+        groupPatch.passengerSeatTotal = remainingPassengerSeats;
         // If the cancelling user is the booker, reassign to highest-credibility active member.
         if (group.bookerUserId === userIdStr) {
           const remainingMembers = members.filter(
@@ -741,6 +757,7 @@ export const createTentativeGroup = internalMutation({
     windowStart: v.string(),
     windowEnd: v.string(),
     groupSize: v.number(),
+    passengerSeatTotal: v.number(),
     maxDetourMinutes: v.number(),
     averageScore: v.number(),
     minimumScore: v.number(),
@@ -751,6 +768,7 @@ export const createTentativeGroup = internalMutation({
         userId: v.string(),
         availabilityId: v.string(),
         displayName: v.string(),
+        partySize: v.number(),
       }),
     ),
   },
@@ -833,7 +851,7 @@ export const createTentativeGroup = internalMutation({
 
     const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
     const sharedStart = new Date(args.windowStart).getTime();
-    const isFullGroup = args.groupSize >= MAX_GROUP_SIZE;
+    const isFullGroup = args.passengerSeatTotal >= MAX_GROUP_SIZE;
     const isLastMinuteGroup = !isFullGroup && sharedStart <= lockHorizon;
     const shouldLockNow = isFullGroup || isLastMinuteGroup;
 
@@ -844,6 +862,7 @@ export const createTentativeGroup = internalMutation({
       windowStart: args.windowStart,
       windowEnd: args.windowEnd,
       groupSize: args.groupSize,
+      passengerSeatTotal: args.passengerSeatTotal,
       maxDetourMinutes: args.maxDetourMinutes,
       averageScore: args.averageScore,
       minimumScore: args.minimumScore,
@@ -874,6 +893,7 @@ export const createTentativeGroup = internalMutation({
         userId: member.userId,
         availabilityId: member.availabilityId,
         displayName: member.displayName,
+        partySize: member.partySize,
         emoji: getEmojiForMember(groupId, index),
         accepted: null,
         acknowledgementStatus: "pending",
@@ -893,6 +913,7 @@ export const createTentativeGroup = internalMutation({
       actorId: groupId,
       metadata: {
         groupSize: args.groupSize,
+        passengerSeatTotal: args.passengerSeatTotal,
         averageScore: args.averageScore,
       },
       createdAt: new Date().toISOString(),
@@ -910,7 +931,7 @@ export const createTentativeGroup = internalMutation({
           ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
           : isLastMinuteGroup
             ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
-            : `Your group is open to ${MAX_GROUP_SIZE - args.groupSize} more rider${MAX_GROUP_SIZE - args.groupSize > 1 ? "s" : ""} until 3 hours before departure or until the group fills.`,
+            : `Your group has room for ${MAX_GROUP_SIZE - args.passengerSeatTotal} more passenger${MAX_GROUP_SIZE - args.passengerSeatTotal > 1 ? "s" : ""} until 3 hours before departure or until the car is full.`,
         emailSubject: shouldLockNow
           ? `Confirm your Hop ride in ${theme.name}`
           : `${theme.name} is open to more riders`,
@@ -920,7 +941,7 @@ export const createTentativeGroup = internalMutation({
             ? `Your group is full. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
             : isLastMinuteGroup
               ? `Your ride window is within 3 hours. Confirm your Hop ride within 30 minutes so ${theme.name} can lock in the meetup at ${MEETING_LOCATION_LABEL}.`
-              : `Your group is open to ${MAX_GROUP_SIZE - args.groupSize} more rider${MAX_GROUP_SIZE - args.groupSize > 1 ? "s" : ""} until 3 hours before departure or until the group fills.`,
+              : `Your group has room for ${MAX_GROUP_SIZE - args.passengerSeatTotal} more passenger${MAX_GROUP_SIZE - args.passengerSeatTotal > 1 ? "s" : ""} until 3 hours before departure or until the car is full.`,
         ),
       })),
     );
@@ -990,10 +1011,12 @@ async function createGroupsFromSelection(ctx: ActionCtx, selectedGroups: Selecte
   let created = 0;
   for (const selected of selectedGroups) {
     const { windowStart, windowEnd } = computeGroupWindow(selected.members);
+    const passengerSeatTotal = sumPartySizes(selected.members);
     const groupId = await ctx.runMutation(internal.mutations.createTentativeGroup, {
       windowStart,
       windowEnd,
       groupSize: selected.members.length,
+      passengerSeatTotal,
       maxDetourMinutes: selected.maxDetourMinutes,
       averageScore: selected.averageScore,
       minimumScore: selected.minimumScore,
@@ -1003,6 +1026,7 @@ async function createGroupsFromSelection(ctx: ActionCtx, selectedGroups: Selecte
         userId: member.userId,
         availabilityId: member.availabilityId,
         displayName: member.displayName,
+        partySize: member.partySize ?? 1,
       })),
     });
     if (groupId) created += 1;
@@ -1211,8 +1235,9 @@ export const lockGroups = internalMutation({
       const activeMembers = members.filter((m) => m.participationStatus === "active");
 
       const activeCount = activeMembers.length;
+      const activeSeatTotal = sumPartySizes(activeMembers);
 
-      if (activeCount < MIN_GROUP_SIZE) {
+      if (activeCount < 2 || activeSeatTotal < MIN_GROUP_SIZE) {
         await ctx.db.patch(group._id, { status: "dissolved" });
         for (const member of members) {
           const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
@@ -1228,6 +1253,7 @@ export const lockGroups = internalMutation({
       await ctx.db.patch(group._id, {
         status: "matched_pending_ack",
         groupSize: activeCount,
+        passengerSeatTotal: activeSeatTotal,
         confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
         bookerUserId: bookerUserId ?? group.bookerUserId,
       });
@@ -1282,7 +1308,7 @@ export const hardLockGroups = internalMutation({
 
       const activeMembers = members.filter((m) => m.participationStatus === "active");
 
-      if (activeMembers.length < MIN_GROUP_SIZE) {
+      if (activeMembers.length < 2 || sumPartySizes(activeMembers) < MIN_GROUP_SIZE) {
         await ctx.db.patch(group._id, { status: "dissolved" });
         for (const member of members) {
           const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
@@ -1299,6 +1325,8 @@ export const hardLockGroups = internalMutation({
 
       await ctx.db.patch(group._id, {
         status: "matched_pending_ack",
+        passengerSeatTotal: sumPartySizes(activeMembers),
+        groupSize: activeMembers.length,
         confirmationDeadline: new Date(now + ACK_WINDOW_MINUTES * 60_000).toISOString(),
         bookerUserId: bookerUserId ?? group.bookerUserId,
       });
@@ -1461,7 +1489,7 @@ export const attemptLateJoin = internalMutation({
       availabilityId: string;
       participationStatus?: string;
       displayName: string;
-      [key: string]: unknown;
+      partySize?: number;
     }> = [];
     const activeAvailabilitiesByUserId = new Map<
       string,
@@ -1474,14 +1502,15 @@ export const attemptLateJoin = internalMutation({
         .collect();
       const activeMembers = members.filter((m) => m.participationStatus === "active");
 
-      if (activeMembers.length >= MAX_GROUP_SIZE) continue;
+      const joinerPartySize = joinerAvailability?.partySize ?? 1;
+      const currentSeatTotal = sumPartySizes(activeMembers);
+      if (currentSeatTotal + joinerPartySize > MAX_GROUP_SIZE) continue;
 
       const activeAvailabilities = await Promise.all(
         activeMembers.map((m) => ctx.db.get(m.availabilityId as Id<"availabilities">)),
       );
 
-      const newSize = activeMembers.length + 1;
-      if (!joinerAvailability || newSize > MAX_GROUP_SIZE) continue;
+      if (!joinerAvailability) continue;
 
       const genderOk = activeAvailabilities.every((avail) => {
         if (!avail) return true;
@@ -1494,6 +1523,7 @@ export const attemptLateJoin = internalMutation({
 
       const routeOk = activeAvailabilities.every((avail) => {
         if (!avail) return true;
+        if (args.routeDescriptorRef === avail.routeDescriptorRef) return true;
         const key = [args.routeDescriptorRef, avail.routeDescriptorRef].sort().join("::");
         const edge = edgeMap.get(key);
         if (!edge) return false;
@@ -1590,12 +1620,15 @@ export const attemptLateJoin = internalMutation({
     const updatedGraceDeadline = new Date(
       new Date(updatedMeetingTime).getTime() + MEETUP_GRACE_MINUTES * 60_000,
     ).toISOString();
+    const joinerPartySizeForPatch = joinerAvailability?.partySize ?? 1;
+    const newPassengerSeatTotal = sumPartySizes(targetActiveMembers) + joinerPartySizeForPatch;
     const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
     const shouldLockNow =
-      newMemberUserIds.length >= MAX_GROUP_SIZE || new Date(sharedStart).getTime() <= lockHorizon;
+      newPassengerSeatTotal >= MAX_GROUP_SIZE || new Date(sharedStart).getTime() <= lockHorizon;
 
     await ctx.db.patch(targetGroup._id, {
       groupSize: newMemberUserIds.length,
+      passengerSeatTotal: newPassengerSeatTotal,
       memberUserIds: newMemberUserIds,
       availabilityIds: newAvailabilityIds,
       suggestedDropoffOrder,
@@ -1620,6 +1653,7 @@ export const attemptLateJoin = internalMutation({
       userId: args.userId,
       availabilityId: args.availabilityId as string,
       displayName,
+      partySize: joinerPartySizeForPatch,
       emoji: getEmojiForMember(targetGroup._id, newMemberUserIds.length - 1),
       accepted: null,
       acknowledgementStatus: "pending",
@@ -1641,6 +1675,7 @@ export const attemptLateJoin = internalMutation({
       await ctx.db.patch(targetGroup._id, {
         status: "matched_pending_ack",
         groupSize: newMemberUserIds.length,
+        passengerSeatTotal: newPassengerSeatTotal,
         confirmationDeadline: new Date(Date.now() + ACK_WINDOW_MINUTES * 60_000).toISOString(),
         bookerUserId: bookerUserId ?? targetGroup.bookerUserId,
       });

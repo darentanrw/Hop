@@ -1,5 +1,10 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { PAYMENT_WINDOW_HOURS, calculateCredibilityScore } from "@hop/shared";
+import {
+  PAYMENT_WINDOW_HOURS,
+  calculateCredibilityScore,
+  groupPassengerSeatTotal,
+  sumPartySizes,
+} from "@hop/shared";
 import { v } from "convex/values";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
@@ -173,6 +178,7 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
           memberUserIds: acceptedUserIds,
           availabilityIds: acceptedAvailabilityIds,
           groupSize: acceptedMembers.length,
+          passengerSeatTotal: sumPartySizes(acceptedMembers),
           bookerUserId: nextBookerUserId,
           suggestedDropoffOrder: orderedAcceptedMembers.map((member) => member.userId),
         });
@@ -406,6 +412,7 @@ async function buildTripPayload(
     })),
     stats: {
       activeMemberCount: activeMembers.length,
+      passengerSeatTotal: groupPassengerSeatTotal(group, activeMembers),
       checkedInCount: checkedInMembers.length,
       destinationCount: activeMembers.filter((member) => Boolean(member.destinationLockedAt))
         .length,
@@ -709,6 +716,7 @@ export const departGroup = mutation({
       memberUserIds: presentMembers.map((member) => member.userId),
       availabilityIds: presentMembers.map((member) => member.availabilityId),
       groupSize: presentMembers.length,
+      passengerSeatTotal: sumPartySizes(presentMembers),
       suggestedDropoffOrder: presentMembers
         .sort((left, right) => (left.dropoffOrder ?? 999) - (right.dropoffOrder ?? 999))
         .map((member) => member.userId),
@@ -764,7 +772,10 @@ export const submitReceipt = mutation({
     const activeMembers = getActiveMembers(members);
     const split = computeSplitAmounts(
       totalCostCents,
-      activeMembers.map((member) => member.userId),
+      activeMembers.map((member) => ({
+        userId: member.userId,
+        partySize: member.partySize ?? 1,
+      })),
       userId,
     );
     const submittedAt = nowIso();
