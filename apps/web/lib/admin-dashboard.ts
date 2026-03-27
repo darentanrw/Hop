@@ -13,6 +13,17 @@ export type ReportReviewStatus = (typeof REPORT_REVIEW_STATUSES)[number];
 export type ReportAiStatus = (typeof REPORT_AI_STATUSES)[number];
 export type ReportSeverityBand = (typeof REPORT_SEVERITY_BANDS)[number];
 export type AdminInsightStatus = (typeof ADMIN_INSIGHT_STATUSES)[number];
+export type AdminInsightPatch = {
+  status: AdminInsightStatus;
+  summaryHeadline?: string | undefined;
+  summaryBody?: string | undefined;
+  recommendedFocus?: string[] | undefined;
+  generatedAt?: string | undefined;
+  model?: string | undefined;
+  requestId?: string | undefined;
+  error?: string | undefined;
+};
+export type AdminSummaryStatus = AdminInsightStatus | "idle";
 export type AdminCredibilitySnapshot = {
   score: number;
   suspended: boolean;
@@ -134,6 +145,50 @@ export function inferSeverityBandFromScore(score: number): ReportSeverityBand {
 
 export function isUnresolvedReviewStatus(status: ReportReviewStatus) {
   return status === "open" || status === "in_review";
+}
+
+export function buildAdminInsightPatch(patch: AdminInsightPatch) {
+  const payload: {
+    status: AdminInsightStatus;
+    summaryHeadline?: string;
+    summaryBody?: string;
+    recommendedFocus?: string[];
+    generatedAt?: string;
+    model?: string;
+    requestId?: string;
+    error?: string;
+  } = {
+    status: patch.status,
+  };
+
+  if ("summaryHeadline" in patch) payload.summaryHeadline = patch.summaryHeadline;
+  if ("summaryBody" in patch) payload.summaryBody = patch.summaryBody;
+  if ("recommendedFocus" in patch) payload.recommendedFocus = patch.recommendedFocus;
+  if ("generatedAt" in patch) payload.generatedAt = patch.generatedAt;
+  if ("model" in patch) payload.model = patch.model;
+  if ("requestId" in patch) payload.requestId = patch.requestId;
+  if ("error" in patch) payload.error = patch.error;
+
+  return payload;
+}
+
+export function shouldAutoRefreshAdminSummary(summary: {
+  aiEnabled: boolean;
+  status: AdminSummaryStatus;
+  isStale: boolean;
+}) {
+  if (!summary.aiEnabled || summary.status === "pending") {
+    return false;
+  }
+
+  return summary.status === "idle" || summary.status === "failed" || summary.isStale;
+}
+
+export function getAdminSummaryRefreshKey(summary: {
+  generatedAt: string | null;
+  requestId: string | null;
+}) {
+  return `${summary.generatedAt ?? "none"}:${summary.requestId ?? "none"}`;
 }
 
 export function getReviewStatusSortRank(status: ReportReviewStatus) {

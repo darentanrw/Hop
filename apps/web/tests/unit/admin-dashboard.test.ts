@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, test } from "vitest";
 import {
   buildAdminCredibilitySnapshot,
+  buildAdminInsightPatch,
   buildAdminPersonLabel,
+  getAdminSummaryRefreshKey,
   getCredibilityScoreLabel,
   isAdminInsightStale,
   isUnresolvedReviewStatus,
   normalizeReportReviewStatus,
+  shouldAutoRefreshAdminSummary,
   sortAdminReports,
 } from "../../lib/admin-dashboard";
 
@@ -129,5 +132,83 @@ describe("admin dashboard helpers", () => {
         Date.parse("2026-03-27T10:00:00.000Z"),
       ),
     ).toBe(true);
+  });
+
+  test("preserves cached summary fields when recording a refresh failure", () => {
+    expect(buildAdminInsightPatch({ status: "failed", error: "OpenAI timed out." })).toEqual({
+      status: "failed",
+      error: "OpenAI timed out.",
+    });
+
+    expect(
+      buildAdminInsightPatch({
+        status: "ready",
+        summaryHeadline: "Queue stable",
+        summaryBody: "No new high-risk reports.",
+        recommendedFocus: ["Clear the oldest payment dispute."],
+        generatedAt: "2026-03-27T10:00:00.000Z",
+        model: "gpt-4.1-mini",
+        requestId: "resp_123",
+        error: undefined,
+      }),
+    ).toEqual({
+      status: "ready",
+      summaryHeadline: "Queue stable",
+      summaryBody: "No new high-risk reports.",
+      recommendedFocus: ["Clear the oldest payment dispute."],
+      generatedAt: "2026-03-27T10:00:00.000Z",
+      model: "gpt-4.1-mini",
+      requestId: "resp_123",
+      error: undefined,
+    });
+  });
+
+  test("auto-refreshes idle, stale, and failed summaries only once per cached snapshot", () => {
+    expect(
+      shouldAutoRefreshAdminSummary({
+        aiEnabled: true,
+        status: "idle",
+        isStale: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldAutoRefreshAdminSummary({
+        aiEnabled: true,
+        status: "ready",
+        isStale: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldAutoRefreshAdminSummary({
+        aiEnabled: true,
+        status: "failed",
+        isStale: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldAutoRefreshAdminSummary({
+        aiEnabled: true,
+        status: "pending",
+        isStale: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldAutoRefreshAdminSummary({
+        aiEnabled: false,
+        status: "failed",
+        isStale: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      getAdminSummaryRefreshKey({
+        generatedAt: "2026-03-27T10:00:00.000Z",
+        requestId: "resp_123",
+      }),
+    ).toBe("2026-03-27T10:00:00.000Z:resp_123");
   });
 });

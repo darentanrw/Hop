@@ -10,7 +10,9 @@ import {
   REPORT_CATEGORY_LABELS,
   REPORT_REVIEW_STATUSES,
   REPORT_SEVERITY_BANDS,
+  getAdminSummaryRefreshKey,
   isUnresolvedReviewStatus,
+  shouldAutoRefreshAdminSummary,
 } from "../lib/admin-dashboard";
 
 type NoticeState = {
@@ -226,7 +228,8 @@ export function AdminDashboardClient() {
   } | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [expandedReport, setExpandedReport] = useState<string | null>(null);
-  const autoRefreshRequested = useRef(false);
+  const autoRefreshRequested = useRef<string | null>(null);
+  const isDashboardLoading = dashboard === undefined;
 
   const summary =
     dashboard?.summary ??
@@ -244,11 +247,24 @@ export function AdminDashboardClient() {
     } satisfies DashboardSummary);
 
   useEffect(() => {
-    if (!dashboard?.summary.aiEnabled) return;
-    if (dashboard.summary.status !== "idle" || autoRefreshRequested.current) return;
-    autoRefreshRequested.current = true;
+    if (!dashboard?.summary) return;
+    if (!shouldAutoRefreshAdminSummary(dashboard.summary)) return;
+
+    const refreshKey = getAdminSummaryRefreshKey(dashboard.summary);
+    if (autoRefreshRequested.current === refreshKey) return;
+
+    autoRefreshRequested.current = refreshKey;
     void refreshDashboardSummary({ force: false }).catch(() => undefined);
-  }, [dashboard?.summary.aiEnabled, dashboard?.summary.status, refreshDashboardSummary]);
+  }, [
+    dashboard?.summary,
+    dashboard?.summary.aiEnabled,
+    dashboard?.summary.error,
+    dashboard?.summary.generatedAt,
+    dashboard?.summary.isStale,
+    dashboard?.summary.requestId,
+    dashboard?.summary.status,
+    refreshDashboardSummary,
+  ]);
 
   const reports = dashboard?.reports ?? [];
   const filteredReports = reports.filter((report) => {
@@ -471,19 +487,27 @@ export function AdminDashboardClient() {
       </div>
 
       {/* AI Overview */}
-      <section className="adm-ai" data-status={summary.status} data-stale={summary.isStale}>
+      <section
+        className="adm-ai"
+        data-status={isDashboardLoading ? "loading" : summary.status}
+        data-stale={summary.isStale}
+      >
         <div className="adm-ai-header">
           <div className="adm-ai-title-row">
             <h2 className="adm-section-title">AI overview</h2>
-            <span className={`pill pill-${getSummaryStatusTone(summary)} pill-dot`}>
-              {getSummaryStatusLabel(summary)}
-            </span>
+            {isDashboardLoading ? (
+              <span className="pill pill-muted pill-dot">Loading</span>
+            ) : (
+              <span className={`pill pill-${getSummaryStatusTone(summary)} pill-dot`}>
+                {getSummaryStatusLabel(summary)}
+              </span>
+            )}
           </div>
           <button
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={() => void handleSummaryRefresh(true)}
-            disabled={summaryBusy || !summary.aiEnabled}
+            disabled={summaryBusy || isDashboardLoading || !summary.aiEnabled}
           >
             {summaryBusy || summary.status === "pending" ? (
               <>
@@ -497,12 +521,16 @@ export function AdminDashboardClient() {
         </div>
 
         <p className="adm-ai-headline">
-          {summary.aiEnabled
-            ? (summary.headline ?? "A cached AI dashboard summary will appear here once generated.")
-            : "Set OPENAI_API_KEY in the Convex environment to enable AI report scoring and the dashboard summary."}
+          {isDashboardLoading
+            ? "Loading AI dashboard summary…"
+            : summary.aiEnabled
+              ? (summary.headline ??
+                "A cached AI dashboard summary will appear here once generated.")
+              : "Set OPENAI_API_KEY in the Convex environment to enable AI report scoring and the dashboard summary."}
         </p>
 
-        {summary.body || summary.recommendedFocus.length || summary.error ? (
+        {!isDashboardLoading &&
+        (summary.body || summary.recommendedFocus.length || summary.error) ? (
           <div className="adm-ai-body">
             {summary.body ? (
               <div className="adm-ai-panel">
@@ -833,7 +861,12 @@ export function AdminDashboardClient() {
           <h2 className="adm-section-title">Audit trail</h2>
           <p className="adm-audit-sub">Recent operator and system events</p>
 
-          {dashboard?.auditEvents.length ? (
+          {isDashboardLoading ? (
+            <div className="adm-empty">
+              <span className="adm-spinner" />
+              Loading audit events…
+            </div>
+          ) : dashboard?.auditEvents.length ? (
             <div className="adm-timeline">
               {dashboard.auditEvents.map((event, i) => (
                 <div

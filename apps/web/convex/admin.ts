@@ -14,6 +14,7 @@ import {
   type ReportReviewStatus,
   type ReportSeverityBand,
   buildAdminCredibilitySnapshot,
+  buildAdminInsightPatch,
   buildAdminPersonLabel,
   getReportCategoryLabel,
   inferSeverityBandFromScore,
@@ -435,16 +436,7 @@ async function saveAdminInsight(
   },
 ) {
   const existing = await getAdminInsightDoc(ctx);
-  const payload = {
-    status: patch.status,
-    summaryHeadline: patch.summaryHeadline,
-    summaryBody: patch.summaryBody,
-    recommendedFocus: patch.recommendedFocus,
-    generatedAt: patch.generatedAt,
-    model: patch.model,
-    requestId: patch.requestId,
-    error: patch.error,
-  };
+  const payload = buildAdminInsightPatch(patch);
 
   if (existing) {
     await ctx.db.patch(existing._id, payload);
@@ -678,25 +670,6 @@ function buildSummarySource(snapshot: AdminDashboardSnapshot) {
 async function scheduleDashboardSummaryRefresh(ctx: MutationCtx, reason: string) {
   await ctx.scheduler.runAfter(0, internal.admin.refreshDashboardSummaryInternal, {
     reason,
-  });
-}
-
-async function incrementConfirmedReportCount(
-  ctx: MutationCtx,
-  reportedUserId: string | undefined | null,
-) {
-  if (!reportedUserId) {
-    return;
-  }
-
-  const userId = reportedUserId as Id<"users">;
-  const reportedUser = await ctx.db.get(userId);
-  if (!reportedUser) {
-    return;
-  }
-
-  await ctx.db.patch(userId, {
-    confirmedReportCount: (reportedUser.confirmedReportCount ?? 0) + 1,
   });
 }
 
@@ -1221,8 +1194,6 @@ export const resolveReport = mutation({
       reviewedAt: nowIso(),
     });
     await incrementConfirmedReportCountForReport(ctx, report);
-
-    await incrementConfirmedReportCount(ctx, report.reportedUserId);
 
     await ctx.db.insert("auditEvents", {
       action: "report.resolved",

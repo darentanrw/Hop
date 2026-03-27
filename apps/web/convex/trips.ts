@@ -1065,9 +1065,7 @@ export const createReport = mutation({
     await ctx.scheduler.runAfter(0, internal.admin.scoreReportSeverity, {
       reportId,
     });
-    await ctx.scheduler.runAfter(0, internal.admin.refreshDashboardSummaryInternal, {
-      reason: "report_created",
-    });
+
     return { ok: true };
   },
 });
