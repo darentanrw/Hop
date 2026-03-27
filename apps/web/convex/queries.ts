@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { calculateCredibilityScore, isCredibilitySuspended } from "@hop/shared";
 import { v } from "convex/values";
 import { resolveDashboardWindowState } from "../lib/dashboard-windows";
+import { isGroupJoinableForLateJoin } from "../lib/late-join";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { internalQuery, query } from "./_generated/server";
@@ -296,10 +297,9 @@ export const getAvailabilityById = internalQuery({
 export const getSemiLockedGroupRouteRefs = internalQuery({
   args: {},
   handler: async (ctx) => {
+    const now = Date.now();
     const groups = await ctx.db.query("groups").collect();
-    const joinableGroups = groups.filter(
-      (g) => g.status === "semi_locked" || g.status === "tentative",
-    );
+    const joinableGroups = groups.filter((group) => isGroupJoinableForLateJoin(group, now));
     const allAvailIds = joinableGroups.flatMap((g) => g.availabilityIds);
     const refs: string[] = [];
     for (const id of allAvailIds) {
