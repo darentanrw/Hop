@@ -38,23 +38,7 @@ describe("late join helpers", () => {
     ).toBe(false);
   });
 
-  test("late join still requires a positive overlap with the group window", () => {
-    expect(
-      canGroupAcceptLateJoin(
-        {
-          ...baseGroup,
-          status: "matched_pending_ack",
-        },
-        {
-          windowStart: "2026-03-28T12:00:00.000Z",
-          windowEnd: "2026-03-28T13:00:00.000Z",
-        },
-        Date.parse("2026-03-28T09:00:00.000Z"),
-      ),
-    ).toBe(false);
-  });
-
-  test("late join accepts overlapping joiners for active locked groups", () => {
+  test("late join rejects windows that do not cover the group's slot", () => {
     expect(
       canGroupAcceptLateJoin(
         {
@@ -63,6 +47,22 @@ describe("late join helpers", () => {
         },
         {
           windowStart: "2026-03-28T11:00:00.000Z",
+          windowEnd: "2026-03-28T13:00:00.000Z",
+        },
+        Date.parse("2026-03-28T09:00:00.000Z"),
+      ),
+    ).toBe(false);
+  });
+
+  test("late join accepts joiners that cover the whole group slot", () => {
+    expect(
+      canGroupAcceptLateJoin(
+        {
+          ...baseGroup,
+          status: "matched_pending_ack",
+        },
+        {
+          windowStart: "2026-03-28T09:30:00.000Z",
           windowEnd: "2026-03-28T13:00:00.000Z",
         },
         Date.parse("2026-03-28T09:00:00.000Z"),
