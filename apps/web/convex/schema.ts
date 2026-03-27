@@ -57,6 +57,20 @@ const reportCategory = v.union(
   v.literal("misconduct"),
   v.literal("other"),
 );
+const reportReviewStatus = v.union(
+  v.literal("open"),
+  v.literal("in_review"),
+  v.literal("resolved"),
+  v.literal("dismissed"),
+);
+const reportAiStatus = v.union(v.literal("pending"), v.literal("ready"), v.literal("failed"));
+const reportSeverityBand = v.union(
+  v.literal("low"),
+  v.literal("medium"),
+  v.literal("high"),
+  v.literal("critical"),
+);
+const adminInsightStatus = v.union(v.literal("pending"), v.literal("ready"), v.literal("failed"));
 const notificationChannel = v.union(v.literal("push"), v.literal("email"));
 const notificationStatus = v.union(v.literal("sent"), v.literal("skipped"), v.literal("failed"));
 
@@ -212,7 +226,33 @@ const schema = defineSchema({
     category: reportCategory,
     description: v.string(),
     createdAt: v.string(),
-  }).index("groupId", ["groupId"]),
+    reviewStatus: v.optional(reportReviewStatus),
+    reviewNote: v.optional(v.string()),
+    reviewedByUserId: v.optional(v.string()),
+    reviewedAt: v.optional(v.string()),
+    aiStatus: v.optional(reportAiStatus),
+    severityScore: v.optional(v.number()),
+    severityBand: v.optional(reportSeverityBand),
+    aiRationale: v.optional(v.string()),
+    aiRecommendedAction: v.optional(v.string()),
+    aiScoredAt: v.optional(v.string()),
+    aiModel: v.optional(v.string()),
+    aiRequestId: v.optional(v.string()),
+    aiError: v.optional(v.string()),
+  })
+    .index("groupId", ["groupId"])
+    .index("reviewStatus", ["reviewStatus"]),
+  adminInsights: defineTable({
+    key: v.string(),
+    status: adminInsightStatus,
+    summaryHeadline: v.optional(v.string()),
+    summaryBody: v.optional(v.string()),
+    recommendedFocus: v.optional(v.array(v.string())),
+    generatedAt: v.optional(v.string()),
+    model: v.optional(v.string()),
+    requestId: v.optional(v.string()),
+    error: v.optional(v.string()),
+  }).index("key", ["key"]),
   groupMessages: defineTable({
     groupId: v.id("groups"),
     senderUserId: v.string(),

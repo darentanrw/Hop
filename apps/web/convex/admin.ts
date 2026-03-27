@@ -1,10 +1,39 @@
 import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
 import { v } from "convex/values";
+import {
+  generateAdminDashboardSummary,
+  getAdminAiConfig,
+  scoreAdminReportSeverity,
+} from "../lib/admin-ai";
+import {
+  ADMIN_INSIGHT_KEY,
+  type AdminInsightStatus,
+  type ReportAiStatus,
+  type ReportReviewStatus,
+  type ReportSeverityBand,
+  buildAdminPersonLabel,
+  getReportCategoryLabel,
+  inferSeverityBandFromScore,
+  isAdminInsightStale,
+  isUnresolvedReviewStatus,
+  normalizeReportAiStatus,
+  normalizeReportReviewStatus,
+  normalizeReportSeverityBand,
+  sortAdminReports,
+  truncateAdminSummaryText,
+} from "../lib/admin-dashboard";
 import { selectBookerUserId } from "../lib/group-lifecycle";
 import { isMembershipInActiveRide } from "../lib/ride-eligibility";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { requireAdmin } from "./adminAccess";
 
 const LOCAL_QA_BOT_PREFIX = "local-qa-bot-";
@@ -17,6 +46,351 @@ const defaultPreferences = {
 };
 
 type GroupDoc = Doc<"groups">;
+type UserDoc = Doc<"users">;
+type AdminInsightDoc = Doc<"adminInsights">;
+
+type AdminActorView = {
+  userId: string;
+  label: string;
+  name: string | null;
+  email: string | null;
+};
+
+type AdminReportView = {
+  _id: Id<"reports">;
+  category: Doc<"reports">["category"];
+  categoryLabel: string;
+  description: string;
+  createdAt: string;
+  reviewStatus: ReportReviewStatus;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  reviewedBy: AdminActorView | null;
+  aiStatus: ReportAiStatus;
+  severityScore: number | null;
+  severityBand: ReportSeverityBand | null;
+  aiRationale: string | null;
+  aiRecommendedAction: string | null;
+  aiScoredAt: string | null;
+  aiError: string | null;
+  reporter: AdminActorView;
+  reportedUser: AdminActorView | null;
+  group: {
+    id: string;
+    label: string;
+    status: GroupDoc["status"] | null;
+    reportCount: number;
+  };
+};
+
+type AdminAuditEventView = {
+  _id: Id<"auditEvents">;
+  action: string;
+  createdAt: string;
+  actorId: string;
+  actorLabel: string;
+  actorEmail: string | null;
+};
+
+type AdminDashboardKpis = {
+  users: number;
+  openAvailabilities: number;
+  tentativeGroups: number;
+  revealedGroups: number;
+  totalReports: number;
+  unresolvedReports: number;
+  criticalOpenReports: number;
+};
+
+type AdminDashboardSnapshot = {
+  kpis: AdminDashboardKpis;
+  reports: AdminReportView[];
+  auditEvents: AdminAuditEventView[];
+};
+
+function cleanOptionalText(value: string | undefined | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function getGroupLabel(group: GroupDoc | null) {
+  if (!group) {
+    return "Unknown group";
+  }
+
+  const name = group.groupName?.trim();
+  return name || `Group ${group._id.slice(-6)}`;
+}
+
+function buildActorView(
+  userId: string | undefined | null,
+  usersById: Map<string, UserDoc>,
+  fallback: string,
+) {
+  if (!userId) {
+    return null;
+  }
+
+  const user = usersById.get(userId);
+  return {
+    userId,
+    label: buildAdminPersonLabel(
+      {
+        id: userId,
+        name: user?.name ?? null,
+        email: user?.email ?? null,
+      },
+      fallback,
+    ),
+    name: cleanOptionalText(user?.name),
+    email: cleanOptionalText(user?.email),
+  } satisfies AdminActorView;
+}
+
+function buildAuditActorView(actorId: string, usersById: Map<string, UserDoc>) {
+  if (actorId === "system") {
+    return {
+      actorLabel: "system",
+      actorEmail: null,
+    };
+  }
+
+  const actor = buildActorView(actorId, usersById, "Actor");
+  if (actor) {
+    return {
+      actorLabel: actor.label,
+      actorEmail: actor.email,
+    };
+  }
+
+  return {
+    actorLabel: `actor ${actorId.slice(-6)}`,
+    actorEmail: null,
+  };
+}
+
+async function getAdminInsightDoc(ctx: QueryCtx | MutationCtx) {
+  return await ctx.db
+    .query("adminInsights")
+    .withIndex("key", (q) => q.eq("key", ADMIN_INSIGHT_KEY))
+    .first();
+}
+
+async function saveAdminInsight(
+  ctx: MutationCtx,
+  patch: {
+    status: AdminInsightStatus;
+    summaryHeadline?: string | undefined;
+    summaryBody?: string | undefined;
+    recommendedFocus?: string[] | undefined;
+    generatedAt?: string | undefined;
+    model?: string | undefined;
+    requestId?: string | undefined;
+    error?: string | undefined;
+  },
+) {
+  const existing = await getAdminInsightDoc(ctx);
+  const payload = {
+    status: patch.status,
+    summaryHeadline: patch.summaryHeadline,
+    summaryBody: patch.summaryBody,
+    recommendedFocus: patch.recommendedFocus,
+    generatedAt: patch.generatedAt,
+    model: patch.model,
+    requestId: patch.requestId,
+    error: patch.error,
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, payload);
+    return existing._id;
+  }
+
+  return await ctx.db.insert("adminInsights", {
+    key: ADMIN_INSIGHT_KEY,
+    ...payload,
+  });
+}
+
+async function markAdminInsightPending(ctx: MutationCtx) {
+  const existing = await getAdminInsightDoc(ctx);
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      status: "pending",
+      error: undefined,
+    });
+    return existing._id;
+  }
+
+  return await ctx.db.insert("adminInsights", {
+    key: ADMIN_INSIGHT_KEY,
+    status: "pending",
+  });
+}
+
+function buildSummaryView(summary: AdminInsightDoc | null) {
+  const aiConfig = getAdminAiConfig();
+
+  return {
+    status: summary?.status ?? ("idle" as const),
+    headline: summary?.summaryHeadline ?? null,
+    body: summary?.summaryBody ?? null,
+    recommendedFocus: summary?.recommendedFocus ?? [],
+    generatedAt: summary?.generatedAt ?? null,
+    model: summary?.model ?? null,
+    requestId: summary?.requestId ?? null,
+    error: summary?.error ?? null,
+    isStale: isAdminInsightStale(summary?.generatedAt ?? null, aiConfig.summaryTtlMs),
+    aiEnabled: aiConfig.enabled,
+  };
+}
+
+async function buildAdminDashboardSnapshot(
+  ctx: QueryCtx | MutationCtx,
+): Promise<AdminDashboardSnapshot> {
+  const [users, availabilities, groups, reports, auditEvents] = await Promise.all([
+    ctx.db.query("users").collect(),
+    ctx.db.query("availabilities").collect(),
+    ctx.db.query("groups").collect(),
+    ctx.db.query("reports").collect(),
+    ctx.db.query("auditEvents").order("desc").take(20),
+  ]);
+
+  const usersById = new Map(users.map((user) => [user._id as string, user]));
+  const groupsById = new Map(groups.map((group) => [group._id as string, group]));
+
+  const reportViews = sortAdminReports(
+    reports.map((report) => {
+      const group = groupsById.get(report.groupId as string) ?? null;
+      const reporter =
+        buildActorView(report.reporterUserId, usersById, "Reporter") ??
+        ({
+          userId: report.reporterUserId,
+          label: buildAdminPersonLabel({ id: report.reporterUserId }, "Reporter"),
+          name: null,
+          email: null,
+        } satisfies AdminActorView);
+      const severityScore =
+        typeof report.severityScore === "number" ? Math.round(report.severityScore) : null;
+      const severityBand =
+        normalizeReportSeverityBand(report.severityBand) ??
+        (severityScore !== null ? inferSeverityBandFromScore(severityScore) : null);
+      const aiStatus = report.aiStatus
+        ? normalizeReportAiStatus(report.aiStatus)
+        : severityScore !== null || severityBand !== null
+          ? "ready"
+          : "failed";
+
+      return {
+        _id: report._id,
+        category: report.category,
+        categoryLabel: getReportCategoryLabel(report.category),
+        description: report.description,
+        createdAt: report.createdAt,
+        reviewStatus: normalizeReportReviewStatus(report.reviewStatus),
+        reviewNote: cleanOptionalText(report.reviewNote),
+        reviewedAt: report.reviewedAt ?? null,
+        reviewedBy: buildActorView(report.reviewedByUserId, usersById, "Admin"),
+        aiStatus,
+        severityScore,
+        severityBand,
+        aiRationale: cleanOptionalText(report.aiRationale),
+        aiRecommendedAction: cleanOptionalText(report.aiRecommendedAction),
+        aiScoredAt: report.aiScoredAt ?? null,
+        aiError:
+          cleanOptionalText(report.aiError) ??
+          (aiStatus === "failed" ? "Severity scoring is unavailable for this report." : null),
+        reporter,
+        reportedUser: buildActorView(report.reportedUserId, usersById, "Reported rider"),
+        group: {
+          id: report.groupId,
+          label: getGroupLabel(group),
+          status: group?.status ?? null,
+          reportCount: group?.reportCount ?? 0,
+        },
+      } satisfies AdminReportView;
+    }),
+  );
+
+  const unresolvedReports = reportViews.filter((report) =>
+    isUnresolvedReviewStatus(report.reviewStatus),
+  );
+
+  return {
+    kpis: {
+      users: users.length,
+      openAvailabilities: availabilities.filter((availability) => availability.status === "open")
+        .length,
+      tentativeGroups: groups.filter((group) => group.status === "tentative").length,
+      revealedGroups: groups.filter((group) => group.status === "revealed").length,
+      totalReports: reportViews.length,
+      unresolvedReports: unresolvedReports.length,
+      criticalOpenReports: unresolvedReports.filter((report) => report.severityBand === "critical")
+        .length,
+    },
+    reports: reportViews,
+    auditEvents: auditEvents.map((event) => {
+      const actor = buildAuditActorView(event.actorId, usersById);
+
+      return {
+        _id: event._id,
+        action: event.action,
+        createdAt: event.createdAt,
+        actorId: event.actorId,
+        actorLabel: actor.actorLabel,
+        actorEmail: actor.actorEmail,
+      } satisfies AdminAuditEventView;
+    }),
+  };
+}
+
+function buildSummarySource(snapshot: AdminDashboardSnapshot) {
+  const unresolvedReports = snapshot.reports.filter((report) =>
+    isUnresolvedReviewStatus(report.reviewStatus),
+  );
+
+  const byCategory = unresolvedReports.reduce<Record<string, number>>((counts, report) => {
+    counts[report.category] = (counts[report.category] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  const bySeverity = unresolvedReports.reduce<Record<string, number>>((counts, report) => {
+    const key = report.aiStatus === "ready" ? (report.severityBand ?? "unscored") : report.aiStatus;
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+
+  return {
+    kpis: snapshot.kpis,
+    unresolvedReportCounts: {
+      total: unresolvedReports.length,
+      aiPending: unresolvedReports.filter((report) => report.aiStatus === "pending").length,
+      aiFailed: unresolvedReports.filter((report) => report.aiStatus === "failed").length,
+      byCategory,
+      bySeverity,
+    },
+    topUrgentReports: unresolvedReports.slice(0, 5).map((report) => ({
+      reportId: report._id,
+      category: report.category,
+      createdAt: report.createdAt,
+      severityScore: report.severityScore,
+      severityBand: report.severityBand,
+      aiStatus: report.aiStatus,
+      groupStatus: report.group.status,
+      descriptionExcerpt: truncateAdminSummaryText(report.description),
+    })),
+    recentAuditEvents: snapshot.auditEvents.slice(0, 8).map((event) => ({
+      action: event.action,
+      createdAt: event.createdAt,
+    })),
+  };
+}
+
+async function scheduleDashboardSummaryRefresh(ctx: MutationCtx, reason: string) {
+  await ctx.scheduler.runAfter(0, internal.admin.refreshDashboardSummaryInternal, {
+    reason,
+  });
+}
 
 function ensureLocalQaEnabled() {
   if (process.env.ENABLE_LOCAL_QA !== "true") {
@@ -181,6 +555,390 @@ export const adminAccess = query({
       isAdmin: actor?.isAdmin === true,
       email: actor?.user?.email ?? null,
     };
+  },
+});
+
+export const adminDashboard = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const [snapshot, summary] = await Promise.all([
+      buildAdminDashboardSnapshot(ctx),
+      getAdminInsightDoc(ctx),
+    ]);
+
+    return {
+      ...snapshot.kpis,
+      summary: buildSummaryView(summary),
+      reports: snapshot.reports,
+      auditEvents: snapshot.auditEvents,
+    };
+  },
+});
+
+export const adminDashboardSummarySource = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const snapshot = await buildAdminDashboardSnapshot(ctx);
+    return buildSummarySource(snapshot);
+  },
+});
+
+export const getReportSeverityPayload = internalQuery({
+  args: {
+    reportId: v.id("reports"),
+  },
+  handler: async (ctx, { reportId }) => {
+    const report = await ctx.db.get(reportId);
+    if (!report) {
+      return null;
+    }
+
+    const group = await ctx.db.get(report.groupId);
+    return {
+      reportId,
+      category: report.category,
+      description: report.description,
+      createdAt: report.createdAt,
+      groupStatus: group?.status ?? null,
+      groupReportCount: group?.reportCount ?? 0,
+      reporterLabel: "reporter_member",
+      reportedLabel: report.reportedUserId ? "reported_member" : "situation_only",
+      targetsSpecificUser: Boolean(report.reportedUserId),
+    };
+  },
+});
+
+export const markDashboardSummaryPending = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    await markAdminInsightPending(ctx);
+    return { ok: true };
+  },
+});
+
+export const saveDashboardSummary = internalMutation({
+  args: {
+    headline: v.string(),
+    summary: v.string(),
+    recommendedFocus: v.array(v.string()),
+    model: v.string(),
+    requestId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await saveAdminInsight(ctx, {
+      status: "ready",
+      summaryHeadline: args.headline.trim(),
+      summaryBody: args.summary.trim(),
+      recommendedFocus: args.recommendedFocus.map((entry) => entry.trim()).filter(Boolean),
+      generatedAt: nowIso(),
+      model: args.model,
+      requestId: args.requestId,
+      error: undefined,
+    });
+    return { ok: true };
+  },
+});
+
+export const saveDashboardSummaryFailure = internalMutation({
+  args: {
+    error: v.string(),
+  },
+  handler: async (ctx, { error }) => {
+    await saveAdminInsight(ctx, {
+      status: "failed",
+      error: error.trim(),
+    });
+    return { ok: true };
+  },
+});
+
+export const saveReportSeverityResult = internalMutation({
+  args: {
+    reportId: v.id("reports"),
+    severityScore: v.number(),
+    severityBand: v.union(
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+      v.literal("critical"),
+    ),
+    rationale: v.string(),
+    recommendedNextStep: v.string(),
+    model: v.string(),
+    requestId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const report = await ctx.db.get(args.reportId);
+    if (!report) {
+      return { saved: false };
+    }
+
+    await ctx.db.patch(args.reportId, {
+      aiStatus: "ready",
+      severityScore: args.severityScore,
+      severityBand: args.severityBand,
+      aiRationale: args.rationale.trim(),
+      aiRecommendedAction: args.recommendedNextStep.trim(),
+      aiScoredAt: nowIso(),
+      aiModel: args.model,
+      aiRequestId: args.requestId,
+      aiError: undefined,
+    });
+
+    await scheduleDashboardSummaryRefresh(ctx, "report_scored");
+
+    return { saved: true };
+  },
+});
+
+export const saveReportSeverityFailure = internalMutation({
+  args: {
+    reportId: v.id("reports"),
+    error: v.string(),
+  },
+  handler: async (ctx, { reportId, error }) => {
+    const report = await ctx.db.get(reportId);
+    if (!report) {
+      return { saved: false };
+    }
+
+    await ctx.db.patch(reportId, {
+      aiStatus: "failed",
+      severityScore: undefined,
+      severityBand: undefined,
+      aiRationale: undefined,
+      aiRecommendedAction: undefined,
+      aiScoredAt: nowIso(),
+      aiModel: undefined,
+      aiRequestId: undefined,
+      aiError: error.trim(),
+    });
+
+    await scheduleDashboardSummaryRefresh(ctx, "report_score_failed");
+
+    return { saved: true };
+  },
+});
+
+export const scoreReportSeverity = internalAction({
+  args: {
+    reportId: v.id("reports"),
+  },
+  handler: async (ctx, { reportId }) => {
+    const payload = await ctx.runQuery(internal.admin.getReportSeverityPayload, {
+      reportId,
+    });
+
+    if (!payload) {
+      return { ok: false, reason: "report_not_found" };
+    }
+
+    try {
+      const result = await scoreAdminReportSeverity(payload);
+      await ctx.runMutation(internal.admin.saveReportSeverityResult, {
+        reportId,
+        severityScore: result.severityScore,
+        severityBand: result.severityBand,
+        rationale: result.rationale,
+        recommendedNextStep: result.recommendedNextStep,
+        model: result.model,
+        requestId: result.requestId,
+      });
+
+      return { ok: true, requestId: result.requestId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Severity scoring failed.";
+      await ctx.runMutation(internal.admin.saveReportSeverityFailure, {
+        reportId,
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+  },
+});
+
+export const refreshDashboardSummaryInternal = internalAction({
+  args: {
+    reason: v.string(),
+  },
+  handler: async (ctx) => {
+    await ctx.runMutation(internal.admin.markDashboardSummaryPending, {});
+
+    const snapshot = await ctx.runQuery(internal.admin.adminDashboardSummarySource, {});
+    try {
+      const summary = await generateAdminDashboardSummary(snapshot);
+      await ctx.runMutation(internal.admin.saveDashboardSummary, {
+        headline: summary.headline,
+        summary: summary.summary,
+        recommendedFocus: summary.recommendedFocus,
+        model: summary.model,
+        requestId: summary.requestId,
+      });
+
+      return { ok: true, requestId: summary.requestId };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Summary generation failed.";
+      await ctx.runMutation(internal.admin.saveDashboardSummaryFailure, {
+        error: message,
+      });
+      return { ok: false, error: message };
+    }
+  },
+});
+
+export const refreshDashboardSummary = mutation({
+  args: {
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { force }) => {
+    const { userId } = await requireAdmin(ctx);
+    const summary = await getAdminInsightDoc(ctx);
+    const isFresh =
+      summary?.status === "ready" &&
+      !isAdminInsightStale(summary.generatedAt, getAdminAiConfig().summaryTtlMs);
+
+    if (summary?.status === "pending") {
+      return { scheduled: false, status: "pending" as const };
+    }
+
+    if (!force && isFresh) {
+      return { scheduled: false, status: "ready" as const };
+    }
+
+    await markAdminInsightPending(ctx);
+
+    if (force) {
+      await ctx.db.insert("auditEvents", {
+        action: "admin.summary_refresh_requested",
+        actorId: userId,
+        metadata: {},
+        createdAt: nowIso(),
+      });
+    }
+
+    await scheduleDashboardSummaryRefresh(ctx, force ? "manual_refresh" : "dashboard_auto_load");
+
+    return { scheduled: true, status: "pending" as const };
+  },
+});
+
+export const startReportReview = mutation({
+  args: {
+    reportId: v.id("reports"),
+  },
+  handler: async (ctx, { reportId }) => {
+    const { userId } = await requireAdmin(ctx);
+    const report = await ctx.db.get(reportId);
+    if (!report) {
+      throw new Error("Report not found.");
+    }
+
+    const reviewStatus = normalizeReportReviewStatus(report.reviewStatus);
+    if (reviewStatus !== "open") {
+      throw new Error("Only open reports can be moved into review.");
+    }
+
+    await ctx.db.patch(reportId, {
+      reviewStatus: "in_review",
+      reviewedByUserId: userId,
+      reviewedAt: nowIso(),
+    });
+
+    await ctx.db.insert("auditEvents", {
+      action: "report.review_started",
+      actorId: userId,
+      metadata: {
+        reportId,
+      },
+      createdAt: nowIso(),
+    });
+
+    await scheduleDashboardSummaryRefresh(ctx, "report_review_started");
+
+    return { ok: true };
+  },
+});
+
+export const resolveReport = mutation({
+  args: {
+    reportId: v.id("reports"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { reportId, note }) => {
+    const { userId } = await requireAdmin(ctx);
+    const report = await ctx.db.get(reportId);
+    if (!report) {
+      throw new Error("Report not found.");
+    }
+
+    const reviewStatus = normalizeReportReviewStatus(report.reviewStatus);
+    if (!isUnresolvedReviewStatus(reviewStatus)) {
+      throw new Error("Only open or in-review reports can be resolved.");
+    }
+
+    const reviewNote = cleanOptionalText(note);
+    await ctx.db.patch(reportId, {
+      reviewStatus: "resolved",
+      reviewNote: reviewNote ?? undefined,
+      reviewedByUserId: userId,
+      reviewedAt: nowIso(),
+    });
+
+    await ctx.db.insert("auditEvents", {
+      action: "report.resolved",
+      actorId: userId,
+      metadata: {
+        reportId,
+        note: reviewNote ?? null,
+      },
+      createdAt: nowIso(),
+    });
+
+    await scheduleDashboardSummaryRefresh(ctx, "report_resolved");
+
+    return { ok: true };
+  },
+});
+
+export const dismissReport = mutation({
+  args: {
+    reportId: v.id("reports"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { reportId, note }) => {
+    const { userId } = await requireAdmin(ctx);
+    const report = await ctx.db.get(reportId);
+    if (!report) {
+      throw new Error("Report not found.");
+    }
+
+    const reviewStatus = normalizeReportReviewStatus(report.reviewStatus);
+    if (!isUnresolvedReviewStatus(reviewStatus)) {
+      throw new Error("Only open or in-review reports can be dismissed.");
+    }
+
+    const reviewNote = cleanOptionalText(note);
+    await ctx.db.patch(reportId, {
+      reviewStatus: "dismissed",
+      reviewNote: reviewNote ?? undefined,
+      reviewedByUserId: userId,
+      reviewedAt: nowIso(),
+    });
+
+    await ctx.db.insert("auditEvents", {
+      action: "report.dismissed",
+      actorId: userId,
+      metadata: {
+        reportId,
+        note: reviewNote ?? null,
+      },
+      createdAt: nowIso(),
+    });
+
+    await scheduleDashboardSummaryRefresh(ctx, "report_dismissed");
+
+    return { ok: true };
   },
 });
 
