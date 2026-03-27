@@ -171,28 +171,17 @@ export const getMatchingCandidates = internalQuery({
     const users = await ctx.db.query("users").collect();
     const userById = new Map(users.map((user) => [user._id, user]));
 
-    return openAvailabilities
-      .filter((availability) => {
-        const user = userById.get(availability.userId);
-        if (!user) return false;
-        const score = calculateCredibilityScore({
-          successfulTrips: user.successfulTrips ?? 0,
-          cancelledTrips: user.cancelledTrips ?? 0,
-          confirmedReportCount: user.confirmedReportCount ?? 0,
-        });
-        return !isCredibilitySuspended(score);
-      })
-      .map((availability) => ({
-        availabilityId: availability._id,
-        userId: availability.userId,
-        windowStart: availability.windowStart,
-        windowEnd: availability.windowEnd,
-        selfDeclaredGender: availability.selfDeclaredGender,
-        sameGenderOnly: availability.sameGenderOnly,
-        routeDescriptorRef: availability.routeDescriptorRef,
-        sealedDestinationRef: availability.sealedDestinationRef,
-        displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
-      }));
+    return openAvailabilities.map((availability) => ({
+      availabilityId: availability._id,
+      userId: availability.userId,
+      windowStart: availability.windowStart,
+      windowEnd: availability.windowEnd,
+      selfDeclaredGender: availability.selfDeclaredGender,
+      sameGenderOnly: availability.sameGenderOnly,
+      routeDescriptorRef: availability.routeDescriptorRef,
+      sealedDestinationRef: availability.sealedDestinationRef,
+      displayName: userById.get(availability.userId)?.name?.trim() || "Hop member",
+    }));
   },
 });
 

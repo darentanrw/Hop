@@ -11,7 +11,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { CHAT_ELIGIBLE_STATUSES } from "./chat";
-import { enforceSuspensionSideEffects } from "./credibilitySuspension";
+
 import { resolveQaActingUserId } from "./localQa";
 
 type GroupDoc = Doc<"groups">;
@@ -147,7 +147,6 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             await ctx.db.patch(member.userId as Id<"users">, {
               cancelledTrips: (removedUser.cancelledTrips ?? 0) + 1,
             });
-            await enforceSuspensionSideEffects(ctx, member.userId as Id<"users">);
           }
         }
 
@@ -233,7 +232,6 @@ export async function syncLifecycleForGroup(ctx: MutationCtx, group: GroupDoc) {
             await ctx.db.patch(member.userId as Id<"users">, {
               cancelledTrips: (user.cancelledTrips ?? 0) + 1,
             });
-            await enforceSuspensionSideEffects(ctx, member.userId as Id<"users">);
           }
         }
 
@@ -641,7 +639,6 @@ export const departGroup = mutation({
         await ctx.db.patch(member.userId as Id<"users">, {
           cancelledTrips: (user.cancelledTrips ?? 0) + 1,
         });
-        await enforceSuspensionSideEffects(ctx, member.userId as Id<"users">);
       }
     }
 
@@ -698,6 +695,8 @@ export const submitReceipt = mutation({
     if (!userId) throw new Error("Not authenticated");
     const group = await ctx.db.get(groupId);
     if (!group) throw new Error("Group not found");
+    if (group.status !== "in_trip")
+      throw new Error("Receipt can only be submitted while the group is in trip.");
     if (group.bookerUserId !== userId)
       throw new Error("Only the booker can upload the taxi receipt.");
 
