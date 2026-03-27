@@ -6,11 +6,11 @@ export const PICKUP_ORIGIN_LNG = 103.7734;
 export const ACK_WINDOW_MINUTES = 30;
 export const MIN_TIME_OVERLAP_MINUTES = 0;
 export const SMALL_GROUP_RELEASE_HOURS = 36;
-/** Maximum passengers in one vehicle (total seats across all accounts in a group). */
+/** Maximum passenger seats in one vehicle (sum of partySize across all accounts). */
 export const MAX_GROUP_SIZE = 4;
-/** Minimum passengers required for a valid ride group. */
+/** Minimum distinct accounts required for a valid ride group. A single account should book a private ride instead. */
 export const MIN_GROUP_SIZE = 2;
-/** Maximum people under one account's booking (e.g. you + friends in one car). */
+/** Maximum people under one account's booking (e.g. you + friends sharing a seat allocation). */
 export const MAX_PARTY_SIZE = 3;
 export const MAX_DETOUR_MINUTES = 12;
 export const MEETUP_GRACE_MINUTES = 5;

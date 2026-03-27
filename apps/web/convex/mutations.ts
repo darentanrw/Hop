@@ -1217,7 +1217,7 @@ export const lockGroups = internalMutation({
       const activeCount = activeMembers.length;
       const activeSeatTotal = sumPartySizes(activeMembers);
 
-      if (activeSeatTotal < MIN_GROUP_SIZE) {
+      if (activeCount < 2 || activeSeatTotal < MIN_GROUP_SIZE) {
         await ctx.db.patch(group._id, { status: "dissolved" });
         for (const member of members) {
           const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
@@ -1288,7 +1288,7 @@ export const hardLockGroups = internalMutation({
 
       const activeMembers = members.filter((m) => m.participationStatus === "active");
 
-      if (sumPartySizes(activeMembers) < MIN_GROUP_SIZE) {
+      if (activeMembers.length < 2 || sumPartySizes(activeMembers) < MIN_GROUP_SIZE) {
         await ctx.db.patch(group._id, { status: "dissolved" });
         for (const member of members) {
           const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);

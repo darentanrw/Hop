@@ -1,5 +1,7 @@
 import {
+  MAX_GROUP_SIZE,
   MAX_PARTY_SIZE,
+  MIN_GROUP_SIZE,
   clampPartySize,
   groupPassengerSeatTotal,
   sumPartySizes,
@@ -89,5 +91,56 @@ describe("groupPassengerSeatTotal", () => {
     expect(
       groupPassengerSeatTotal({ groupSize: 2, passengerSeatTotal: 0 }, [{ partySize: 1 }]),
     ).toBe(0);
+  });
+});
+
+describe("group viability invariants", () => {
+  function isGroupViable(members: { partySize?: number }[]): boolean {
+    const accountCount = members.length;
+    const seatTotal = sumPartySizes(members);
+    return accountCount >= MIN_GROUP_SIZE && seatTotal >= MIN_GROUP_SIZE;
+  }
+
+  it("MIN_GROUP_SIZE means minimum distinct accounts (2)", () => {
+    expect(MIN_GROUP_SIZE).toBe(2);
+  });
+
+  it("MAX_GROUP_SIZE means maximum passenger seats (4)", () => {
+    expect(MAX_GROUP_SIZE).toBe(4);
+  });
+
+  it("single account with partySize=3 is NOT viable (only 1 account)", () => {
+    expect(isGroupViable([{ partySize: 3 }])).toBe(false);
+  });
+
+  it("single account with partySize=1 is NOT viable", () => {
+    expect(isGroupViable([{ partySize: 1 }])).toBe(false);
+  });
+
+  it("two accounts with partySize=1 each IS viable", () => {
+    expect(isGroupViable([{ partySize: 1 }, { partySize: 1 }])).toBe(true);
+  });
+
+  it("two accounts with partySize=2 each IS viable (4 seats total)", () => {
+    expect(isGroupViable([{ partySize: 2 }, { partySize: 2 }])).toBe(true);
+  });
+
+  it("three accounts with partySize=1 each IS viable", () => {
+    expect(isGroupViable([{ partySize: 1 }, { partySize: 1 }, { partySize: 1 }])).toBe(true);
+  });
+
+  it("empty group is NOT viable", () => {
+    expect(isGroupViable([])).toBe(false);
+  });
+
+  it("partySize=3 + partySize=1 across two accounts IS viable (4 seats, 2 accounts)", () => {
+    expect(isGroupViable([{ partySize: 3 }, { partySize: 1 }])).toBe(true);
+  });
+
+  it("after one account leaves a 2-account group, the sole remaining account is NOT viable", () => {
+    const before = [{ partySize: 3 }, { partySize: 1 }];
+    expect(isGroupViable(before)).toBe(true);
+    const after = [{ partySize: 3 }];
+    expect(isGroupViable(after)).toBe(false);
   });
 });
