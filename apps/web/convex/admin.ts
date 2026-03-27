@@ -1,3 +1,4 @@
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { MAX_GROUP_SIZE, MIN_GROUP_SIZE } from "@hop/shared";
 import { v } from "convex/values";
 import { selectBookerUserId } from "../lib/group-lifecycle";
@@ -26,6 +27,12 @@ function ensureLocalQaEnabled() {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+async function requireAuthenticatedUserId(ctx: QueryCtx | MutationCtx) {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Not authenticated");
+  return userId;
 }
 
 function getQaWindow() {
@@ -166,7 +173,7 @@ export const bootstrapLocalQaUser = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const { userId } = await requireAdmin(ctx);
+    const userId = await requireAuthenticatedUserId(ctx);
     const user = await ensureLocalQaUser(ctx, userId);
     return { ok: true, user };
   },
@@ -195,7 +202,7 @@ export const seedLocalQaPool = mutation({
   },
   handler: async (ctx, { liveDestinations }) => {
     ensureLocalQaEnabled();
-    const { userId } = await requireAdmin(ctx);
+    const userId = await requireAuthenticatedUserId(ctx);
     if (liveDestinations.length < 2) {
       throw new Error("Seed local QA with at least 2 live matcher destinations.");
     }
@@ -264,7 +271,7 @@ export const forceLocalQaBotAcknowledgements = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const { userId } = await requireAdmin(ctx);
+    const userId = await requireAuthenticatedUserId(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("There is no active QA group to update.");
@@ -320,7 +327,7 @@ export const deleteCurrentLocalQaGroup = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const { userId } = await requireAdmin(ctx);
+    const userId = await requireAuthenticatedUserId(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("There is no active QA group to delete.");
@@ -382,7 +389,7 @@ export const forceLockGroups = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const { userId } = await requireAdmin(ctx);
+    const userId = await requireAuthenticatedUserId(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("No active group to lock.");
@@ -410,7 +417,7 @@ export const forceHardLockGroups = mutation({
   args: {},
   handler: async (ctx) => {
     ensureLocalQaEnabled();
-    const { userId } = await requireAdmin(ctx);
+    const userId = await requireAuthenticatedUserId(ctx);
     const activeGroup = await findActiveGroupForUser(ctx, userId);
     if (!activeGroup) {
       throw new Error("No active group to hard-lock.");
@@ -448,11 +455,10 @@ export const localQaSnapshot = query({
   args: {},
   handler: async (ctx) => {
     const enabled = process.env.ENABLE_LOCAL_QA === "true";
-    const actor = await requireAdminOrNull(ctx);
-    if (!actor?.userId || !actor.isAdmin) return null;
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
 
-    const userId = actor.userId;
-    const user = actor.user;
+    const user = await ctx.db.get(userId);
     if (!user) return null;
 
     const preference = await ctx.db
