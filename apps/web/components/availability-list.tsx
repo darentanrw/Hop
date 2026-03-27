@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
+import { isAvailabilityVisibleInWindows } from "../lib/availability-state";
 import {
   type DestinationLabelCache,
   loadDestinationLabelCache,
@@ -52,9 +53,10 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
   }, []);
 
   const availabilities = liveAvailabilities ?? initialAvailabilities;
+  const now = Date.now();
   const activeItems = (availabilities ?? [])
     .filter((availability) => {
-      return availability.status !== "cancelled" && !deletedIds.has(availability._id);
+      return isAvailabilityVisibleInWindows(availability, now) && !deletedIds.has(availability._id);
     })
     .sort((a, b) => new Date(a.windowStart).getTime() - new Date(b.windowStart).getTime());
 
@@ -83,7 +85,9 @@ export function AvailabilityList({ availabilities: initialAvailabilities }: Avai
         className="card"
         style={{ textAlign: "center", padding: "24px 16px", background: "transparent" }}
       >
-        <p className="text-muted text-sm">No windows yet. Add one to start matching.</p>
+        <p className="text-muted text-sm">
+          No active windows right now. Add one to start matching.
+        </p>
       </div>
     );
   }

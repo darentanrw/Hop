@@ -6,11 +6,13 @@ import {
   sumPartySizes,
 } from "@hop/shared";
 import { v } from "convex/values";
+import { isCurrentOpenAvailability } from "../lib/availability-state";
 import { computeSplitAmounts, selectBookerUserId } from "../lib/group-lifecycle";
 import { buildNotificationEmail } from "../lib/notification-email";
 import { checkRideEligibility, isMembershipInActiveRide } from "../lib/ride-eligibility";
 import { BOOKER_ABSENT_BUFFER_MS, REDELEGATE_STATUSES, buildActions } from "../lib/trip-actions";
 import { canViewGroupReceipt, canViewPaymentProof } from "../lib/trip-receipts";
+import { isGroupPastWindowBeforeDeparture } from "../lib/trip-state";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -94,6 +96,19 @@ async function findActiveGroupForUser(ctx: QueryCtx | MutationCtx, userId: Id<"u
       .sort((left, right) => right._creationTime - left._creationTime)[0] ?? null
   );
 }
+
+type PastRideEntry = {
+  groupId: Doc<"groups">["_id"];
+  groupName: string;
+  groupColor: string;
+  status: string;
+  pickupLabel: string;
+  meetingTime: string;
+  closedAt: string | null;
+  finalCostCents: number | null;
+  endedAt: string;
+  priority: number;
+};
 
 async function reopenAvailability(ctx: MutationCtx, availabilityId: string) {
   const availability = await ctx.db.get(availabilityId as Id<"availabilities">);
@@ -449,17 +464,59 @@ async function buildTripPayload(
 
 const PAST_RIDE_GROUP_STATUSES = new Set(["cancelled", "closed", "dissolved", "reported"]);
 
-function pastRideSortTime(group: GroupDoc): number {
-  const isoCandidates = [
-    group.closedAt,
-    group.departedAt,
-    group.meetingTime,
-    group.windowEnd,
-  ].filter(Boolean) as string[];
-  if (isoCandidates.length > 0) {
-    return Math.max(...isoCandidates.map((iso) => new Date(iso).getTime()));
+function buildPastRideEntry(membership: GroupMemberDoc, group: GroupDoc): PastRideEntry | null {
+  const endedAtFallback = new Date(group._creationTime).toISOString();
+
+  if ((membership.participationStatus ?? "active") === "removed_no_show") {
+    return {
+      groupId: group._id,
+      groupName: group.groupName ?? "Hop Group",
+      groupColor: group.groupColor ?? "#44d4c8",
+      status: "no_show",
+      pickupLabel: group.pickupLabel,
+      meetingTime: group.meetingTime ?? group.windowStart,
+      closedAt: null,
+      finalCostCents: null,
+      endedAt: group.departedAt ?? group.meetingTime ?? group.windowEnd ?? endedAtFallback,
+      priority: 3,
+    };
   }
-  return group._creationTime;
+
+  if (
+    (membership.participationStatus ?? "active") === "active" &&
+    isGroupPastWindowBeforeDeparture(group)
+  ) {
+    return {
+      groupId: group._id,
+      groupName: group.groupName ?? "Hop Group",
+      groupColor: group.groupColor ?? "#44d4c8",
+      status: "did_not_start",
+      pickupLabel: group.pickupLabel,
+      meetingTime: group.meetingTime ?? group.windowStart,
+      closedAt: null,
+      finalCostCents: null,
+      endedAt: group.windowEnd ?? group.meetingTime ?? endedAtFallback,
+      priority: 2,
+    };
+  }
+
+  if (!PAST_RIDE_GROUP_STATUSES.has(group.status)) {
+    return null;
+  }
+
+  return {
+    groupId: group._id,
+    groupName: group.groupName ?? "Hop Group",
+    groupColor: group.groupColor ?? "#44d4c8",
+    status: group.status,
+    pickupLabel: group.pickupLabel,
+    meetingTime: group.meetingTime ?? group.windowStart,
+    closedAt: group.closedAt ?? null,
+    finalCostCents: group.finalCostCents ?? null,
+    endedAt:
+      group.closedAt ?? group.departedAt ?? group.meetingTime ?? group.windowEnd ?? endedAtFallback,
+    priority: 1,
+  };
 }
 
 export const listPastRides = query({
@@ -473,39 +530,33 @@ export const listPastRides = query({
       .withIndex("userId", (q) => q.eq("userId", userId))
       .collect();
 
-    const byGroupId = new Map<Id<"groups">, { sortTime: number; group: GroupDoc }>();
+    const byGroupId = new Map<Id<"groups">, PastRideEntry>();
 
     for (const membership of memberships) {
       const group = await ctx.db.get(membership.groupId);
-      if (!group || !PAST_RIDE_GROUP_STATUSES.has(group.status)) continue;
+      if (!group) continue;
 
-      const sortTime = pastRideSortTime(group);
+      const entry = buildPastRideEntry(membership, group);
+      if (!entry) continue;
       const prev = byGroupId.get(group._id);
-      if (prev && prev.sortTime >= sortTime) continue;
-      byGroupId.set(group._id, { sortTime, group });
+      const sortTime = new Date(entry.endedAt).getTime();
+      const prevSortTime = prev ? new Date(prev.endedAt).getTime() : Number.NEGATIVE_INFINITY;
+
+      if (
+        prev &&
+        (prev.priority > entry.priority ||
+          (prev.priority === entry.priority && prevSortTime >= sortTime))
+      ) {
+        continue;
+      }
+
+      byGroupId.set(group._id, entry);
     }
 
-    const rows = [...byGroupId.values()]
-      .sort((a, b) => b.sortTime - a.sortTime)
+    return [...byGroupId.values()]
+      .sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime())
       .slice(0, 50)
-      .map(({ group }) => ({
-        groupId: group._id,
-        groupName: group.groupName ?? "Hop Group",
-        groupColor: group.groupColor ?? "#44d4c8",
-        status: group.status,
-        pickupLabel: group.pickupLabel,
-        meetingTime: group.meetingTime ?? group.windowStart,
-        closedAt: group.closedAt ?? null,
-        finalCostCents: group.finalCostCents ?? null,
-        endedAt:
-          group.closedAt ??
-          group.departedAt ??
-          group.meetingTime ??
-          group.windowEnd ??
-          new Date(group._creationTime).toISOString(),
-      }));
-
-    return rows;
+      .map(({ priority, ...row }) => row);
   },
 });
 
@@ -532,13 +583,16 @@ export const getRideEligibility = query({
     const openAvailability = await ctx.db
       .query("availabilities")
       .withIndex("userId", (q) => q.eq("userId", userId))
-      .filter((q) => q.eq(q.field("status"), "open"))
-      .first();
+      .collect();
+
+    const hasOpenWindow = openAvailability.some((availability) =>
+      isCurrentOpenAvailability(availability),
+    );
 
     return {
       ...result,
-      hasOpenWindow: Boolean(openAvailability),
-      blocked: result.blocked || Boolean(openAvailability),
+      hasOpenWindow,
+      blocked: result.blocked || hasOpenWindow,
     };
   },
 });
@@ -702,6 +756,11 @@ export const departGroup = mutation({
       await ctx.db.patch(member._id, {
         participationStatus: "removed_no_show",
       });
+
+      const availability = await ctx.db.get(member.availabilityId as Id<"availabilities">);
+      if (availability?.status === "matched") {
+        await ctx.db.patch(availability._id, { status: "cancelled" });
+      }
 
       const user = await ctx.db.get(member.userId as Id<"users">);
       if (user) {
