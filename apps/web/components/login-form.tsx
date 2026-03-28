@@ -192,8 +192,7 @@ export function LoginForm() {
             Privacy by design
           </strong>
           <p className="text-sm" style={{ marginTop: 4 }}>
-            Your browser generates an encryption keypair during sign-in. Your home address never
-            touches our servers.
+            Your home address is never stored in our database.
           </p>
         </div>
       </div>
