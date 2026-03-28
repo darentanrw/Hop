@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Sora } from "next/font/google";
+import Script from "next/script";
 import { ThemeProvider } from "../components/theme-provider";
 import { getSiteUrl, siteMetadata, socialImageSize } from "../lib/site-metadata";
 
@@ -85,6 +86,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {/* biome-ignore lint/security/noDangerouslySetInnerHtml: intentional anti-FOUC theme script */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <Script
+          defer
+          src="https://umami.darentan.dev/script.js"
+          data-website-id="ce4bff24-5169-4545-af1c-e7032a83699b"
+        />
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
