@@ -1,9 +1,11 @@
 import {
+  MAX_GROUP_ACCOUNTS,
   MAX_GROUP_SIZE,
   MAX_PARTY_SIZE,
   MIN_GROUP_SIZE,
   clampPartySize,
   groupPassengerSeatTotal,
+  isGroupWithinCapacity,
   sumPartySizes,
 } from "@hop/shared";
 import { describe, expect, it } from "vitest";
@@ -98,7 +100,11 @@ describe("group viability invariants", () => {
   function isGroupViable(members: { partySize?: number }[]): boolean {
     const accountCount = members.length;
     const seatTotal = sumPartySizes(members);
-    return accountCount >= MIN_GROUP_SIZE && seatTotal >= MIN_GROUP_SIZE;
+    return (
+      accountCount >= MIN_GROUP_SIZE &&
+      seatTotal >= MIN_GROUP_SIZE &&
+      isGroupWithinCapacity(members)
+    );
   }
 
   it("MIN_GROUP_SIZE means minimum distinct accounts (2)", () => {
@@ -107,6 +113,10 @@ describe("group viability invariants", () => {
 
   it("MAX_GROUP_SIZE means maximum passenger seats (4)", () => {
     expect(MAX_GROUP_SIZE).toBe(4);
+  });
+
+  it("MAX_GROUP_ACCOUNTS means maximum distinct bookings (3)", () => {
+    expect(MAX_GROUP_ACCOUNTS).toBe(3);
   });
 
   it("single account with partySize=3 is NOT viable (only 1 account)", () => {
@@ -127,6 +137,12 @@ describe("group viability invariants", () => {
 
   it("three accounts with partySize=1 each IS viable", () => {
     expect(isGroupViable([{ partySize: 1 }, { partySize: 1 }, { partySize: 1 }])).toBe(true);
+  });
+
+  it("four accounts with partySize=1 each is NOT viable", () => {
+    expect(
+      isGroupViable([{ partySize: 1 }, { partySize: 1 }, { partySize: 1 }, { partySize: 1 }]),
+    ).toBe(false);
   });
 
   it("empty group is NOT viable", () => {

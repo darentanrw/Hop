@@ -1,7 +1,7 @@
 import {
   type CompatibilityEdge,
   MAX_DETOUR_MINUTES,
-  MAX_DISTINCT_LOCATIONS,
+  MAX_GROUP_ACCOUNTS,
   MAX_GROUP_SIZE,
   MAX_SPREAD_KM,
   MIN_GROUP_SIZE,
@@ -9,6 +9,7 @@ import {
   SMALL_GROUP_RELEASE_HOURS,
   type SelfDeclaredGender,
   arePreferencesCompatible,
+  isGroupWithinCapacity,
   overlapMinutes,
   sumPartySizes,
 } from "./domain";
@@ -58,8 +59,10 @@ export function sortOpaqueDestinationEntries<T extends OpaqueDestinationSortable
 export function evaluateGroup(
   members: MatchingCandidate[],
   compatibilityMap: Map<string, CompatibilityEdge>,
-  geohashByRef?: Map<string, string>,
+  _geohashByRef?: Map<string, string>,
 ) {
+  if (!isGroupWithinCapacity(members)) return null;
+
   const pairScores: CompatibilityEdge[] = [];
 
   for (let index = 0; index < members.length; index += 1) {
@@ -86,16 +89,6 @@ export function evaluateGroup(
       if (overlapMinutes(left, right) <= MIN_TIME_OVERLAP_MINUTES) return null;
       if (!arePreferencesCompatible(left, right)) return null;
       pairScores.push(edge);
-    }
-  }
-
-  if (geohashByRef) {
-    const geohashes = members
-      .map((member) => geohashByRef.get(member.routeDescriptorRef))
-      .filter((value): value is string => Boolean(value));
-    if (geohashes.length === members.length) {
-      const distinctCount = new Set(geohashes).size;
-      if (distinctCount > MAX_DISTINCT_LOCATIONS) return null;
     }
   }
 
@@ -155,7 +148,7 @@ export function formGroups(
     let best: SelectedGroup | null = null;
 
     for (let targetSeats = MAX_GROUP_SIZE; targetSeats >= MIN_GROUP_SIZE; targetSeats--) {
-      forEachSubset(unmatched, 2, MAX_GROUP_SIZE, (candidateMembers) => {
+      forEachSubset(unmatched, 2, MAX_GROUP_ACCOUNTS, (candidateMembers) => {
         const seats = sumPartySizes(candidateMembers);
         if (seats !== targetSeats) {
           return;

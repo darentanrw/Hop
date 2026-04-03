@@ -1023,7 +1023,7 @@ export function GroupClient({
                     </h3>
                     <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
                       {spotsLeft > 0
-                        ? `Room for up to ${spotsLeft} more passenger${spotsLeft > 1 ? "s" : ""} (max 4 per car, 3 drop-offs). The group locks 3 h before departure.`
+                        ? `Room for up to ${spotsLeft} more seat${spotsLeft > 1 ? "s" : ""} (up to 3 bookings, 4 seats total). The group locks 3 h before departure.`
                         : "Car is full and will lock in soon."}
                     </p>
                   </div>
@@ -1058,8 +1058,8 @@ export function GroupClient({
                     <p className="text-sm text-muted" style={{ maxWidth: 280, margin: "0 auto" }}>
                       {group.stats.passengerSeatTotal} passenger
                       {group.stats.passengerSeatTotal !== 1 ? "s" : ""} in this group. New bookings
-                      can join until 3 h before departure, or until the car fills (4 passengers
-                      max).
+                      can join until 3 h before departure, or until the ride reaches 3 bookings or 4
+                      seats total.
                     </p>
                   </div>
                 );

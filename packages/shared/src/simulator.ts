@@ -8,14 +8,12 @@ export type Coordinate = {
 export type SimulatorInputRider = {
   label: string;
   address: string;
+  verifiedTitle?: string | null;
+  postal?: string | null;
   windowStart: string;
   windowEnd: string;
   selfDeclaredGender: SelfDeclaredGender;
   sameGenderOnly: boolean;
-};
-
-export type SimulatorRequest = {
-  riders: SimulatorInputRider[];
 };
 
 export type SimulatorPreviewRiderRequest = {
@@ -66,37 +64,68 @@ export type MatcherSimulatorPreviewResponse = {
   groups: MatcherSimulatorPreviewGroup[];
 };
 
-export type SimulatorCompatibilityEdge = CompatibilityEdge & {
-  leftRiderId: string;
-  rightRiderId: string;
-  leftAlias: string;
-  rightAlias: string;
-};
+export type SimulatorSessionRiderState = "new" | "open" | "matched";
 
-export type SimulatorRiderResult = {
-  riderId: string;
-  alias: string;
-  maskedLocationLabel: string;
-  coordinate: Coordinate;
-  routeDescriptorRef: string;
+export type SimulatorSessionRider = {
+  id: string;
+  label: string;
+  arrivalIndex: number;
+  address: string;
+  verifiedTitle: string | null;
+  postal: string | null;
+  windowStart: string;
+  windowEnd: string;
+  selfDeclaredGender: SelfDeclaredGender;
+  sameGenderOnly: boolean;
   sealedDestinationRef: string;
+  routeDescriptorRef: string;
+  state: SimulatorSessionRiderState;
+  lastProcessedCycleNumber: number | null;
+  matchedGroupId: string | null;
+  maskedLocationLabel: string | null;
+  coordinate: Coordinate | null;
   clusterKey: string | null;
-  groupId: string | null;
   color: string | null;
   dropoffOrder: number | null;
 };
 
-export type SimulatorGroupResult = {
+export type SimulatorSessionGroup = {
   groupId: string;
+  memberRiderIds: string[];
   name: string;
   color: string;
-  members: SimulatorRiderResult[];
   averageScore: number;
   minimumScore: number;
   maxDetourMinutes: number;
   totalDistanceMeters: number;
   totalTimeSeconds: number;
   legs: SimulatorRouteLeg[];
+};
+
+export type SimulatorSession = {
+  sessionSeed: number;
+  nextArrivalIndex: number;
+  nextCycleNumber: number;
+  riders: SimulatorSessionRider[];
+  groups: SimulatorSessionGroup[];
+  openRiderIds: string[];
+};
+
+export type SimulatorRunRequest = {
+  session: SimulatorSession;
+};
+
+export type SimulatorCycleAssignment = {
+  cycleNumber: number;
+  riderIds: string[];
+};
+
+export type SimulatorCompatibilityEdge = CompatibilityEdge & {
+  leftRiderId: string;
+  rightRiderId: string;
+  leftAlias: string;
+  rightAlias: string;
+  cycleNumber: number;
 };
 
 export type SimulatorStats = {
@@ -112,10 +141,9 @@ export type SimulatorStats = {
   totalGroupDetourMinutes: number;
 };
 
-export type SimulatorResponse = {
-  riders: SimulatorRiderResult[];
-  groups: SimulatorGroupResult[];
-  unmatchedRiderIds: string[];
+export type SimulatorRunResponse = {
+  session: SimulatorSession;
+  cycleAssignments: SimulatorCycleAssignment[];
   compatibilityEdges: SimulatorCompatibilityEdge[];
   stats: SimulatorStats;
 };

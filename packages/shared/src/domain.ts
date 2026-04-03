@@ -8,6 +8,8 @@ export const MIN_TIME_OVERLAP_MINUTES = 0;
 export const SMALL_GROUP_RELEASE_HOURS = 36;
 /** Maximum passenger seats in one vehicle (sum of partySize across all accounts). */
 export const MAX_GROUP_SIZE = 4;
+/** Maximum distinct bookings/accounts in one vehicle. */
+export const MAX_GROUP_ACCOUNTS = 3;
 /** Minimum distinct accounts required for a valid ride group. A single account should book a private ride instead. */
 export const MIN_GROUP_SIZE = 2;
 /** Maximum people under one account's booking (e.g. you + friends sharing a seat allocation). */
@@ -16,7 +18,6 @@ export const MAX_DETOUR_MINUTES = 12;
 export const MEETUP_GRACE_MINUTES = 5;
 export const PAYMENT_WINDOW_HOURS = 24;
 export const MAX_SPREAD_KM = 8;
-export const MAX_DISTINCT_LOCATIONS = 3;
 export const LOCK_HOURS_BEFORE = 3;
 export const HARD_LOCK_MINUTES_BEFORE = 30;
 export const GEOHASH_PRECISION = 6;
@@ -188,6 +189,10 @@ export function clampPartySize(value: unknown): number {
 
 export function sumPartySizes(members: readonly { partySize?: number | null }[]): number {
   return members.reduce((sum, m) => sum + (m.partySize ?? 1), 0);
+}
+
+export function isGroupWithinCapacity(members: readonly { partySize?: number | null }[]): boolean {
+  return members.length <= MAX_GROUP_ACCOUNTS && sumPartySizes(members) <= MAX_GROUP_SIZE;
 }
 
 /**

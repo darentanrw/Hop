@@ -4,7 +4,6 @@ import {
   HARD_LOCK_MINUTES_BEFORE,
   LOCK_HOURS_BEFORE,
   MAX_DETOUR_MINUTES,
-  MAX_DISTINCT_LOCATIONS,
   MAX_GROUP_SIZE,
   MAX_SPREAD_KM,
   MEETUP_GRACE_MINUTES,
@@ -15,6 +14,7 @@ import {
   arePreferencesCompatible,
   calculateCredibilityScore,
   clampPartySize,
+  isGroupWithinCapacity,
   overlapMinutes,
   sumPartySizes,
 } from "@hop/shared";
@@ -1553,8 +1553,7 @@ export const attemptLateJoin = internalMutation({
       const activeMembers = members.filter((m) => m.participationStatus === "active");
 
       const joinerPartySize = joinerAvailability?.partySize ?? 1;
-      const currentSeatTotal = sumPartySizes(activeMembers);
-      if (currentSeatTotal + joinerPartySize > MAX_GROUP_SIZE) continue;
+      if (!isGroupWithinCapacity([...activeMembers, { partySize: joinerPartySize }])) continue;
 
       const activeAvailabilities = await Promise.all(
         activeMembers.map((m) => ctx.db.get(m.availabilityId as Id<"availabilities">)),
@@ -1580,16 +1579,6 @@ export const attemptLateJoin = internalMutation({
         return edge.detourMinutes <= MAX_DETOUR_MINUTES && edge.spreadDistanceKm <= MAX_SPREAD_KM;
       });
       if (!routeOk) continue;
-
-      const allRefs = [
-        ...activeAvailabilities.map((a) => a?.routeDescriptorRef).filter(Boolean),
-        args.routeDescriptorRef,
-      ] as string[];
-      const allClusters = allRefs.map((ref) => args.geohashByRef[ref]).filter(Boolean);
-      if (allClusters.length === allRefs.length) {
-        const distinctLocations = new Set(allClusters).size;
-        if (distinctLocations > MAX_DISTINCT_LOCATIONS) continue;
-      }
 
       targetGroup = group;
       targetActiveMembers = activeMembers;

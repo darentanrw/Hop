@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeSplitAmounts } from "../../lib/group-lifecycle";
+import { computeSplitAmounts, getUnusedGroupTheme } from "../../lib/group-lifecycle";
 
 describe("computeSplitAmounts (party-weighted)", () => {
   it("splits reimbursement pool when every booking is party 1 (booker’s seat share excluded)", () => {
@@ -105,5 +105,18 @@ describe("computeSplitAmounts (party-weighted)", () => {
     );
     expect(map.get("booker")).toBe(0);
     expect(map.get("a")).toBe(60);
+  });
+});
+
+describe("getUnusedGroupTheme", () => {
+  it("does not reuse a color that is already claimed", () => {
+    const usedColors = new Set(["#3b82f6", "#f97316", "#22c55e"]);
+
+    const theme = getUnusedGroupTheme("sim-seed", usedColors);
+
+    expect(theme.color).not.toBe("#3b82f6");
+    expect(theme.color).not.toBe("#f97316");
+    expect(theme.color).not.toBe("#22c55e");
+    expect(usedColors.has(theme.color)).toBe(true);
   });
 });

@@ -96,19 +96,44 @@ export function generateQrPassphrase(seed: string): string {
   return `${w1}-${w2}-${w3}`;
 }
 
-const groupThemes = [
-  { name: "Sky Loop", color: "#3b82f6" }, // blue
-  { name: "Sunset Blaze", color: "#f97316" }, // orange
-  { name: "Forest Grove", color: "#22c55e" }, // green
-  { name: "Crimson Rush", color: "#ef4444" }, // red
-  { name: "Cobalt Glide", color: "#2563eb" }, // deep blue
-  { name: "Amber Orbit", color: "#ea870a" }, // amber
-  { name: "Turquoise Bay", color: "#14b8a6" }, // teal
-  { name: "Tangerine Arc", color: "#e57a1a" }, // tangerine
-  { name: "Slate Path", color: "#64748b" }, // slate
-  { name: "Lime Twist", color: "#a3e635" }, // lime
-  { name: "Magenta Pop", color: "#db2777" }, // magenta
-  { name: "Charcoal Edge", color: "#111827" }, // charcoal/dark
+type GroupTheme = {
+  name: string;
+  color: string;
+};
+
+const groupThemes: GroupTheme[] = [
+  { name: "Sky Loop", color: "#3b82f6" },
+  { name: "Sunset Blaze", color: "#f97316" },
+  { name: "Forest Grove", color: "#22c55e" },
+  { name: "Crimson Rush", color: "#ef4444" },
+  { name: "Cobalt Glide", color: "#2563eb" },
+  { name: "Amber Orbit", color: "#ea870a" },
+  { name: "Turquoise Bay", color: "#14b8a6" },
+  { name: "Tangerine Arc", color: "#e57a1a" },
+  { name: "Slate Path", color: "#64748b" },
+  { name: "Lime Twist", color: "#84cc16" },
+  { name: "Magenta Pop", color: "#db2777" },
+  { name: "Charcoal Edge", color: "#111827" },
+  { name: "Indigo Crest", color: "#4f46e5" },
+  { name: "Rose Current", color: "#f43f5e" },
+  { name: "Emerald Wake", color: "#10b981" },
+  { name: "Violet Span", color: "#7c3aed" },
+  { name: "Coral Beam", color: "#fb7185" },
+  { name: "Mint Harbor", color: "#34d399" },
+  { name: "Copper Trail", color: "#c2410c" },
+  { name: "Ocean Drift", color: "#0ea5e9" },
+  { name: "Berry Circuit", color: "#a21caf" },
+  { name: "Gold Meridian", color: "#ca8a04" },
+  { name: "Pine Relay", color: "#15803d" },
+  { name: "Ruby Vector", color: "#dc2626" },
+  { name: "Cerulean Pulse", color: "#0284c7" },
+  { name: "Plum Horizon", color: "#9333ea" },
+  { name: "Apricot Route", color: "#f59e0b" },
+  { name: "Jade Link", color: "#059669" },
+  { name: "Maroon Arc", color: "#9f1239" },
+  { name: "Steel Ribbon", color: "#475569" },
+  { name: "Peacock Loop", color: "#0891b2" },
+  { name: "Orchid Trace", color: "#c026d3" },
 ];
 
 const riderEmojiPool = ["🦊", "🐼", "🦁", "🐯", "🦉", "🐢", "🐳", "🦄", "🐻", "🐝", "🦋", "🐙"];
@@ -134,6 +159,40 @@ export function getGroupTheme(seed: string, usedIndices?: Set<number>) {
   }
 
   return groupThemes[index];
+}
+
+export function getUnusedGroupTheme(seed: string, usedColors: Set<string>) {
+  let index = hashString(seed) % groupThemes.length;
+
+  for (let attempts = 0; attempts < groupThemes.length; attempts += 1) {
+    const theme = groupThemes[index];
+    if (theme && !usedColors.has(theme.color)) {
+      usedColors.add(theme.color);
+      return theme;
+    }
+    index = (index + 1) % groupThemes.length;
+  }
+
+  // Fallback once the curated palette is exhausted.
+  const baseHue = hashString(seed) % 360;
+  for (let attempts = 0; attempts < 360; attempts += 1) {
+    const hue = (baseHue + attempts * 137) % 360;
+    const color = `hsl(${hue} 72% 46%)`;
+    if (usedColors.has(color)) continue;
+    usedColors.add(color);
+    return {
+      name: `Spectrum ${usedColors.size}`,
+      color,
+    } satisfies GroupTheme;
+  }
+
+  // This should be unreachable, but keep a deterministic fallback.
+  const color = `hsl(${baseHue} 72% 46%)`;
+  usedColors.add(color);
+  return {
+    name: `Spectrum ${usedColors.size}`,
+    color,
+  } satisfies GroupTheme;
 }
 
 export function getEmojiForMember(seed: string, index: number) {

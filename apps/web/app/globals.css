@@ -3100,14 +3100,23 @@ code {
 
 /* --- Admin Simulator Page --- */
 .admin-simulator-page {
-  max-width: 1600px;
+  max-width: none;
+  width: 100%;
+  margin: 0;
   padding-inline: 20px;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .admin-simulator-shell {
   position: relative;
-  max-width: 1460px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 .admin-simulator-hero {
@@ -3156,31 +3165,40 @@ code {
   position: relative;
   z-index: 1;
   display: grid;
-  gap: 22px;
-  grid-template-columns: 240px minmax(0, 1fr) 240px;
-  align-items: start;
+  gap: 18px;
+  grid-template-columns: 340px minmax(0, 1fr) 280px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .admin-simulator-sidecard {
   align-self: stretch;
-  max-height: calc(100dvh - 180px);
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .admin-compat-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .admin-simulator-map-stage {
   position: relative;
-  gap: 18px;
-  padding: 20px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(180px, 220px);
+  gap: 14px;
+  padding: 16px;
   border-radius: var(--radius-xl);
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-card);
+  min-height: 0;
 }
 
 .admin-simulator-map-stage-header {
@@ -3193,11 +3211,37 @@ code {
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--bg-raised);
+  min-height: 0;
 }
 
 .admin-simulator-map-canvas,
 .admin-simulator-map-skeleton {
-  min-height: 720px;
+  min-height: 0;
+  height: 100%;
+}
+
+.admin-simulator-under-map-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 0;
+}
+
+.admin-simulator-compact-card {
+  padding: 12px;
+}
+
+.admin-simulator-fill-card {
+  flex: 1;
+}
+
+.admin-simulator-scroll-stack {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .admin-simulator-map-skeleton {
@@ -3244,19 +3288,90 @@ code {
 
 /* Compact group card */
 .admin-sim-group {
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
   background: var(--bg);
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.admin-sim-group:hover,
+.admin-sim-group:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.admin-sim-rider-row,
+.admin-sim-open-rider {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.admin-simulator-cycles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.admin-sim-cycle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.admin-sim-cycle strong {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.admin-sim-cycle span {
+  font-size: 10px;
+  line-height: 1.25;
+  color: var(--text-secondary);
+}
+
+.admin-sim-rider-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.admin-sim-rider-subtle {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.admin-sim-rider-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 /* Compact address list */
 .admin-sim-addr-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  max-height: 320px;
+  flex: 1;
+  gap: 2px;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -3405,7 +3520,7 @@ code {
 .admin-simulator-log-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -3413,7 +3528,7 @@ code {
 }
 
 .admin-simulator-log-item {
-  padding: 5px 8px;
+  padding: 4px 7px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg);
@@ -3443,6 +3558,25 @@ code {
 .admin-simulator-window-card {
   position: relative;
   z-index: 1;
+}
+
+.admin-simulator-collapsible-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  min-height: 0;
+}
+
+.admin-simulator-collapse-button {
+  min-width: 82px;
+}
+
+.admin-simulator-filter-chip {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+  line-height: 1.1;
 }
 
 .admin-simulator-group-card {
@@ -3574,6 +3708,9 @@ code {
 @media (max-width: 1200px) {
   .admin-simulator-page {
     padding-inline: 16px;
+    height: auto;
+    overflow: visible;
+    display: block;
   }
 
   .admin-simulator-toolbar {
@@ -3583,6 +3720,22 @@ code {
 
   .admin-simulator-workbench {
     grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .admin-simulator-under-map-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-simulator-sidecard,
+  .admin-simulator-shell,
+  .admin-simulator-map-stage {
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .admin-simulator-map-stage {
+    display: flex;
   }
 
   .admin-simulator-map-canvas,

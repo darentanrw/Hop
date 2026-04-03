@@ -1,8 +1,9 @@
 import {
   MAX_DETOUR_MINUTES,
-  MAX_DISTINCT_LOCATIONS,
+  MAX_GROUP_ACCOUNTS,
   MAX_SPREAD_KM,
   arePreferencesCompatible,
+  isGroupWithinCapacity,
   overlapMinutes,
 } from "@hop/shared";
 import { describe, expect, test } from "vitest";
@@ -39,16 +40,22 @@ describe("matching constraints", () => {
     expect(edge.spreadDistanceKm).toBeLessThan(MAX_SPREAD_KM);
   });
 
-  test("group with 4 distinct locations would violate MAX_DISTINCT_LOCATIONS", () => {
-    expect(MAX_DISTINCT_LOCATIONS).toBe(3);
-    const locations = new Set(["loc_a", "loc_b", "loc_c", "loc_d"]);
-    expect(locations.size).toBeGreaterThan(MAX_DISTINCT_LOCATIONS);
+  test("group with 4 accounts would violate MAX_GROUP_ACCOUNTS", () => {
+    expect(MAX_GROUP_ACCOUNTS).toBe(3);
+    expect(
+      isGroupWithinCapacity([
+        { partySize: 1 },
+        { partySize: 1 },
+        { partySize: 1 },
+        { partySize: 1 },
+      ]),
+    ).toBe(false);
   });
 
-  test("group with 3 locations (2 riders share one) is accepted", () => {
-    const locations = ["loc_a", "loc_b", "loc_a", "loc_c"];
-    const distinct = new Set(locations).size;
-    expect(distinct).toBeLessThanOrEqual(MAX_DISTINCT_LOCATIONS);
+  test("group with 3 accounts and 4 total seats is accepted", () => {
+    expect(isGroupWithinCapacity([{ partySize: 2 }, { partySize: 1 }, { partySize: 1 }])).toBe(
+      true,
+    );
   });
 
   test("group exceeding max spread km is rejected", () => {
