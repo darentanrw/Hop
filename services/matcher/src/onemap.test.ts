@@ -85,6 +85,54 @@ describe("OneMap client", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  test("geocodeAddress skips results without a valid postal code", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        found: 2,
+        results: [
+          {
+            LATITUDE: "1.2943",
+            LONGITUDE: "103.7844",
+            POSTAL: "NIL",
+            BUILDING: "KENT RIDGE MRT STATION EXIT A",
+          },
+          {
+            LATITUDE: "1.2935",
+            LONGITUDE: "103.7845",
+            POSTAL: "118177",
+            BUILDING: "KENT RIDGE MRT STATION (CC24)",
+          },
+        ],
+      }),
+    });
+
+    const result = await geocodeAddress("Kent Ridge MRT");
+    expect(result).not.toBeNull();
+    expect(result?.postalCode).toBe("118177");
+    expect(result?.buildingName).toBe("KENT RIDGE MRT STATION (CC24)");
+  });
+
+  test("geocodeAddress returns null when OneMap only returns results without postal codes", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        found: 1,
+        results: [
+          {
+            LATITUDE: "1.2943",
+            LONGITUDE: "103.7844",
+            POSTAL: "NIL",
+            BUILDING: "KENT RIDGE MRT STATION EXIT A",
+          },
+        ],
+      }),
+    });
+
+    const result = await geocodeAddress("Kent Ridge MRT Station Exit A");
+    expect(result).toBeNull();
+  });
+
   test("getAuthToken fetches and caches token", async () => {
     const futureDate = new Date(Date.now() + 3 * 24 * 3_600_000).toISOString();
     mockFetch.mockResolvedValueOnce({

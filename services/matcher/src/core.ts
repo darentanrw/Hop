@@ -121,7 +121,9 @@ export async function submitDestination(address: string) {
 
   const geocoded = await geocodeAddress(address);
   if (!geocoded) {
-    throw new Error("Could not geocode the address. Please check the address and try again.");
+    throw new Error(
+      "Could not find a destination with a postal code. Please choose a result with a postal code or enter a fuller address.",
+    );
   }
 
   const { lat, lng } = geocoded;

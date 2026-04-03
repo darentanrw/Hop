@@ -26,6 +26,10 @@ type OneMapSearchResponse = {
   }>;
 };
 
+function hasValidPostalCode(postalCode: string | null | undefined) {
+  return /^\d{6}$/.test(postalCode ?? "");
+}
+
 function normalizeCoordinatePair(pair: unknown): [number, number] | null {
   if (!Array.isArray(pair) || pair.length < 2) return null;
   const first = Number(pair[0]);
@@ -222,7 +226,12 @@ export async function geocodeAddress(query: string): Promise<GeocodedAddress | n
       continue;
     }
 
-    const result = data.results[0];
+    const result = data.results.find((candidateResult) =>
+      hasValidPostalCode(candidateResult.POSTAL),
+    );
+    if (!result) {
+      continue;
+    }
     const lat = Number.parseFloat(result.LATITUDE);
     const lng = Number.parseFloat(result.LONGITUDE);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {

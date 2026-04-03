@@ -22,6 +22,10 @@ type CreateMatcherAppOptions = {
 
 const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
 
+function hasValidPostalCode(postalCode: string | null | undefined) {
+  return /^\d{6}$/.test(postalCode ?? "");
+}
+
 function createRequestId() {
   return crypto.randomUUID();
 }
@@ -194,13 +198,16 @@ export function createMatcherApp(options: CreateMatcherAppOptions = {}) {
           ADDRESS: string;
         }>;
       };
-      const results = (data.results ?? []).slice(0, 8).map((result) => ({
-        title: result.BUILDING && result.BUILDING !== "NIL" ? result.BUILDING : result.SEARCHVAL,
-        address: result.ADDRESS,
-        postal: result.POSTAL,
-        lat: result.LATITUDE,
-        lng: result.LONGITUDE,
-      }));
+      const results = (data.results ?? [])
+        .filter((result) => hasValidPostalCode(result.POSTAL))
+        .slice(0, 8)
+        .map((result) => ({
+          title: result.BUILDING && result.BUILDING !== "NIL" ? result.BUILDING : result.SEARCHVAL,
+          address: result.ADDRESS,
+          postal: result.POSTAL,
+          lat: result.LATITUDE,
+          lng: result.LONGITUDE,
+        }));
 
       logger.info("matcher.search_completed", {
         ...getRequestLogContext(request),

@@ -178,6 +178,58 @@ describe("matcher app logging", () => {
     });
   });
 
+  test("filters out search suggestions without valid postal codes", async () => {
+    const logEntries: LogEntry[] = [];
+    const { server, baseUrl } = await startTestServer(logEntries);
+    servers.add(server);
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://www.onemap.gov.sg/api/common/elastic/search")) {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                SEARCHVAL: "KENT RIDGE MRT STATION EXIT A",
+                LATITUDE: "1.29431784777384",
+                LONGITUDE: "103.784465461468",
+                POSTAL: "NIL",
+                BUILDING: "KENT RIDGE MRT STATION EXIT A",
+                ADDRESS: "KENT RIDGE MRT STATION EXIT A",
+              },
+              {
+                SEARCHVAL: "KENT RIDGE MRT STATION (CC24)",
+                LATITUDE: "1.29353349887123",
+                LONGITUDE: "103.784572738173",
+                POSTAL: "118177",
+                BUILDING: "KENT RIDGE MRT STATION (CC24)",
+                ADDRESS: "301 SOUTH BUONA VISTA ROAD KENT RIDGE MRT STATION (CC24) SINGAPORE 118177",
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    const response = await fetch(`${baseUrl}/matcher/search?q=kent ridge mrt`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      results: [
+        {
+          title: "KENT RIDGE MRT STATION (CC24)",
+          address:
+            "301 SOUTH BUONA VISTA ROAD KENT RIDGE MRT STATION (CC24) SINGAPORE 118177",
+          postal: "118177",
+          lat: "1.29353349887123",
+          lng: "103.784572738173",
+        },
+      ],
+    });
+  });
+
   test("logs reveal-envelopes failures with request context", async () => {
     const logEntries: LogEntry[] = [];
     const { server, baseUrl } = await startTestServer(logEntries);
