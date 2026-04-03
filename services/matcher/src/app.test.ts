@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { IncomingMessage, ServerResponse } from "node:http";
-import { Duplex } from "node:stream";
+import { Socket } from "node:net";
 import type { MatcherSimulatorPreviewResponse } from "@hop/shared";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -27,7 +27,7 @@ type DestinationSubmission = {
   routeDescriptorRef: string;
 };
 
-class MockSocket extends Duplex {
+class MockSocket extends Socket {
   remoteAddress = "127.0.0.1";
 
   override _read() {}
@@ -39,18 +39,10 @@ class MockSocket extends Duplex {
   ) {
     callback();
   }
+}
 
-  override setTimeout() {
-    return this;
-  }
-
-  override setNoDelay() {
-    return this;
-  }
-
-  override setKeepAlive() {
-    return this;
-  }
+function toBufferEncoding(encoding: unknown): BufferEncoding | undefined {
+  return typeof encoding === "string" && Buffer.isEncoding(encoding) ? encoding : undefined;
 }
 
 function generatePublicKey() {
@@ -68,6 +60,11 @@ async function sendAppRequest(
   path: string,
   init: RequestInit = {},
 ) {
+  const handler = app as unknown as (
+    request: IncomingMessage,
+    response: ServerResponse<IncomingMessage>,
+    next: (error?: unknown) => void,
+  ) => void;
   const socket = new MockSocket();
   const request = new IncomingMessage(socket);
   request.method = init.method ?? "GET";
@@ -92,9 +89,7 @@ async function sendAppRequest(
   response.write = ((chunk: unknown, encoding?: unknown, callback?: unknown) => {
     if (chunk != null) {
       bodyChunks.push(
-        Buffer.isBuffer(chunk)
-          ? chunk
-          : Buffer.from(String(chunk), typeof encoding === "string" ? encoding : undefined),
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), toBufferEncoding(encoding)),
       );
     }
 
@@ -111,9 +106,7 @@ async function sendAppRequest(
   response.end = ((chunk?: unknown, encoding?: unknown, callback?: unknown) => {
     if (chunk != null) {
       bodyChunks.push(
-        Buffer.isBuffer(chunk)
-          ? chunk
-          : Buffer.from(String(chunk), typeof encoding === "string" ? encoding : undefined),
+        Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), toBufferEncoding(encoding)),
       );
     }
 
@@ -131,7 +124,7 @@ async function sendAppRequest(
 
   await new Promise<void>((resolve, reject) => {
     response.once("finish", () => resolve());
-    app.handle(request, response, (error: unknown) => {
+    handler(request, response, (error: unknown) => {
       if (error) {
         reject(error);
       }
