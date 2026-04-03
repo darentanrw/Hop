@@ -62,10 +62,26 @@ function mockChangiGeocode() {
 
 function mockNearbyRoutes() {
   mockRoute
-    .mockResolvedValueOnce({ distanceMeters: 8000, timeSeconds: 720, polyline: [] }) // NUS → Clementi1
-    .mockResolvedValueOnce({ distanceMeters: 8200, timeSeconds: 740, polyline: [] }) // NUS → Clementi2
-    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 60, polyline: [] }) // Clementi1 → Clementi2
-    .mockResolvedValueOnce({ distanceMeters: 300, timeSeconds: 65, polyline: [] }); // Clementi2 → Clementi1
+    .mockResolvedValueOnce({
+      distanceMeters: 8000,
+      timeSeconds: 720,
+      polyline: [],
+    }) // NUS → Clementi1
+    .mockResolvedValueOnce({
+      distanceMeters: 8200,
+      timeSeconds: 740,
+      polyline: [],
+    }) // NUS → Clementi2
+    .mockResolvedValueOnce({
+      distanceMeters: 300,
+      timeSeconds: 60,
+      polyline: [],
+    }) // Clementi1 → Clementi2
+    .mockResolvedValueOnce({
+      distanceMeters: 300,
+      timeSeconds: 65,
+      polyline: [],
+    }); // Clementi2 → Clementi1
 }
 
 beforeEach(() => {
@@ -91,7 +107,9 @@ describe("matcher core", () => {
 
   test("submitDestination throws when geocoding fails", async () => {
     mockGeocode.mockResolvedValueOnce(null);
-    await expect(submitDestination("nonexistent place")).rejects.toThrow("Could not geocode");
+    await expect(submitDestination("nonexistent place")).rejects.toThrow(
+      "Could not find a destination with a postal code. Please choose a result with a postal code or enter a fuller address.",
+    );
   });
 
   test("compatibility scoring returns pairwise edges for nearby addresses", async () => {
