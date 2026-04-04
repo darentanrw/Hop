@@ -35,9 +35,16 @@ export function canGroupAcceptLateJoin(
   joiner: TimeWindow,
   now = Date.now(),
 ) {
+  const joinerStartsBeforeGroup =
+    new Date(joiner.windowStart).getTime() <= new Date(group.windowStart).getTime();
+  const joinerEndsAfterGroup =
+    new Date(joiner.windowEnd).getTime() >= new Date(group.windowEnd).getTime();
+
   return (
     isGroupJoinableForLateJoin(group, now) &&
-    overlapMinutes(joiner, group) > MIN_TIME_OVERLAP_MINUTES
+    overlapMinutes(joiner, group) > MIN_TIME_OVERLAP_MINUTES &&
+    joinerStartsBeforeGroup &&
+    joinerEndsAfterGroup
   );
 }
 

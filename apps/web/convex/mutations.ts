@@ -1541,10 +1541,6 @@ export const attemptLateJoin = internalMutation({
       displayName: string;
       partySize?: number;
     }> = [];
-    const activeAvailabilitiesByUserId = new Map<
-      string,
-      { windowStart: string; windowEnd: string }
-    >();
     for (const group of candidateGroups) {
       const members = await ctx.db
         .query("groupMembers")
@@ -1582,15 +1578,6 @@ export const attemptLateJoin = internalMutation({
 
       targetGroup = group;
       targetActiveMembers = activeMembers;
-      for (let i = 0; i < activeMembers.length; i++) {
-        const avail = activeAvailabilities[i];
-        if (avail) {
-          activeAvailabilitiesByUserId.set(activeMembers[i].userId, {
-            windowStart: avail.windowStart,
-            windowEnd: avail.windowEnd,
-          });
-        }
-      }
       break;
     }
 
@@ -1636,34 +1623,14 @@ export const attemptLateJoin = internalMutation({
 
     const suggestedDropoffOrder = allLockedDestinations.map((d) => d.userId);
 
-    const allWindows = [
-      ...targetActiveMembers.map((m) => {
-        const a = activeAvailabilitiesByUserId.get(m.userId);
-        return {
-          start: a?.windowStart ?? targetGroup.windowStart,
-          end: a?.windowEnd ?? targetGroup.windowEnd,
-        };
-      }),
-      { start: args.windowStart, end: args.windowEnd },
-    ];
-    const sharedStart = new Date(
-      Math.max(...allWindows.map((w) => new Date(w.start).getTime())),
-    ).toISOString();
-    const sharedEnd = new Date(
-      Math.max(
-        Math.min(...allWindows.map((w) => new Date(w.end).getTime())),
-        Math.max(...allWindows.map((w) => new Date(w.start).getTime())),
-      ),
-    ).toISOString();
-    const updatedMeetingTime = deriveMeetingTime(sharedStart);
-    const updatedGraceDeadline = new Date(
-      new Date(updatedMeetingTime).getTime() + MEETUP_GRACE_MINUTES * 60_000,
-    ).toISOString();
+    const currentMeetingTime =
+      targetGroup.meetingTime ?? deriveMeetingTime(targetGroup.windowStart);
     const joinerPartySizeForPatch = joinerAvailability?.partySize ?? 1;
     const newPassengerSeatTotal = sumPartySizes(targetActiveMembers) + joinerPartySizeForPatch;
     const lockHorizon = Date.now() + LOCK_HOURS_BEFORE * 3_600_000;
     const shouldLockNow =
-      newPassengerSeatTotal >= MAX_GROUP_SIZE || new Date(sharedStart).getTime() <= lockHorizon;
+      newPassengerSeatTotal >= MAX_GROUP_SIZE ||
+      new Date(targetGroup.windowStart).getTime() <= lockHorizon;
     const shouldResetAcknowledgements =
       shouldLockNow && shouldResetAcknowledgementsForLateJoin(targetGroup.status);
     const confirmationDeadline = buildLateJoinConfirmationDeadline();
@@ -1674,10 +1641,6 @@ export const attemptLateJoin = internalMutation({
       memberUserIds: newMemberUserIds,
       availabilityIds: newAvailabilityIds,
       suggestedDropoffOrder,
-      windowStart: sharedStart,
-      windowEnd: sharedEnd,
-      meetingTime: updatedMeetingTime,
-      graceDeadline: updatedGraceDeadline,
     });
 
     await ctx.db.patch(args.availabilityId, { status: "matched" });
@@ -1736,14 +1699,14 @@ export const attemptLateJoin = internalMutation({
         ctx,
         [...targetActiveMembers.map((member) => member.userId), args.userId as string].map(
           (userId) => {
-            const rideLabel = formatRideMeetingTimeForPush(updatedMeetingTime);
+            const rideLabel = formatRideMeetingTimeForPush(currentMeetingTime);
             const pushCopy = shouldResetAcknowledgements
               ? {
                   title: "Ride updated",
                   body: `Your ${rideLabel} ride changed. Confirm again within 30 minutes to keep your spot.`,
                 }
               : buildLockedPushCopy({
-                  meetingTime: updatedMeetingTime,
+                  meetingTime: currentMeetingTime,
                 });
             const emailTitle = shouldResetAcknowledgements
               ? "Your ride changed"
@@ -1777,7 +1740,7 @@ export const attemptLateJoin = internalMutation({
         ctx,
         targetActiveMembers.map((member) => {
           const pushCopy = buildLateJoinPushCopy({
-            meetingTime: updatedMeetingTime,
+            meetingTime: currentMeetingTime,
           });
 
           return {
